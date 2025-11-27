@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import colorsys
 import logging
 import os
 import struct
@@ -14,7 +15,6 @@ import rclpy
 from cflib.crazyflie import Crazyflie, Localization
 from cflib.crazyflie.swarm import Swarm
 from cflib.crtp.crtpstack import CRTPPacket, CRTPPort
-from cflib.crtp.radiodriver import RadioDriver
 from cflib.utils.power_switch import PowerSwitch
 from drone_estimators.ros_nodes.ros2_connector import ROSConnector
 
@@ -32,6 +32,8 @@ logger.setLevel(logging.INFO)
 
 
 # region helpers
+
+
 def get_obs(uri: str) -> dict[str, Array]:
     """Generates observations for a given uri."""
     drone_name = f"cf{int(uri[-2:], 16):02d}"
@@ -81,22 +83,23 @@ def apply_drone_settings(cf: Crazyflie):
     time.sleep(0.1)  # Wait for settings to be applied
 
 
-def get_reference(t: float, t_total: float = 10, n_turns: int = 1) -> Array:
+def apply_drone_color(cf: Crazyflie, wrgb: Array[int]):
+    """Applies the given color to the top and bottop deck of a crazyflie drone."""
+    assert np.all((wrgb >= 0) & (wrgb <= 255)), (
+        f"Valid range for wrgb values is [0,255], was {wrgb}"
+    )
+    w, r, g, b = int(wrgb[0]), int(wrgb[1]), int(wrgb[2]), int(wrgb[3])
+    cf.param.set_value("colorLedBot.wrgb8888", int(f"0x{w:02x}{r:02x}{g:02x}{b:02x}", 16))
+    cf.param.set_value("colorLedTop.wrgb8888", int(f"0x{w:02x}{r:02x}{g:02x}{b:02x}", 16))
+
+
+def get_reference(t: float) -> Array:
     """Example function to create position references, to be replaced with csv data or splines."""
-    R = 1.5
-    z = 1.0
-    theta = 2 * np.pi * (n_turns * t / t_total)
+    i_closest = np.searchsorted(trajectory["t"], t)
 
     targets = {}  # x, y, z, yaw
-    total_URIs = len(URIS)
     for i, uri in enumerate(URIS):
-        targets[uri] = (
-            R * np.cos(theta + 2 * i / total_URIs * np.pi),
-            R * np.sin(theta + 2 * i / total_URIs * np.pi),
-            z,
-            0,
-        )
-    targets["theta"] = theta
+        targets[uri] = (*trajectory[f"drone{i}_pos"][i_closest], 0)
     return targets
 
 
@@ -139,9 +142,8 @@ def swarm_pos_ctrl(swarm: Swarm):
 
     TODO This should maybe be done in parallel_safe, but idk how well that scales to large swarms
     """
-    flight_duration = 8.0  # s
-    hover_duration = 4.0  # s
-    n_turns = 2
+    # flight_duration = 8.0  # s
+    # hover_duration = 4.0  # s
 
     t_est = 0.0
     t_start = time.time()
@@ -149,9 +151,9 @@ def swarm_pos_ctrl(swarm: Swarm):
     logger.info("Starting combined control loop...")
 
     # Main tracking loop
-    while (t := (time.time() - t_start)) < flight_duration:
+    while (t := (time.time() - t_start)) < trajectory["t"][-1]:
         # --- Main 50Hz position control -----------------------------------
-        targets = get_reference(t, flight_duration, n_turns=n_turns)
+        targets = get_reference(t)
         for uri, scf in swarm._cfs.items():
             x, y, z, yaw = targets[uri]
             scf.cf.commander.send_position_setpoint(x, y, z, yaw)
@@ -169,19 +171,19 @@ def swarm_pos_ctrl(swarm: Swarm):
         time.sleep(1 / ctrl_freq)
 
     # Hover at last pos to make sure drone lands in the correct location
-    targets = get_reference(flight_duration, flight_duration, n_turns=n_turns)
-    while time.time() - t_start < flight_duration + hover_duration:
-        # --- External pose updates at lower frequency ---------------------
-        for uri, scf in swarm._cfs.items():
-            x, y, z, yaw = targets[uri]
-            scf.cf.commander.send_position_setpoint(x, y, z, yaw)
-            obs = get_obs(uri)
-            px, py, pz = obs["pos"]
-            qx, qy, qz, qw = obs["quat"]
-            scf.cf.extpos.send_extpose(px, py, pz, qx, qy, qz, qw)
+    # targets = get_reference(flight_duration)
+    # while time.time() - t_start < flight_duration + hover_duration:
+    #     # --- External pose updates at lower frequency ---------------------
+    #     for uri, scf in swarm._cfs.items():
+    #         x, y, z, yaw = targets[uri]
+    #         scf.cf.commander.send_position_setpoint(x, y, z, yaw)
+    #         obs = get_obs(uri)
+    #         px, py, pz = obs["pos"]
+    #         qx, qy, qz, qw = obs["quat"]
+    #         scf.cf.extpos.send_extpose(px, py, pz, qx, qy, qz, qw)
 
-        # timing
-        time.sleep(1 / pose_update_freq)
+    #     # timing
+    #     time.sleep(1 / pose_update_freq)
 
     # Stop position commands
     logger.info("enabling HLC")
@@ -207,6 +209,40 @@ if __name__ == "__main__":
         "radio://0/100/2M/E7E7E7E712",
         "radio://0/100/2M/E7E7E7E713",
     ]
+    colors = {}
+    h_values = np.linspace(0, 1, len(URIS))
+    for i, uri in enumerate(URIS):
+        rgb = np.array(colorsys.hsv_to_rgb(h_values[i], 1, 1))
+        rgb /= np.linalg.norm(rgb)
+        rgb *= 255
+        colors[uri] = np.array([0, *rgb])
+    # colors = {
+    #     "radio://0/100/2M/E7E7E7E70B": np.array([0, 255, 0, 0]),
+    #     "radio://0/100/2M/E7E7E7E70C": np.array([0, 0, 128, 128]),
+    #     "radio://0/100/2M/E7E7E7E70D": np.array([0, 128, 128, 0]),
+    #     "radio://0/100/2M/E7E7E7E70E": np.array([0, 128, 0, 128]),
+    #     "radio://0/100/2M/E7E7E7E70F": np.array([0, 0, 255, 0]),
+    #     "radio://0/100/2M/E7E7E7E710": np.array([0, 128, 64, 64]),
+    #     "radio://0/100/2M/E7E7E7E711": np.array([0, 64, 64, 128]),
+    #     "radio://0/100/2M/E7E7E7E712": np.array([0, 64, 128, 64]),
+    #     "radio://0/100/2M/E7E7E7E713": np.array([0, 0, 0, 255]),
+    # }
+
+    # load reference. TODO remove hard coded part
+    data = np.loadtxt("trajectory.csv", delimiter=",", skiprows=1)
+
+    trajectory = {
+        "t": data[:, 0],
+        "drone0_pos": data[:, 1:4],
+        "drone1_pos": data[:, 7:10],
+        "drone2_pos": data[:, 13:16],
+        "drone3_pos": data[:, 19:22],
+        "drone4_pos": data[:, 25:28],
+        "drone5_pos": data[:, 31:34],
+        "drone6_pos": data[:, 37:40],
+        "drone7_pos": data[:, 43:46],
+        "drone8_pos": data[:, 49:52],
+    }
 
     rclpy.init()
     ros_connector = ROSConnector(
@@ -242,7 +278,7 @@ if __name__ == "__main__":
     logger.info("Restarting all Crazyflies...")
     for uri in URIS:
         PowerSwitch(uri).stm_power_cycle()
-    time.sleep(2)  # Wait for all drones to complete the reboot
+    time.sleep(0.5)  # Wait for all drones to complete the reboot
 
     # TODO to not be reliant on sending pos updates (see functions above), it would be helpful
     # if we could simply give a get_obs() or get_obs(uri) function which is then internally
@@ -256,12 +292,12 @@ if __name__ == "__main__":
 
             # TODO do not wait for ack
 
-            time.sleep(2.0)
+            time.sleep(1.0)
 
             logger.info("Arming all Crazyflies...")
             for scf in swarm._cfs.values():
                 scf.cf.platform.send_arming_request(True)
-                time.sleep(0.5)
+                time.sleep(0.1)
 
             time.sleep(2.0)
 
@@ -270,9 +306,16 @@ if __name__ == "__main__":
             swarm.parallel_safe(hl_takeoff)
             # TODO drones drift during takeoff
 
+            for scf in swarm._cfs.values():
+                apply_drone_color(scf.cf, colors[scf.cf.link_uri])
+
             # Run main control loop + slow estimator updates
             logger.info("Starting choreography...")
             swarm_pos_ctrl(swarm)
+
+            # Turn lights off
+            for scf in swarm._cfs.values():
+                apply_drone_color(scf.cf, colors[scf.cf.link_uri] * 0)
 
             # Smooth HLC landing
             logger.info("Landing...")
