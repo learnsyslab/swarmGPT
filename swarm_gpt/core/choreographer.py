@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING
 import einops
 import numpy as np
 import ollama
+import toml
 import yaml
 from openai import OpenAI
 
@@ -38,8 +39,8 @@ class Choreographer:
 
     def __init__(
         self,
-        config_file: Path,
         *,
+        config_file: Path | None = None,
         model_id: str = "gpt-4o-2024-05-13",
         use_motion_primitives: bool = False,
     ):
@@ -54,6 +55,7 @@ class Choreographer:
         self._model_id = model_id
         self.use_motion_primitives = use_motion_primitives
         self.agents = {}
+        self.uris = {}
         self.starting_pos = {}
         self.num_drones = 0
         self.messages = []
@@ -111,22 +113,26 @@ class Choreographer:
         """Reset the LLM history to ensure a clean slate."""
         self.messages.clear()
 
-    def load_drone_config(self, config_file: Path):
+    def load_drone_config(self, config_file: Path | None = None):
         """Load the drone configuration from the config file.
 
         The configuration file is a yaml file that contains the drone IDs and their initial
         positions.
         """
-        with open(config_file) as f:
-            cfg = yaml.safe_load(f)
         with open(Path(__file__).resolve().parents[1] / "data/settings.yaml", "r") as f:
             self.settings = yaml.safe_load(f)
-        robots = sorted(cfg["crazyflies"], key=lambda x: x["id"])
 
-        for i, robot in enumerate(robots):
-            self.agents[i] = int(robot["id"])
-            self.starting_pos[i] = np.array(robot["initialPosition"])
+        if config_file is None:
+            config_file = Path(__file__).resolve().parents[1] / "data/drones.toml"
+        with open(config_file) as f:
+            drones_toml = toml.load(f)
+
+        for drone_name, data in drones_toml.items():
+            i = int(drone_name[2:])
+            self.agents[i] = i
+            self.starting_pos[i] = np.array(data["pos"])
             self.starting_pos[i][2] = self.settings["starting_height"]
+            self.uris[i] = data["uri"]
         self.num_drones = len(self.agents.values())
         assert self.num_drones > 0, "No drones detected in config file"
 

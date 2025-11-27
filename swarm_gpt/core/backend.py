@@ -76,9 +76,9 @@ class AppBackend:
 
     def __init__(
         self,
-        config_file: Path,
         *,
         music_dir: Path = Path(__file__).parents[2] / "music",
+        config_file: Path | None = None,
         strict_processing: bool = True,
         strict_drone_match: bool = True,
         model_id: str = "gpt-4o-2024-05-13",
