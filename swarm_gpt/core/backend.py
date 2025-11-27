@@ -299,6 +299,37 @@ class AppBackend:
         if self.waypoints is not None:
             np.save(path / "waypoints.npy", self.waypoints)
 
+        pos_splines = self.splines
+        vel_splines = {i: [s.derivative() for s in pos_splines[i]] for i in pos_splines}
+        acc_splines = {i: [s.derivative() for s in vel_splines[i]] for i in vel_splines}
+        des_pos, des_vel, des_acc = [], [], []
+        des_time = np.arange(0, self.waypoints["time"][0, -1], 1.0 / self.settings["state_freq"])
+        for t in des_time:
+            des_pos.append([[s(t) for s in pos_splines[j]] for j in pos_splines])
+            des_vel.append([[s(t) for s in vel_splines[j]] for j in vel_splines])
+            des_acc.append([[s(t) for s in acc_splines[j]] for j in acc_splines])
+        des_pos, des_vel, des_acc = np.array(des_pos), np.array(des_vel), np.array(des_acc)
+
+        N = des_time.shape[0]
+        M = self.choreographer.num_drones
+
+        # Build combined array: time | pos (M*3) | vel (M*3)
+        header = ["time[s]"]
+        combined = np.zeros((N, 1 + 6 * M), dtype=float)
+        combined[:, 0] = des_time
+
+        for i in range(M):
+            combined[:, 6 * i + 1 : 6 * i + 4] = des_pos[:, i, :]
+            combined[:, 6 * i + 4 : 6 * i + 7] = des_vel[:, i, :]
+            header += [f"drone{i}_posx[m]", f"drone{i}_posy[m]", f"drone{i}_posz[m]"]
+            header += [f"drone{i}_velx[m/s]", f"drone{i}_vely[m/s]", f"drone{i}_velz[m/s]"]
+
+        header_str = ",".join(header)
+
+        csv_path = path / "trajectory.csv"
+        np.savetxt(csv_path, combined, delimiter=",", header=header_str, comments="", fmt="%.6f")
+        print(f"Saved trajectory CSV: {csv_path}")
+
     def _load_song(self, song: str) -> tuple[str, str]:
         """Load the song on the music manager."""
         if song in self.presets:
