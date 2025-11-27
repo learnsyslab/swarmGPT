@@ -216,7 +216,7 @@ class Choreographer:
             raise LLMPlanError(f"Drones {set(drones)} get too close at waypoints {set(times)}")
 
     def response2waypoints(
-        self, text: str, music_info: dict, strict: bool = True
+        self, text: str, music_info: dict, strict: bool = True, t_rth: float = 6.0
     ) -> dict[str, NDArray]:
         """Translate the LLM output into waypoints.
 
@@ -225,6 +225,7 @@ class Choreographer:
                 format instructions of the output parser.
             music_info: The beat times, amplitude and frequency of the song.
             strict: Enable/disable waypoint proximity and distance checks.
+            t_rth: Time for the drones to return to their starting position
 
         Returns:
             The waypoints as a dictionary of "time", "pos", "vel", "acc". "time" has shape
@@ -239,7 +240,17 @@ class Choreographer:
         # Clip waypoint values to the physical limits
         waypoints["pos"] = np.clip(waypoints["pos"], self.lim_lower, self.lim_upper)
         if strict:
-            self._collision_check(waypoints["pos"])
+            self._collision_check(waypoints["pos"], 0.25)
+
+        # Add home position (TODO make cleaner)
+        home = np.zeros((len(self.agents.values()), 1, 3))
+        for i in self.agents.values():
+            home[i, :, :] = self.starting_pos[i]
+        waypoints["time"] = np.concat(
+            (waypoints["time"], waypoints["time"][:, -1][:, None] + t_rth), axis=1
+        )
+        waypoints["pos"] = np.concat((waypoints["pos"], home), axis=1)
+
         return waypoints
 
     def _response2choreo(self, text: str) -> dict[int, list[str]]:
