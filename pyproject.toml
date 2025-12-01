@@ -18,24 +18,34 @@ classifiers = [
     "Intended Audience :: Education",
     "Intended Audience :: Science/Research",
 ]
-keywords = ["GPT", "LLM", "crazyflies", "drones", "swarm", "crazyswarm"]
+keywords = ["GPT", "LLM", "crazyflies", "drones", "swarm"]
+
 dependencies = [
+    "cflib",
     "fire",
     "einops",
     "numpy",
+    "tqdm",
     "ollama",
     "pyyaml",
     "openai",
     "scipy",
-    "rospkg",
-    "libfmp",
-    "mutagen",
     "python-vlc",
     "gradio",
+    "axswarm @ git+https://github.com/utiasDSL/axswarm.git",
+    "crazyflow",
+    "drone-models",
+    "drone-controllers",
 ]
 
 [tool.setuptools.packages.find]
 include = ["swarm_gpt*"]
+
+[tool.uv.sources]
+crazyflow = { path = "../crazyflow", editable = true }
+drone-models = { path = "../crazyflow/submodules/drone-models", editable = true }
+drone-controllers = { path = "../crazyflow/submodules/drone-controllers", editable = true }
+axswarm = { path = "../axswarm", editable = true }
 
 [project.optional-dependencies]
 test = ["pytest"]

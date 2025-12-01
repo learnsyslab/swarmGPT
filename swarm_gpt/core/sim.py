@@ -49,6 +49,7 @@ def simulate_axswarm(
     sim = Sim(
         n_worlds=1,
         n_drones=waypoints["pos"].shape[0],
+        drone_model="cf21b_500",
         physics=Physics.analytical,
         control=Control.state,
         freq=settings["sim_freq"],

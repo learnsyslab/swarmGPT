@@ -1,38 +1,31 @@
-[project]
+[workspace]
 name = "swarm"
-version = "0.1.0"
 description = "Development environment for RoboStack ROS packages"
-authors = ["Your Name <your.email@example.com>"]
-channels = ["https://fast.prefix.dev/conda-forge", "https://prefix.dev/robostack-noetic"]
-platforms = ["linux-64"]  # , "win-64", "osx-64", "osx-arm64", "linux-aarch64"]
+version = "0.1.0"
+authors = ["Marcel Rath <marcel.rath@tum.de>", "Martin Schuck <martin.schuck@tum.de>"]
+channels = ["https://fast.prefix.dev/conda-forge"]
+platforms = ["linux-64"] 
 
 [dependencies]
-python = "3.11.*"
+python = "<3.14" # MuJoCo has no wheels for Python 3.14
 pip = "*"
-compilers = "*"
-cmake = "*"
-pkg-config = "*"
-make = "*"
-ninja = "*"
-ros-noetic-desktop = "*"
-ros-noetic-joy = "*"
-catkin_tools = "*"
-rosdep = "*"
-pcl = ">=1.14.1,<2"
-uv = ">=0.7.13,<0.8"
-fire = ">=0.7.0,<0.8"
+uv = "*"
+ruff = "*"
+setuptools = "*"
 
 [target.linux.dependencies]
 libgl-devel = "*"
 
-[pypi-dependencies]
-ruff = ">=0.13.0,<0.14"
-crazyflow = ">=0.0.2"
-pytest = "*"
+[activation]
+scripts = ["openai_api_key.sh"]
 
 [environments]
 docs = { features = ["docs"] }
+tests = { features = ["tests"] }
+sim = { features = ["crazyflow"] }
+deploy = { features = ["ros_jazzy"] }
 
+# docs feature
 [feature.docs.dependencies]
 mkdocs = ">=1.5.3"
 mkdocs-material = ">=9.4.0"
@@ -45,9 +38,88 @@ mkdocs-literate-nav = ">=0.6.0"
 docs-serve = { cmd = "mkdocs serve", description = "Serve docs locally" }
 docs-build = { cmd = "mkdocs build", description = "Build docs" }
 
-[activation]
-scripts = [
-    "submodules/crazyswarm/ros_ws/devel/setup.sh", 
-    "submodules/catkin_ws/devel/setup.bash", 
-    "openai_api_key.sh"
-    ]
+# docs feature
+[feature.tests.dependencies]
+pytest = "*"
+
+[feature.tests.tasks]
+tests = { cmd = "pytest -v tests", description = "Run tests" }
+
+# Crazyflow feature
+[feature.crazyflow.pypi-dependencies]
+crazyflow = { path = "../crazyflow", editable = true }
+drone-models = { path = "../crazyflow/submodules/drone-models", editable = true }
+drone-controllers = { path = "../crazyflow/submodules/drone-controllers", editable = true }
+# axswarm = { git = "git@github.com:utiasDSL/axswarm.git" }
+jax = { version = ">=0.7.0", extras = ["cuda"] }
+
+# jazzy feature
+[feature.ros_jazzy]
+channels = ["https://prefix.dev/robostack-jazzy"]
+
+[feature.ros_jazzy.activation] # install scripts
+scripts = ["tools/setup_mocap.sh"]
+
+[feature.ros_jazzy.dependencies]
+python = ">=3.10"
+
+ros-jazzy-desktop = "*"
+colcon-common-extensions = "*"
+rosdep = "*"
+
+compilers = "*"
+cmake = "*"
+openblas = "*"
+pkg-config = "*"
+make = "*"
+ninja = "*"
+rosbags = ">=0.10.9,<0.11"
+
+[tool.ruff]
+# Exclude a variety of commonly ignored directories.
+exclude = [
+    ".git",
+    ".git-rewrite",
+    ".ipynb_checkpoints",
+    ".pyenv",
+    ".pytest_cache",
+    ".pytype",
+    ".ruff_cache",
+    ".venv",
+    ".vscode",
+    "__pypackages__",
+    "_build",
+    "build",
+    "dist",
+    "site-packages",
+    "venv",
+    "docs/conf.py",
+]
+
+line-length = 100
+indent-width = 4
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I", "D", "TCH", "ANN"]
+ignore = ["ANN401"]
+fixable = ["ALL"]
+unfixable = []
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["D100", "D103", "D104"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.flake8-annotations]
+suppress-dummy-args = true
+suppress-none-returning = true
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = true
+line-ending = "auto"
+docstring-code-format = true
+docstring-code-line-length = "dynamic"

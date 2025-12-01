@@ -83,7 +83,7 @@ def apply_drone_settings(cf: Crazyflie):
     time.sleep(0.1)  # Wait for settings to be applied
 
 
-def apply_drone_color(cf: Crazyflie, wrgb: Array[int]):
+def apply_drone_color(cf: Crazyflie, wrgb: Array):
     """Applies the given color to the top and bottop deck of a crazyflie drone."""
     assert np.all((wrgb >= 0) & (wrgb <= 255)), (
         f"Valid range for wrgb values is [0,255], was {wrgb}"
