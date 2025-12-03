@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 import time
 from collections import deque
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import jax
@@ -18,10 +19,10 @@ import numpy as np
 from axswarm import SolverData, SolverSettings, solve
 from crazyflow.control import Control
 from crazyflow.sim import Physics, Sim
+from crazyflow.sim.visualize import change_material, draw_line
 from tqdm import tqdm
 
 from swarm_gpt.utils import MusicManager
-from swarm_gpt.utils.utils import draw_line
 
 logger = logging.getLogger(__name__)
 
@@ -49,13 +50,14 @@ def simulate_axswarm(
     sim = Sim(
         n_worlds=1,
         n_drones=waypoints["pos"].shape[0],
-        drone_model="cf21b_500",
-        physics=Physics.analytical,
+        drone_model="cf21B_500",
+        physics=Physics.first_principles,
         control=Control.state,
         freq=settings["sim_freq"],
         attitude_freq=settings["attitude_freq"],
         state_freq=settings["state_freq"],
         device="cpu",
+        xml_path=Path("swarm_gpt/data/scene.xml"),
     )
     fps = 60
     sim.max_visual_geom = 100_000
@@ -169,13 +171,16 @@ def simulate_spline(
     sim = Sim(
         n_worlds=1,
         n_drones=len(splines),
-        physics=Physics.analytical,
+        drone_model="cf21B_500",
+        physics=Physics.first_principles,
         control=Control.state,
         freq=settings["sim_freq"],
         attitude_freq=settings["attitude_freq"],
         state_freq=settings["state_freq"],
         device="cpu",
+        xml_path=Path("swarm_gpt/data/scene.xml"),
     )
+    default_cam_config = {"distance": 4.0, "azimuth": 180, "elevation": -20, "lookat": [0, 0, 1]}
     sim.max_visual_geom = 100_000
     # JIT compile the simulation
     sim.reset()
@@ -200,8 +205,24 @@ def simulate_spline(
     )
 
     # Set up colours for tracking lines
-    rng = np.random.default_rng(0)
-    rgbas = rng.random((sim.n_drones, 4))
+    # rng = np.random.default_rng(0)
+    # rgbas = rng.random((sim.n_drones, 4))
+    rgbas = np.array(  # hard coded rainbow colors, https://www.figma.com/color-wheel/
+        [
+            [1, 0, 0, 1],
+            [1, 0.5, 0, 1],
+            [1, 1, 0, 1],
+            [0.5, 1, 0, 1],
+            [0, 1, 0, 1],
+            [0, 1, 0.5, 1],
+            [0, 1, 1, 1],
+            [0, 0.5, 1, 1],
+            [0, 0, 1, 1],
+            [0.5, 0, 1, 1],
+            [1, 0, 1, 1],
+            [1, 0, 0.5, 1],
+        ]
+    )
     rgbas[..., 3] = 1
     swarm_pos = [deque(maxlen=100) for _ in range(sim.n_drones)]
     # Start music if a song is specified
@@ -226,9 +247,24 @@ def simulate_spline(
         if (((i * fps) % sim.control_freq) < fps) and gui:
             for j, dq in enumerate(swarm_pos):
                 dq.append(np.asarray(sim.data.states.pos[0, j]))
-                draw_line(sim, np.array(dq), rgba=rgbas[j % len(rgbas)], min_size=2, max_size=5)
+                draw_line(sim, np.array(dq), rgba=rgbas[j % len(rgbas)], start_size=2, end_size=5)
 
-            sim.render()
+            change_material(
+                sim,
+                mat_name="led_top",
+                drone_ids=np.arange(sim.n_drones),
+                rgba=rgbas[np.arange(sim.n_drones) % len(rgbas)],
+                emission=np.ones((sim.n_drones,)),
+            )
+            change_material(
+                sim,
+                mat_name="led_bot",
+                drone_ids=np.arange(sim.n_drones),
+                rgba=rgbas[np.arange(sim.n_drones) % len(rgbas)],
+                emission=np.ones((sim.n_drones,)),
+            )
+
+            sim.render(cam_config=default_cam_config)
             if (dt := current_time - (time.time() - tstart)) > 0:
                 time.sleep(dt)
     sim.close()

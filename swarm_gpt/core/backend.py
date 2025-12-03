@@ -13,7 +13,7 @@ import numpy as np
 import yaml
 from scipy.interpolate import make_smoothing_spline
 
-from swarm_gpt.core import Choreographer, DroneController
+from swarm_gpt.core import Choreographer
 from swarm_gpt.core.sim import simulate_axswarm, simulate_spline
 from swarm_gpt.exception import LLMException
 from swarm_gpt.utils import MusicManager
@@ -101,7 +101,7 @@ class AppBackend:
         # Initialize drone control elements
         self.waypoints = None  # High-level LLM commands
         self.splines = {}  # Low-level optimized commands from axswarm
-        self.drone_controller = DroneController(20)  # Controller for the Crazyflie drones
+        self.drone_controller = None  # TODO Controller for the Crazyflie drones
         # Initialize chat elements
         self.choreographer = Choreographer(
             config_file=config_file, model_id=model_id, use_motion_primitives=use_motion_primitives

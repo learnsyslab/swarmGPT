@@ -12,6 +12,13 @@ pip = "*"
 uv = "*"
 ruff = "*"
 setuptools = "*"
+# dependencies to build scipy
+# TODO: Remove compilers once scipy 1.17 is released and drone-models have been updated.
+cmake = "*"
+gcc = "*"
+cxx-compiler = "*"
+gfortran = "*"
+openblas = "*"
 
 [target.linux.dependencies]
 libgl-devel = "*"
@@ -20,9 +27,9 @@ libgl-devel = "*"
 scripts = ["openai_api_key.sh"]
 
 [environments]
-docs = { features = ["docs"] }
-tests = { features = ["tests"] }
-sim = { features = ["crazyflow"] }
+# docs = { features = ["crazyflow", "docs"] }
+# tests = { features = ["crazyflow", "tests"] }
+sim = { features = ["crazyflow"], solve-group = "default"}
 deploy = { features = ["ros_jazzy"] }
 
 # docs feature
@@ -38,7 +45,7 @@ mkdocs-literate-nav = ">=0.6.0"
 docs-serve = { cmd = "mkdocs serve", description = "Serve docs locally" }
 docs-build = { cmd = "mkdocs build", description = "Build docs" }
 
-# docs feature
+# tests feature
 [feature.tests.dependencies]
 pytest = "*"
 
@@ -47,6 +54,7 @@ tests = { cmd = "pytest -v tests", description = "Run tests" }
 
 # Crazyflow feature
 [feature.crazyflow.pypi-dependencies]
+swarm_gpt = { path = "./", editable = true }
 crazyflow = { path = "../crazyflow", editable = true }
 drone-models = { path = "../crazyflow/submodules/drone-models", editable = true }
 drone-controllers = { path = "../crazyflow/submodules/drone-controllers", editable = true }

@@ -216,7 +216,7 @@ class Choreographer:
             raise LLMPlanError(f"Drones {set(drones)} get too close at waypoints {set(times)}")
 
     def response2waypoints(
-        self, text: str, music_info: dict, strict: bool = True, t_rth: float = 6.0
+        self, text: str, music_info: dict, strict: bool = True, t_rth: float = 3.0
     ) -> dict[str, NDArray]:
         """Translate the LLM output into waypoints.
 
@@ -247,9 +247,14 @@ class Choreographer:
         for i in self.agents.values():
             home[i, :, :] = self.starting_pos[i]
         waypoints["time"] = np.concat(
-            (waypoints["time"], waypoints["time"][:, -1][:, None] + t_rth), axis=1
+            (
+                waypoints["time"],
+                waypoints["time"][:, -1][:, None] + t_rth,
+                waypoints["time"][:, -1][:, None] + t_rth + 1.0,
+            ),
+            axis=1,
         )
-        waypoints["pos"] = np.concat((waypoints["pos"], home), axis=1)
+        waypoints["pos"] = np.concat((waypoints["pos"], home, home), axis=1)
 
         return waypoints
 

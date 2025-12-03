@@ -11,7 +11,6 @@ import fire
 
 from swarm_gpt.core import AppBackend
 from swarm_gpt.ui import create_ui
-from swarm_gpt.utils import get_ros_package_path
 
 
 def mklog_date(path: Path) -> Path:
@@ -39,7 +38,7 @@ def main(
     logging.basicConfig(level=logging.WARNING)
     logging.getLogger("httpx").setLevel(logging.WARNING)  # Suppress httpx info messages
     logging.getLogger("jax").setLevel(logging.WARNING)
-    #logging.getLogger("swarm_gpt").setLevel(logging.DEBUG)
+    # logging.getLogger("swarm_gpt").setLevel(logging.DEBUG)
 
     # Check if the OpenAI API key is present
     if "OPENAI_API_KEY" not in os.environ:
