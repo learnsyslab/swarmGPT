@@ -1,7 +1,7 @@
 starting_height: 1.0  # Starting height for all drones
-sim_freq: 400 # Frequency for the crazyflow simulation
-attitude_freq: 400 # Frequency for the crazyflow simulation for the drone attitudes
-state_freq: 80 # Frequency for the crazyflow simulation for the drone states
+sim_freq: 500 # Frequency for the crazyflow simulation
+attitude_freq: 500 # Frequency for the crazyflow simulation for the drone attitudes
+state_freq: 100 # Frequency for the crazyflow simulation for the drone states
 
 axswarm:
   rho_init: 1.0 # Initial value of the penalty parameter
@@ -33,7 +33,7 @@ axswarm:
   # MPC
   K: 50  # Number of timesteps in the optimization horizon
   N: 10  # Spline order for AMSwarm trajectories
-  freq: 8  # MPC control frequency of AMSwarm in Hz
+  freq: 10  # MPC control frequency of AMSwarm in Hz
   bf_gamma: 1.0  # Barrier function gamma [0, 1.0] -> 1.0 is most aggressive
   waypoints_pos_tol: 0.1  # Tolerance for the waypoints position constraint
   waypoints_vel_tol: 0.01  # Tolerance for the waypoints velocity constraint
