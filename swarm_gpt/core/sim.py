@@ -28,6 +28,7 @@ logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from numpy.typing import NDArray
+    from scipy.interpolate import BSpline
 
     from swarm_gpt.utils import MusicManager
 
@@ -162,7 +163,7 @@ def simulate_axswarm(
 
 
 def simulate_spline(
-    splines: dict, settings: dict, t: float, music_manager: MusicManager, gui: bool
+    splines: dict[str, BSpline], settings: dict, t: float, music_manager: MusicManager, gui: bool
 ):
     """Run the simulation using splines as control reference."""
     # Setting Up Simulation
@@ -188,7 +189,7 @@ def simulate_spline(
     sim.step(sim.freq // sim.control_freq)
     sim.reset()
 
-    vel_splines = {i: [s.derivative() for s in splines[i]] for i in splines}
+    vel_splines = {i: splines[i].derivative() for i in splines.keys()}
     assert sim.freq % sim.control_freq == 0, (
         "control freq {sim.control_freq} must be divisible by sim.freq {sim.freq}"
     )
@@ -196,17 +197,16 @@ def simulate_spline(
         "control freq {sim.control_freq} must be divisible by amswarm freq {amswarm_freq}"
     )
     # Setting Up Initial States
-    pos = np.array([[s(0) for s in splines[j]] for j in splines])[None, ...]
+    pos = np.array([splines[i](0) for i in splines.keys()])[None, ...]
     assert pos.shape == sim.data.states.pos.shape, (
         f"Initial drone position shape mismatch ({pos.shape}) vs ({sim.data.states.pos.shape})"
     )
     sim.data = sim.data.replace(
         states=sim.data.states.replace(pos=sim.data.states.pos.at[...].set(pos))
     )
+    # TODO set initial rotor velocities to hover values
 
     # Set up colours for tracking lines
-    # rng = np.random.default_rng(0)
-    # rgbas = rng.random((sim.n_drones, 4))
     rgbas = np.array(  # hard coded rainbow colors, https://www.figma.com/color-wheel/
         [
             [1, 0, 0, 1],
@@ -227,15 +227,16 @@ def simulate_spline(
     swarm_pos = [deque(maxlen=100) for _ in range(sim.n_drones)]
     # Start music if a song is specified
     if music_manager is not None and gui:
+        sim.render(cam_config=default_cam_config)  # Start gui before playing music
+        time.sleep(0.5)  # Wait for gui to initialize
         music_manager.play()
-        ...
 
     # MAIN SIMULATION LOOP
     tstart = time.time()
     for i in tqdm(range(0, int(t * sim.control_freq))):
         current_time = i / sim.control_freq
-        des_pos = np.array([[s(current_time) for s in splines[j]] for j in splines])
-        des_vel = np.array([[s(current_time) for s in vel_splines[j]] for j in splines])
+        des_pos = np.array([splines[i](current_time) for i in splines.keys()])
+        des_vel = np.array([vel_splines[i](current_time) for i in vel_splines.keys()])
         controls = np.concatenate((des_pos, des_vel, np.zeros((sim.n_drones, 7))), axis=-1)[
             None, ...
         ]

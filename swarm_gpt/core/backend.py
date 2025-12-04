@@ -7,16 +7,20 @@ import logging
 from datetime import datetime
 from functools import wraps
 from pathlib import Path
-from typing import Any, Callable, Literal, ParamSpec, TypeVar
+from typing import TYPE_CHECKING, Any, Callable, Literal, ParamSpec, TypeVar
 
 import numpy as np
 import yaml
 from scipy.interpolate import make_smoothing_spline
 
 from swarm_gpt.core import Choreographer
+from swarm_gpt.core.drone_swarm import DroneSwarm
 from swarm_gpt.core.sim import simulate_axswarm, simulate_spline
 from swarm_gpt.exception import LLMException
-from swarm_gpt.utils import MusicManager
+from swarm_gpt.utils import MusicManager, discretize_bspline
+
+if TYPE_CHECKING:
+    from numpy.typing import NDArray as Array
 
 logger = logging.getLogger(__name__)
 
@@ -99,7 +103,7 @@ class AppBackend:
         with open(self.root_path / "swarm_gpt/data/settings.yaml", "r") as f:
             self.settings = yaml.safe_load(f)
         # Initialize drone control elements
-        self.waypoints = None  # High-level LLM commands
+        self.waypoints: Array | None = None  # High-level LLM commands
         self.splines = {}  # Low-level optimized commands from axswarm
         self.drone_controller = None  # TODO Controller for the Crazyflie drones
         # Initialize chat elements
@@ -215,9 +219,7 @@ class AppBackend:
         self.splines.clear()
         for i, drone in self.choreographer.agents.items():
             controls = sim_data["controls"][:, i, :3]
-            self.splines[drone] = [
-                make_smoothing_spline(t, controls[:, j], lam=lam) for j in range(3)
-            ]
+            self.splines[drone] = make_smoothing_spline(t, controls, lam=lam)
         if gui:  # Rerun the simulation of the resulting trajectories with GUI
             simulate_spline(self.splines, self.settings, t[-1], self.music_manager, gui)
         logger.info("Simulation successful")
@@ -231,31 +233,50 @@ class AppBackend:
         Returns:
             The chat history as a list of prompts and answers.
         """
+        # Check if even in deploy environment
+        try:
+            import rclpy
+        except ImportError as _:
+            logger.error("ROS2 is not installed. Switch to deploy environment!")
+            return
+
         logger.info("Deploying drones")
         assert self.splines, "Please run the simulation first!"
+
         # If a deploy version of the song is present, play it
-        if not self.drone_controller._ros_running:
-            raise RuntimeError("ROS is not running. Please start ROS before deploying.")
-
-        if drone_ids is not None:
-            cfs = self.drone_controller.swarm.allcfs.crazyfliesById
-            cfs = {k: v for k, v in cfs.items() if k in drone_ids}
-            self.drone_controller.swarm.allcfs.crazyfliesById = cfs
-
-        for i, drone in enumerate(self.drone_controller.swarm.allcfs.crazyfliesById.values()):
-            drone.setLEDColor(*colors[i % len(colors)])
         original_song = self.music_manager.song
-        duration = next(iter(self.waypoints.values()))[-1, 0]
         try:
             self.music_manager.song = original_song + "[deploy]"
         except AssertionError:
             ...
-        self.drone_controller.takeoff(target_height=1.0, duration=3.0)
-        self.music_manager.play()
-        self.drone_controller.run_spline_trajectories(self.splines, duration=duration)
-        self.drone_controller.land()
-        self.music_manager.song = original_song
+
+        # generate references
+        init_pos_dict = {}
+        choreography_dict = {}
+        for i, d in enumerate(self.choreographer.drones.values()):
+            pos = np.array(self.splines[i](0))
+            # TODO fix hard coded yaw
+            init_pos_dict[d["uri"]] = [np.array([*pos, 0.0])]
+            choreography_dict[d["uri"]] = self.splines[i]
+
+        swarm = DroneSwarm(self.choreographer.drones)
+        print("connected")
+        try:
+            # Create swarm (and connect to it)
+            print("Connected, taking off")
+            # swarm.takeoff()
+
+            print(init_pos_dict)
+            swarm.goto(init_pos_dict)
+            self.music_manager.play()
+            swarm.execute_choreography(choreography_dict, self.waypoints["time"][0, -1])
+            print("Landing...")
+            swarm.land()
+            # self.music_manager.song = original_song
+        finally:
+            swarm.close()
         logger.info("Deployment successful")
+        print("Deployment successful")
 
     def load_preset(self, preset_id: str) -> list[dict[str, str]]:
         """Load a preset response.

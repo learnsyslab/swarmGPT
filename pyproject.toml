@@ -40,6 +40,7 @@ dependencies = [
     "crazyflow",
     "drone-models",
     "drone-controllers",
+    "drone-estimators",
 ]
 
 [tool.setuptools.packages.find]
@@ -49,6 +50,7 @@ include = ["swarm_gpt*"]
 crazyflow = { path = "../crazyflow", editable = true }
 drone-models = { path = "../crazyflow/submodules/drone-models", editable = true }
 drone-controllers = { path = "../crazyflow/submodules/drone-controllers", editable = true }
+drone-estimators = { path = "../drone-estimators", editable = true }
 axswarm = { path = "../axswarm", editable = true }
 
 [project.optional-dependencies]

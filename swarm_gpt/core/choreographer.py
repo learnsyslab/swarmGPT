@@ -125,9 +125,9 @@ class Choreographer:
         if config_file is None:
             config_file = Path(__file__).resolve().parents[1] / "data/drones.toml"
         with open(config_file) as f:
-            drones_toml = toml.load(f)
+            self.drones = toml.load(f)
 
-        for drone_name, data in drones_toml.items():
+        for drone_name, data in self.drones.items():
             i = int(drone_name[2:])
             self.agents[i] = i
             self.starting_pos[i] = np.array(data["pos"])

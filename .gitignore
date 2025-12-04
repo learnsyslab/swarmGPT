@@ -23,5 +23,6 @@ crazyswarm
 axswarm
 vicon_bridge
 catkin_ws
+ros_ws
 
 openai_api_key.sh

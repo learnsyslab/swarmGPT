@@ -967,6 +967,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/5d/ba/459f18c16f2b3fc1a1ca871f72f07d70c07bf768ad0a507a698b8052ac58/msgpack-1.1.2-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/e7/a9/2633ce0a5d11d884fcc8420279d58888d41a0bd08002efe14d334394e26e/mujoco-3.3.7-cp313-cp313-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/e0/32/2aad9e9107fcc6dd6cc503e74ad78e2a6ed74a55cbc2498b3a5eac9104f0/mujoco_mjx-3.3.7-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/56/b3/7c69b37f03260a061883bec0e7b05be7117c1b1c85f5212c72c8c2bc3c8c/munch-4.0.0-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/43/da/b4bc124a409177ec512fd7d12eaaf39baa0bb3da5e6a79008b8e870cee6b/music21-9.3.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/b0/7a/620f945b96be1f6ee357d211d5bf74ab1b7fe72a9f1525aafbfe3aee6875/mutagen-1.47.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/a0/c4/c2971a3ba4c6103a3d10c4b0f24f461ddc027f0f09763220cf35ca1401b3/nest_asyncio-1.6.0-py3-none-any.whl
@@ -1040,6 +1041,7 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/fb/12/5911ae3eeec47800503a238d971e51722ccea5feb8569b735184d5fcdbc0/toolz-1.1.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/d0/30/dc54f88dd4a2b5dc8a0279bdd7270e735851848b762aeb1c1184ed1f6b14/tqdm-4.67.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/00/c0/8f5d070730d7836adc9c9b6408dec68c6ced86b304a9b26a14df072a6e8c/traitlets-5.14.3-py3-none-any.whl
+      - pypi: https://files.pythonhosted.org/packages/61/7a/f38385f1b2d5f54221baf1db3d6371dc6eef8041d95abff39576c694e9d9/transforms3d-0.4.2-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/43/2b/36e984399089c026a6499ac8f7401d38487cf0183839a4aa78140d373771/treescope-0.1.10-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/ec/81/951a108396aa850a096be95cd9ccd38ef9f33ae35b40b512be975e2c994d/trimesh-4.10.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/78/64/7713ffe4b5983314e9d436a90d5bd4f63b6054e2aca783a3cfc44cb95bbf/typer-0.20.0-py3-none-any.whl
@@ -1056,6 +1058,7 @@ environments:
       - pypi: ../crazyflow
       - pypi: ../crazyflow/submodules/drone-controllers
       - pypi: ../crazyflow/submodules/drone-models
+      - pypi: ../drone-estimators
       - pypi: ./
 packages:
 - conda: https://conda.anaconda.org/conda-forge/linux-64/_libgcc_mutex-0.1-conda_forge.tar.bz2
@@ -2257,6 +2260,26 @@ packages:
   - array-api-extra
   - array-api-typing @ git+https://github.com/data-apis/array-api-typing
   - scipy @ git+https://github.com/scipy/scipy.git@4cb83b6
+  editable: true
+- pypi: ../drone-estimators
+  name: drone-estimators
+  version: 0.0.1
+  sha256: 0bc7582a825b6ef71854bb2b5d1ee29720180c8ddae8cc166f764b56b9ba0c30
+  requires_dist:
+  - jax
+  - numpy>=2.0
+  - scipy @ git+https://github.com/scipy/scipy.git@4cb83b6
+  - drone-models
+  - munch
+  - transforms3d
+  - flax
+  - array-api-compat
+  - array-api-typing @ git+https://github.com/data-apis/array-api-typing
+  - array-api-extra
+  - pytest>=8.0.0 ; extra == 'test'
+  - pytest-cov ; extra == 'test'
+  - pytest-timeout ; extra == 'test'
+  - torch ; extra == 'test'
   editable: true
 - pypi: ../crazyflow/submodules/drone-models
   name: drone-models
@@ -6461,6 +6484,18 @@ packages:
   license_family: APACHE
   size: 86468
   timestamp: 1747722693913
+- pypi: https://files.pythonhosted.org/packages/56/b3/7c69b37f03260a061883bec0e7b05be7117c1b1c85f5212c72c8c2bc3c8c/munch-4.0.0-py2.py3-none-any.whl
+  name: munch
+  version: 4.0.0
+  sha256: 71033c45db9fb677a0b7eb517a4ce70ae09258490e419b0e7f00d1e386ecb1b4
+  requires_dist:
+  - importlib-metadata>=1.7.0 ; python_full_version < '3.8'
+  - astroid>=2.0 ; extra == 'testing'
+  - pylint~=2.3.1 ; extra == 'testing'
+  - pytest ; extra == 'testing'
+  - coverage ; extra == 'testing'
+  - pyyaml>=5.1.0 ; extra == 'yaml'
+  requires_python: '>=3.6'
 - conda: https://conda.anaconda.org/conda-forge/noarch/munkres-1.1.4-pyhd8ed1ab_1.conda
   sha256: d09c47c2cf456de5c09fa66d2c3c5035aa1fa228a1983a433c47b876aa16ce90
   md5: 37293a85a0f4f77bbd9cf7aaefc62609
@@ -15063,7 +15098,7 @@ packages:
 - pypi: ./
   name: swarm-gpt
   version: 0.0.1
-  sha256: 139c6b047bb1b7095ccaadd90f8e324ba292e0e0f8244c3ba4e53c8e84941a23
+  sha256: 558f352b5ace14b9731fcdc4b12aee3a41011a72822a8d173af5848ebfa34443
   requires_dist:
   - cflib
   - fire
@@ -15084,6 +15119,7 @@ packages:
   - crazyflow @ file:///home/rather/repos/crazyflow
   - drone-models @ file:///home/rather/repos/crazyflow/submodules/drone-models
   - drone-controllers @ file:///home/rather/repos/crazyflow/submodules/drone-controllers
+  - drone-estimators @ file:///home/rather/repos/drone-estimators
   - pytest ; extra == 'test'
   requires_python: '>=3.8'
   editable: true
@@ -15235,6 +15271,13 @@ packages:
   - pytest-mypy-testing ; extra == 'test'
   - pytest>=7.0,<8.2 ; extra == 'test'
   requires_python: '>=3.8'
+- pypi: https://files.pythonhosted.org/packages/61/7a/f38385f1b2d5f54221baf1db3d6371dc6eef8041d95abff39576c694e9d9/transforms3d-0.4.2-py3-none-any.whl
+  name: transforms3d
+  version: 0.4.2
+  sha256: 1c70399d9e9473ecc23311fd947f727f7c69ed0b063244828c383aa1aefa5941
+  requires_dist:
+  - numpy>=1.15
+  requires_python: '>=3.6'
 - pypi: https://files.pythonhosted.org/packages/43/2b/36e984399089c026a6499ac8f7401d38487cf0183839a4aa78140d373771/treescope-0.1.10-py3-none-any.whl
   name: treescope
   version: 0.1.10

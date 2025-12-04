@@ -27,10 +27,30 @@ if TYPE_CHECKING:
 
     from cflib.crayzflie.synccrayzflie import SyncCrazyflie
     from numpy.typing import NDArray as Array
+    from scipy.interpolate import BSpline
 
 logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
+
+
+default_colors = np.array(  # hard coded rainbow colors, https://www.figma.com/color-wheel/
+    [
+        [0.0, 1.0, 0.0, 0.0],
+        [0.0, 1.0, 0.5, 0.0],
+        [0.0, 1.0, 1.0, 0.0],
+        [0.0, 0.5, 1.0, 0.0],
+        [0.0, 0.0, 1.0, 0.0],
+        [0.0, 0.0, 1.0, 0.5],
+        [0.0, 0.0, 1.0, 1.0],
+        [0.0, 0.0, 0.5, 1.0],
+        [0.0, 0.0, 0.0, 1.0],
+        [0.0, 0.5, 0.0, 1.0],
+        [0.0, 1.0, 0.0, 1.0],
+        [0.0, 1.0, 0.0, 0.5],
+    ]
+)
+default_colors *= 255
 
 
 class DroneSwarm:
@@ -38,7 +58,7 @@ class DroneSwarm:
 
     def __init__(
         self,
-        drones: list[dict[str, int]],
+        drones: dict[str, dict[str, Array]],
         ctrl_freq: float = 50,
         update_freq: float = 10,
         col_freq: float = 1,
@@ -46,7 +66,7 @@ class DroneSwarm:
         """TODO.
 
         Args:
-            drones: list of drones with their respective channel and ID
+            drones: dictionary of the drones.toml including id, pos, and uri
             ctrl_freq: Control frequency (Hz). Defaults to 50.
             update_freq: Frequency (Hz) of position updates sent to the drone. Defaults to 10.
             col_freq: Maximum frequency (Hz) of color updates. Defaults to 1
@@ -56,16 +76,19 @@ class DroneSwarm:
         self.update_freq = update_freq
         self.col_freq = col_freq
 
+        rclpy.init()
         self.ros_connector = ROSConnector(
-            tf_names=[f"cf{drone['id']}" for drone in drones], timeout=10.0
+            tf_names=[f"cf{int(d['uri'][-2:], 16)}" for d in self.drones.values()], timeout=10.0
         )
-        self.uris = build_uris(drones)
+        self.uris = [d["uri"] for d in self.drones.values()]
         cflib.crtp.init_drivers()
         for uri in self.uris:
             PowerSwitch(uri).stm_power_cycle()
+        time.sleep(2)
         self.swarm = Swarm(self.uris)
-        self.swarm.connect()
-        ...
+        self.swarm.open_links()
+        self.reset()
+        logger.info("init done")
 
     def get_obs(self, uri: str) -> dict[str, Array]:
         drone_name = f"cf{int(uri[-2:], 16):02d}"
@@ -80,7 +103,7 @@ class DroneSwarm:
         return obs
 
     def takeoff(self, height: float = 1.5, duration: float = 3.0):
-        def _parallel_takeoff(scf: SyncCrazyflie, _reporter):
+        def _parallel_takeoff(scf: SyncCrazyflie):
             # send one position update before taking off
             obs = self.get_obs(scf.cf.link_uri)
             scf.cf.extpos.send_extpose(*obs["pos"], *obs["quat"])
@@ -102,7 +125,7 @@ class DroneSwarm:
         self.swarm.parallel_safe(_parallel_takeoff)
 
     def land(self, height: float = 0.0, duration: float = 3.0):
-        def _parallel_land(scf: SyncCrazyflie, _reporter):
+        def _parallel_land(scf: SyncCrazyflie):
             scf.cf.commander.send_stop_setpoint()
             scf.cf.commander.send_notify_setpoint_stop()
             scf.cf.param.set_value("commander.enHighLevel", 1)
@@ -119,15 +142,15 @@ class DroneSwarm:
 
         self.swarm.parallel_safe(_parallel_land)
 
-    def goto(self, pos: dict[str, dict], duration: float = 3.0):
+    def goto(self, pos: dict[str, list], duration: float = 3.0):
         """Executes a go to command for all drones by linearily interpolating start to desired pos.
 
         Args:
-            pos: Position references in the form {'uri1': {'pos': Array}, ...}
+            pos: Position+Yaw references in the form {'uri1': [pos], ...}
             duration: Duration of the connection in seconds.
         """
 
-        def _parallel_goto(scf: SyncCrazyflie, _reporter, pos: Array):
+        def _parallel_goto(scf: SyncCrazyflie, pos: Array):
             scf.cf.param.set_value("commander.enHighLevel", 0)
             pos_start = np.array(
                 [*self.get_obs(scf.cf.link_uri)["pos"], self.get_obs(scf.cf.link_uri)["rpy"][0]]
@@ -147,63 +170,71 @@ class DroneSwarm:
         assert len(pos.items()) == len(self.drones), (
             "pos does not contain references for all drones."
         )
-        self.swarm.parallel_safe(_parallel_goto, pos)
+        self.swarm.parallel_safe(_parallel_goto, args_dict=pos)
 
-    def execute_choreography(self, choreography: dict[str, dict]):
+    def execute_choreography(
+        self,
+        choreography: dict[str, BSpline],
+        t_end: float,
+        colors: dict[str, dict[str, Array]] | None = None,
+    ):
         """Executes a choreography with position, orientation, and light commands.
 
         Args:
-            choreography: Reference in the form
-                          {'uri1': {'t': Array, 'pos': Array, 'color_top': Array, 'color_bot': Array}, ...}
+            choreography: Reference in the form of a 3d spline
+            t_end: End time of the choreography
+            colors: Cues for colors in the form {'t': Array, 'color_top': Array, 'color_bot': Array, 'mode': Array}
+                    If None, colors are set to default values.
         """
 
         def _parallel_execution(
-            scf: SyncCrazyflie,
-            _reporter,
-            t: Array,
-            pos: Array,
-            color_top: Array | None,
-            color_bot: Array | None,
+            scf: SyncCrazyflie, choreography: BSpline, t_end: float, colors: dict[str, Array]
         ):
             t_start = time.time()
             scf.cf.param.set_value("commander.enHighLevel", 0)
             t_est = -np.inf  # Last est update time, starting negative to force an initial update
-            t_col_top = -np.inf
-            t_col_bot = -np.inf
-            last_color_top = np.zeros(4)
-            last_color_bot = np.zeros(4)
-            while (t_cur := (time.time() - t_start)) < t[-1]:
-                # estimation
+            i_next_col_cmd = 0  # Last time we have applied a color command
+
+            while (t_cur := (time.time() - t_start)) < t_end:
+                # estimator update
                 if t_cur - t_est >= 1 / self.update_freq:
                     obs = self.get_obs(scf.cf.link_uri)
                     scf.cf.extpos.send_extpose(*obs["pos"], *obs["quat"])
                     t_est = t_cur
 
-                # reference
-                i = np.searchsorted(t, t_cur)
-                scf.cf.commander.send_position_setpoint(*pos[i])
+                # reference # TODO fix hard coded yaw
+                scf.cf.commander.send_position_setpoint(*choreography(t_cur), 0.0)
 
                 # color
-                if (
-                    color_top is not None
-                    and t_cur - t_col_top >= 1 / self.col_freq
-                    and np.any(last_color_top != color_top[i])
-                ):
-                    apply_drone_color(scf.cf, color_top[i], "top")
-                    t_col_top, last_color_top = t_cur, color_top[i]
-                if (
-                    color_bot is not None
-                    and t_cur - t_col_bot >= 1 / self.col_freq
-                    and np.any(last_color_bot != color_bot[i])
-                ):
-                    apply_drone_color(scf.cf, color_bot[i], "bot")
-                    t_col_bot, last_color_bot = t_cur, color_bot[i]
+                if i_next_col_cmd < len(colors["t"]) and t_cur >= colors["t"][i_next_col_cmd]:
+                    apply_drone_color(scf.cf, colors["color_top"][i_next_col_cmd], "top")
+                    apply_drone_color(scf.cf, colors["color_bot"][i_next_col_cmd], "bot")
+                    i_next_col_cmd += 1
+                    print("applied color command")
+
                 time.sleep(1 / self.ctrl_freq)
 
         assert len(choreography.items()) == len(self.drones), (
             "pos does not contain references for all drones."
         )
-        self.swarm.parallel_safe(_parallel_execution, choreography)
+
+        # build args_dict
+        args_dict = {}
+        if colors is None:
+            colors = {
+                # TODO use default colors
+                uri: {
+                    "t": np.array([0.0]),
+                    "color_top": [default_colors[i % len(default_colors)]],
+                    "color_bot": [default_colors[i % len(default_colors)]],
+                    "mode": np.array([0.0]),
+                }
+                for i, uri in enumerate(choreography.keys())
+            }
+        for uri in choreography.keys():
+            args_dict[uri] = [choreography[uri], t_end, colors[uri]]
+        print(args_dict)
+        self.swarm.parallel_safe(_parallel_execution, args_dict=args_dict)
 
     def emergency_stop(self, id: int | None = None):
         """Sends an emergency stop signal to one (id) or all drones (default)."""
@@ -218,10 +249,36 @@ class DroneSwarm:
             raise NotImplementedError("Sending emergency stop to one drone not implemented.")
             self.swarm._cf[f"{id}"].cf.send_packet(pk)  # TODO
 
+    def reset(self):
+        """Resets all drones."""
+        obs_dict = {}
+        for uri in self.uris:
+            obs_dict[uri] = [self.get_obs(uri)]
+        print(obs_dict)
+        self.swarm.parallel_safe(reset_drone, args_dict=obs_dict)
+        # for scf in self.swarm._cfs.values():
+        #     logger.info(f"Resetting {scf.cf.link_uri}")
+        #     reset_drone(scf, self.get_obs(scf.cf.link_uri))
+
+    # def connect(self):
+    #     self.swarm.open_links()
+
     def close(self):
         """Closes the swarm and ROS connection."""
         if self.swarm is not None:
-            self.swarm.close_link()
+            pk = CRTPPacket()
+            pk.port = CRTPPort.LOCALIZATION
+            pk.channel = Localization.GENERIC_CH
+            pk.data = struct.pack("<B", Localization.EMERGENCY_STOP)
+            for scf in self.swarm._cfs.values():
+                scf.cf.send_packet(pk)
+            for scf in self.swarm._cfs.values():
+                scf.cf.commander.send_stop_setpoint()
+                scf.cf.commander.send_notify_setpoint_stop()
+                apply_drone_color(scf.cf, np.zeros(4), "both")
+                # TODO turn onboard LEDs on again
+            time.sleep(0.2)  # Wait for commands to be sent
+            self.swarm.close_links()
         self.ros_connector.close()
 
 
@@ -254,33 +311,31 @@ def apply_drone_color(
         cf.param.set_value("colorLedBot.wrgb8888", int(f"0x{w:02x}{r:02x}{g:02x}{b:02x}", 16))
 
 
-def reset_drone(cf: Crazyflie, obs: dict[str, Array]):
-    """Resets a given Crazyflie."""
-    apply_drone_settings(cf)
-    # Reset Kalman filter values
-    cf.param.set_value("kalman.initialX", obs["pos"][0])
-    cf.param.set_value("kalman.initialY", obs["pos"][1])
-    cf.param.set_value("kalman.initialZ", obs["pos"][2])
-    cf.param.set_value("kalman.initialYaw", obs["rpy"][2])
-    cf.param.set_value("kalman.resetEstimation", "1")
-    time.sleep(0.1)
-    cf.param.set_value("kalman.resetEstimation", "0")
-
-
-def apply_drone_settings(cf: Crazyflie):
-    """Apply firmware settings to the drone.
+def reset_drone(scf: SyncCrazyflie, obs: dict[str, Array]):
+    """Resets a given Crazyflie.
 
     Note:
         These settings are also required to make the high-level drone commander work properly.
     """
     # Estimator setting;  1: complementary, 2: kalman -> Manual test: kalman significantly better!
-    cf.param.set_value("stabilizer.estimator", 2)
+    scf.cf.param.set_value("stabilizer.estimator", 2)
     # enable/disable tumble control. Required 0 for agressive maneuvers
-    cf.param.set_value("supervisor.tmblChckEn", 1)
+    scf.cf.param.set_value("supervisor.tmblChckEn", 1)
     # Choose controller: 1: PID; 2:Mellinger
-    cf.param.set_value("stabilizer.controller", 2)
+    scf.cf.param.set_value("stabilizer.controller", 2)
     # rate: 0, angle: 1
-    cf.param.set_value("flightmode.stabModeRoll", 1)
-    cf.param.set_value("flightmode.stabModePitch", 1)
-    cf.param.set_value("flightmode.stabModeYaw", 1)
+    scf.cf.param.set_value("flightmode.stabModeRoll", 1)
+    scf.cf.param.set_value("flightmode.stabModePitch", 1)
+    scf.cf.param.set_value("flightmode.stabModeYaw", 1)
     time.sleep(0.1)  # Wait for settings to be applied
+    # Reset Kalman filter values
+    scf.cf.param.set_value("kalman.initialX", obs["pos"][0])
+    scf.cf.param.set_value("kalman.initialY", obs["pos"][1])
+    scf.cf.param.set_value("kalman.initialZ", obs["pos"][2])
+    scf.cf.param.set_value("kalman.initialYaw", obs["rpy"][2])
+    scf.cf.param.set_value("kalman.resetEstimation", "1")
+    time.sleep(0.1)  # Wait for settings to be applied
+    scf.cf.param.set_value("kalman.resetEstimation", "0")
+    scf.cf.platform.send_arming_request(True)
+    time.sleep(0.5)  # Wait for motors to start
+    # TODO turn onboard LEDs off
