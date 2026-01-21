@@ -76,7 +76,6 @@ class DroneSwarm:
         self.update_freq = update_freq
         self.col_freq = col_freq
 
-        rclpy.init()
         self.ros_connector = ROSConnector(
             tf_names=[f"cf{int(d['uri'][-2:], 16)}" for d in self.drones.values()], timeout=10.0
         )
@@ -104,41 +103,47 @@ class DroneSwarm:
 
     def takeoff(self, height: float = 1.5, duration: float = 3.0):
         def _parallel_takeoff(scf: SyncCrazyflie):
-            # send one position update before taking off
-            obs = self.get_obs(scf.cf.link_uri)
-            scf.cf.extpos.send_extpose(*obs["pos"], *obs["quat"])
-
-            scf.cf.commander.send_stop_setpoint()
-            scf.cf.commander.send_notify_setpoint_stop()
-            scf.cf.param.set_value("commander.enHighLevel", 1)
-            hlc = scf.cf.high_level_commander
-            hlc.takeoff(height, duration)
-            # keep the onboard estimators updated to avoid drift
-            # TODO this should be done via broadcast to reduce load
-            t_start = time.time()
-            while time.time() < t_start + duration:
+            try:
+                # send one position update before taking off
                 obs = self.get_obs(scf.cf.link_uri)
                 scf.cf.extpos.send_extpose(*obs["pos"], *obs["quat"])
-                time.sleep(1 / self.update_freq)
-            hlc.stop()
+
+                scf.cf.commander.send_stop_setpoint()
+                scf.cf.commander.send_notify_setpoint_stop()
+                scf.cf.param.set_value("commander.enHighLevel", 1)
+                hlc = scf.cf.high_level_commander
+                hlc.takeoff(height, duration)
+                # keep the onboard estimators updated to avoid drift
+                # TODO this should be done via broadcast to reduce load
+                t_start = time.time()
+                while time.time() < t_start + duration:
+                    obs = self.get_obs(scf.cf.link_uri)
+                    scf.cf.extpos.send_extpose(*obs["pos"], *obs["quat"])
+                    time.sleep(1 / self.update_freq)
+                hlc.stop()
+            except KeyError as e:
+                logger.error(f"Taking off failed for {scf.cf.link_uri}: {e}")
 
         self.swarm.parallel_safe(_parallel_takeoff)
 
     def land(self, height: float = 0.0, duration: float = 3.0):
         def _parallel_land(scf: SyncCrazyflie):
-            scf.cf.commander.send_stop_setpoint()
-            scf.cf.commander.send_notify_setpoint_stop()
-            scf.cf.param.set_value("commander.enHighLevel", 1)
-            hlc = scf.cf.high_level_commander
-            hlc.land(height, duration)
-            # keep the onboard estimators updated to avoid drift
-            # TODO this should be done via broadcast to reduce load
-            t_start = time.time()
-            while time.time() < t_start + duration:
-                obs = self.get_obs(scf.cf.link_uri)
-                scf.cf.extpos.send_extpose(*obs["pos"], *obs["quat"])
-                time.sleep(1 / self.update_freq)
-            hlc.stop()
+            try:
+                scf.cf.commander.send_stop_setpoint()
+                scf.cf.commander.send_notify_setpoint_stop()
+                scf.cf.param.set_value("commander.enHighLevel", 1)
+                hlc = scf.cf.high_level_commander
+                hlc.land(height, duration)
+                # keep the onboard estimators updated to avoid drift
+                # TODO this should be done via broadcast to reduce load
+                t_start = time.time()
+                while time.time() < t_start + duration:
+                    obs = self.get_obs(scf.cf.link_uri)
+                    scf.cf.extpos.send_extpose(*obs["pos"], *obs["quat"])
+                    time.sleep(1 / self.update_freq)
+                hlc.stop()
+            except KeyError as e:
+                logger.error(f"Landing failed for {scf.cf.link_uri}: {e}")
 
         self.swarm.parallel_safe(_parallel_land)
 
@@ -151,21 +156,26 @@ class DroneSwarm:
         """
 
         def _parallel_goto(scf: SyncCrazyflie, pos: Array):
-            scf.cf.param.set_value("commander.enHighLevel", 0)
-            pos_start = np.array(
-                [*self.get_obs(scf.cf.link_uri)["pos"], self.get_obs(scf.cf.link_uri)["rpy"][0]]
-            )
-            pos_goal = np.array(pos)
-            ref = interp1d([0.0, duration], [pos_start, pos_goal], axis=0)
-            t_start = time.time()
-            t_est = -np.inf  # Last est update time, starting negative to force an initial update
-            while (t := (time.time() - t_start)) < duration:
-                if t - t_est >= 1 / self.update_freq:
-                    obs = self.get_obs(scf.cf.link_uri)
-                    scf.cf.extpos.send_extpose(*obs["pos"], *obs["quat"])
-                    t_est = t
-                scf.cf.commander.send_position_setpoint(*ref(t))
-                time.sleep(1 / self.ctrl_freq)
+            try:
+                scf.cf.param.set_value("commander.enHighLevel", 0)
+                pos_start = np.array(
+                    [*self.get_obs(scf.cf.link_uri)["pos"], self.get_obs(scf.cf.link_uri)["rpy"][0]]
+                )
+                pos_goal = np.array(pos)
+                ref = interp1d([0.0, duration], [pos_start, pos_goal], axis=0)
+                t_start = time.time()
+                t_est = (
+                    -np.inf
+                )  # Last est update time, starting negative to force an initial update
+                while (t := (time.time() - t_start)) < duration:
+                    if t - t_est >= 1 / self.update_freq:
+                        obs = self.get_obs(scf.cf.link_uri)
+                        scf.cf.extpos.send_extpose(*obs["pos"], *obs["quat"])
+                        t_est = t
+                    scf.cf.commander.send_position_setpoint(*ref(t))
+                    time.sleep(1 / self.ctrl_freq)
+            except KeyError as e:
+                logger.error(f"Go to failed for {scf.cf.link_uri}: {e}")
 
         assert len(pos.items()) == len(self.drones), (
             "pos does not contain references for all drones."
@@ -190,29 +200,33 @@ class DroneSwarm:
         def _parallel_execution(
             scf: SyncCrazyflie, choreography: BSpline, t_end: float, colors: dict[str, Array]
         ):
-            t_start = time.time()
-            scf.cf.param.set_value("commander.enHighLevel", 0)
-            t_est = -np.inf  # Last est update time, starting negative to force an initial update
-            i_next_col_cmd = 0  # Last time we have applied a color command
+            try:
+                t_start = time.time()
+                scf.cf.param.set_value("commander.enHighLevel", 0)
+                # Last est update time, starting negative to force an initial update
+                t_est = -np.inf
+                i_next_col_cmd = 0  # Last time we have applied a color command
 
-            while (t_cur := (time.time() - t_start)) < t_end:
-                # estimator update
-                if t_cur - t_est >= 1 / self.update_freq:
-                    obs = self.get_obs(scf.cf.link_uri)
-                    scf.cf.extpos.send_extpose(*obs["pos"], *obs["quat"])
-                    t_est = t_cur
+                while (t_cur := (time.time() - t_start)) < t_end:
+                    # estimator update
+                    if t_cur - t_est >= 1 / self.update_freq:
+                        obs = self.get_obs(scf.cf.link_uri)
+                        scf.cf.extpos.send_extpose(*obs["pos"], *obs["quat"])
+                        t_est = t_cur
 
-                # reference # TODO fix hard coded yaw
-                scf.cf.commander.send_position_setpoint(*choreography(t_cur), 0.0)
+                    # reference # TODO fix hard coded yaw
+                    scf.cf.commander.send_position_setpoint(*choreography(t_cur), 0.0)
 
-                # color
-                if i_next_col_cmd < len(colors["t"]) and t_cur >= colors["t"][i_next_col_cmd]:
-                    apply_drone_color(scf.cf, colors["color_top"][i_next_col_cmd], "top")
-                    apply_drone_color(scf.cf, colors["color_bot"][i_next_col_cmd], "bot")
-                    i_next_col_cmd += 1
-                    print("applied color command")
+                    # color
+                    if i_next_col_cmd < len(colors["t"]) and t_cur >= colors["t"][i_next_col_cmd]:
+                        apply_drone_color(scf.cf, colors["color_top"][i_next_col_cmd], "top")
+                        apply_drone_color(scf.cf, colors["color_bot"][i_next_col_cmd], "bot")
+                        scf.cf.param.set_value("ledpat.pattern", colors["mode"][i_next_col_cmd])
+                        i_next_col_cmd += 1
 
-                time.sleep(1 / self.ctrl_freq)
+                    time.sleep(1 / self.ctrl_freq)
+            except KeyError as e:
+                logger.error(f"Choreography execution failed for {scf.cf.link_uri}: {e}")
 
         assert len(choreography.items()) == len(self.drones), (
             "pos does not contain references for all drones."
@@ -233,7 +247,6 @@ class DroneSwarm:
             }
         for uri in choreography.keys():
             args_dict[uri] = [choreography[uri], t_end, colors[uri]]
-        print(args_dict)
         self.swarm.parallel_safe(_parallel_execution, args_dict=args_dict)
 
     def emergency_stop(self, id: int | None = None):
@@ -254,7 +267,6 @@ class DroneSwarm:
         obs_dict = {}
         for uri in self.uris:
             obs_dict[uri] = [self.get_obs(uri)]
-        print(obs_dict)
         self.swarm.parallel_safe(reset_drone, args_dict=obs_dict)
         # for scf in self.swarm._cfs.values():
         #     logger.info(f"Resetting {scf.cf.link_uri}")
@@ -272,11 +284,16 @@ class DroneSwarm:
             pk.data = struct.pack("<B", Localization.EMERGENCY_STOP)
             for scf in self.swarm._cfs.values():
                 scf.cf.send_packet(pk)
+            time.sleep(0.1)
             for scf in self.swarm._cfs.values():
-                scf.cf.commander.send_stop_setpoint()
-                scf.cf.commander.send_notify_setpoint_stop()
-                apply_drone_color(scf.cf, np.zeros(4), "both")
-                # TODO turn onboard LEDs on again
+                try:
+                    # TODO make parallel safe version
+                    scf.cf.param.set_value("led.bitmask", 0)  # turn on all LEDs
+                    apply_drone_color(scf.cf, np.zeros(4), "both")
+                    scf.cf.param.set_value("ledpat.pattern", 0)
+                    time.sleep(0.1)
+                except Exception as e:
+                    logger.error(f"Error while closing drone {scf.cf.link_uri}: {e}")
             time.sleep(0.2)  # Wait for commands to be sent
             self.swarm.close_links()
         self.ros_connector.close()
@@ -327,6 +344,7 @@ def reset_drone(scf: SyncCrazyflie, obs: dict[str, Array]):
     scf.cf.param.set_value("flightmode.stabModeRoll", 1)
     scf.cf.param.set_value("flightmode.stabModePitch", 1)
     scf.cf.param.set_value("flightmode.stabModeYaw", 1)
+    scf.cf.param.set_value("led.bitmask", 128)  # turn off all LEDs
     time.sleep(0.1)  # Wait for settings to be applied
     # Reset Kalman filter values
     scf.cf.param.set_value("kalman.initialX", obs["pos"][0])
@@ -338,4 +356,3 @@ def reset_drone(scf: SyncCrazyflie, obs: dict[str, Array]):
     scf.cf.param.set_value("kalman.resetEstimation", "0")
     scf.cf.platform.send_arming_request(True)
     time.sleep(0.5)  # Wait for motors to start
-    # TODO turn onboard LEDs off

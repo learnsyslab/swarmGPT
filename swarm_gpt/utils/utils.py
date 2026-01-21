@@ -28,3 +28,20 @@ def discretize_bspline(
     for i in waypoints.keys():
         waypoints[i] = np.array(waypoints[i])
     return waypoints
+
+
+def generate_default_colors(num_drones: int) -> dict[int, Array]:
+    """Generates a default color sequence for the given number of drones."""
+    colors = {}
+    for i in range(num_drones):
+        colors[i] = {
+            "t": np.array([0, 7, 10.5, 18, 32]),
+            "color_top": np.array(
+                [[0, 128, 0, 0], [0, 0, 0, 0], [0, 128, 0, 0], [0, 128, 0, 0], [0, 128, 0, 0]]
+            ),
+            "color_bot": np.array(
+                [[0, 0, 128, 0], [0, 0, 0, 0], [0, 0, 128, 0], [0, 0, 128, 0], [0, 0, 128, 0]]
+            ),
+            "mode": np.array([6, 5, 3, 2, 4]),
+        }
+    return colors

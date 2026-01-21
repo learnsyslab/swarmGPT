@@ -198,11 +198,18 @@ def simulate_spline(
     )
     # Setting Up Initial States
     pos = np.array([splines[i](0) for i in splines.keys()])[None, ...]
+    rotor_vel = np.ones((1, sim.n_drones, 4)) * 25000.0  # TODO use hover values
     assert pos.shape == sim.data.states.pos.shape, (
         f"Initial drone position shape mismatch ({pos.shape}) vs ({sim.data.states.pos.shape})"
     )
+    assert rotor_vel.shape == sim.data.states.rotor_vel.shape, (
+        f"Initial drone position shape mismatch ({rotor_vel.shape}) vs ({sim.data.states.rotor_vel.shape})"
+    )
     sim.data = sim.data.replace(
         states=sim.data.states.replace(pos=sim.data.states.pos.at[...].set(pos))
+    )
+    sim.data = sim.data.replace(
+        states=sim.data.states.replace(rotor_vel=sim.data.states.rotor_vel.at[...].set(rotor_vel))
     )
     # TODO set initial rotor velocities to hover values
 

@@ -1,45 +1,36 @@
 [cf0]
-id = 11
 uri = "radio://0/10/2M/E7E7E7E70B"
 pos = [1.0, -1.0, 0.0]
 
 [cf1]
-id = 12
 uri = "radio://0/10/2M/E7E7E7E70C"
 pos = [1.0, 0.0, 0.0]
 
 [cf2]
-id = 13
 uri = "radio://0/10/2M/E7E7E7E70D"
 pos = [1.0, 1.0, 0.0]
 
 [cf3]
-id = 14
 uri = "radio://1/40/2M/E7E7E7E70E"
 pos = [0.0, -1.0, 0.0]
 
 [cf4]
-id = 15
 uri = "radio://1/40/2M/E7E7E7E70F"
 pos = [0.0, 0.0, 0.0]
 
 [cf5]
-id = 16
 uri = "radio://1/40/2M/E7E7E7E710"
 pos = [0.0, 1.0, 0.0]
 
 [cf6]
-id = 17
 uri = "radio://2/70/2M/E7E7E7E711"
 pos = [-1.0, -1.0, 0.0]
 
 [cf7]
-id = 18
 uri = "radio://2/70/2M/E7E7E7E712"
 pos = [-1.0, 0.0, 0.0]
 
 [cf8]
-id = 19
 uri = "radio://2/70/2M/E7E7E7E713"
 pos = [-1.0, 1.0, 0.0]
 

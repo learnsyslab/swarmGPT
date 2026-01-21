@@ -22,7 +22,9 @@ from swarm_gpt.utils import MusicManager, discretize_bspline
 if TYPE_CHECKING:
     from numpy.typing import NDArray as Array
 
+logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 colors = [
     [1.0, 0.0, 0.0],
@@ -236,6 +238,9 @@ class AppBackend:
         # Check if even in deploy environment
         try:
             import rclpy
+
+            if not rclpy.ok():
+                rclpy.init()  # Do it only once to be able to deploy multiple times
         except ImportError as _:
             logger.error("ROS2 is not installed. Switch to deploy environment!")
             return
@@ -252,31 +257,41 @@ class AppBackend:
 
         # generate references
         init_pos_dict = {}
+        final_pos_dict = {}
         choreography_dict = {}
+        colors_dict = {}
         for i, d in enumerate(self.choreographer.drones.values()):
-            pos = np.array(self.splines[i](0))
+            init_pos = np.array(self.splines[i](0))
+            final_pos = d["pos"]  # + np.array([0.0, 0.0, 0.2])
             # TODO fix hard coded yaw
-            init_pos_dict[d["uri"]] = [np.array([*pos, 0.0])]
+            init_pos_dict[d["uri"]] = [np.array([*init_pos, 0.0])]
+            final_pos_dict[d["uri"]] = [np.array([*final_pos, 0.0])]
             choreography_dict[d["uri"]] = self.splines[i]
+            colors_dict[d["uri"]] = {
+                "t": np.array([0, 6.3, 11, 23, 32.5]),
+                "color_top": np.array(
+                    [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]]
+                ),
+                "color_bot": np.array(
+                    [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]]
+                ),
+                "mode": np.array([6, 5, 3, 2, 4]),
+            }
 
         swarm = DroneSwarm(self.choreographer.drones)
-        print("connected")
+        logger.info("Swarm connected...")
         try:
-            # Create swarm (and connect to it)
-            print("Connected, taking off")
-            # swarm.takeoff()
-
-            print(init_pos_dict)
             swarm.goto(init_pos_dict)
             self.music_manager.play()
-            swarm.execute_choreography(choreography_dict, self.waypoints["time"][0, -1])
-            print("Landing...")
-            swarm.land()
-            # self.music_manager.song = original_song
+            swarm.execute_choreography(
+                choreography_dict, self.waypoints["time"][0, -1], colors_dict
+            )
+            swarm.goto(final_pos_dict, duration=3.0)
+            # swarm.land(duration=0.5)
         finally:
             swarm.close()
+        self.music_manager.song = original_song
         logger.info("Deployment successful")
-        print("Deployment successful")
 
     def load_preset(self, preset_id: str) -> list[dict[str, str]]:
         """Load a preset response.
@@ -321,15 +336,15 @@ class AppBackend:
             np.save(path / "waypoints.npy", self.waypoints)
 
         pos_splines = self.splines
-        vel_splines = {i: [s.derivative() for s in pos_splines[i]] for i in pos_splines}
-        acc_splines = {i: [s.derivative() for s in vel_splines[i]] for i in vel_splines}
-        des_pos, des_vel, des_acc = [], [], []
+        vel_splines = {i: s.derivative() for i, s in pos_splines.items()}
+        acc_splines = {i: s.derivative() for i, s in vel_splines.items()}
         des_time = np.arange(0, self.waypoints["time"][0, -1], 1.0 / self.settings["state_freq"])
-        for t in des_time:
-            des_pos.append([[s(t) for s in pos_splines[j]] for j in pos_splines])
-            des_vel.append([[s(t) for s in vel_splines[j]] for j in vel_splines])
-            des_acc.append([[s(t) for s in acc_splines[j]] for j in acc_splines])
-        des_pos, des_vel, des_acc = np.array(des_pos), np.array(des_vel), np.array(des_acc)
+        des_pos = [s(des_time) for s in pos_splines.values()]
+        des_vel = [s(des_time) for s in vel_splines.values()]
+        des_acc = [s(des_time) for s in acc_splines.values()]
+        des_pos = np.array(des_pos).swapaxes(0, 1)
+        des_vel = np.array(des_vel).swapaxes(0, 1)
+        des_acc = np.array(des_acc).swapaxes(0, 1)
 
         N = des_time.shape[0]
         M = self.choreographer.num_drones
