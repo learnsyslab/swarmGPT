@@ -17,7 +17,7 @@ from swarm_gpt.core import Choreographer
 from swarm_gpt.core.drone_swarm import DroneSwarm
 from swarm_gpt.core.sim import simulate_axswarm, simulate_spline
 from swarm_gpt.exception import LLMException
-from swarm_gpt.utils import MusicManager, discretize_bspline
+from swarm_gpt.utils import MusicManager, discretize_bspline, generate_default_colors
 
 if TYPE_CHECKING:
     from numpy.typing import NDArray as Array
@@ -260,6 +260,9 @@ class AppBackend:
         final_pos_dict = {}
         choreography_dict = {}
         colors_dict = {}
+        colors_array = np.zeros((self.choreographer.num_drones, 4))
+        colors_array[:, 1:] = generate_default_colors(self.choreographer.num_drones, limit=255)
+
         for i, d in enumerate(self.choreographer.drones.values()):
             init_pos = np.array(self.splines[i](0))
             final_pos = d["pos"]  # + np.array([0.0, 0.0, 0.2])
@@ -267,16 +270,22 @@ class AppBackend:
             init_pos_dict[d["uri"]] = [np.array([*init_pos, 0.0])]
             final_pos_dict[d["uri"]] = [np.array([*final_pos, 0.0])]
             choreography_dict[d["uri"]] = self.splines[i]
+            # colors_dict[d["uri"]] = {
+            #     "t": np.array([0, 6.3, 11, 23, 32.5]),
+            #     "color_top": np.array(
+            #         [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]]
+            #     ),
+            #     "color_bot": np.array(
+            #         [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]]
+            #     ),
+            #     "mode": np.array([6, 5, 3, 2, 4]),
+            # } # Christmas video colors
             colors_dict[d["uri"]] = {
-                "t": np.array([0, 6.3, 11, 23, 32.5]),
-                "color_top": np.array(
-                    [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]]
-                ),
-                "color_bot": np.array(
-                    [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]]
-                ),
-                "mode": np.array([6, 5, 3, 2, 4]),
-            }
+                "t": np.array([0]),
+                "color_top": np.array([colors_array[i]]),
+                "color_bot": np.array([colors_array[i]]),
+                "mode": np.array([0]),
+            }  # Default colors
 
         swarm = DroneSwarm(self.choreographer.drones)
         logger.info("Swarm connected...")
