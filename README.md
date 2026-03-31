@@ -7,22 +7,26 @@
 
 SwarmGPT integrates large language models (LLMs) with safe swarm motion planning, providing an automated and novel approach to deployable drone swarm choreography. Users can automatically generate synchronized drone performances through natural language instructions. Emphasizing safety and creativity, the system combines the creative power of generative models with the effectiveness and safety of model-based planning algorithms. For more information, visit the [project website](https://utiasdsl.github.io/swarm_GPT/) or read our [paper](https://ieeexplore.ieee.org/document/11197931/).
 
-- [Installation](#installation)
-- [How to run SwarmGPT](#how-to-run-swarmgpt)
-- [Deployment](#deployment)
-- [Citing](#citing)
+- [SwarmGPT](#swarmgpt)
+  - [Installation](#installation)
+    - [Prerequisites](#prerequisites)
+    - [Setting up SwarmGPT](#setting-up-swarmgpt)
+  - [How to run SwarmGPT](#how-to-run-swarmgpt)
+    - [Prerequisites](#prerequisites-1)
+    - [Launching the Interface](#launching-the-interface)
+  - [Citing](#citing)
 
 ## Installation
 
 [![Pixi Badge](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/prefix-dev/pixi/main/assets/badge/v0.json)](https://pixi.sh)
-[![Python 3.11](https://img.shields.io/badge/python-3.11-blue.svg)](https://www.python.org/downloads/)
-[![ROS Noetic](https://img.shields.io/badge/ROS-Noetic-blue.svg)](http://wiki.ros.org/noetic)
+[![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/downloads/)
+[![ROS Noetic](https://img.shields.io/badge/ROS2-Kilted-blue.svg)](https://docs.ros.org/en/kilted/index.html)
 
 SwarmGPT uses [Pixi](https://pixi.sh) for dependency management and environment setup. Pixi provides a fast, reliable package manager that handles both conda and PyPI dependencies seamlessly.
 
 ### Prerequisites
 
-- Linux x64 system (required for ROS Noetic support)
+- Linux x64 system
 - [Pixi package manager](https://pixi.sh) - see [installation instructions](https://pixi.sh/latest/installation/)
 
 ### Setting up SwarmGPT
@@ -31,60 +35,16 @@ Clone the repository and activate the environment:
 ```bash
 git clone git@github.com:utiasDSL/swarmGPT.git
 cd swarmGPT
-pixi shell
+pixi install
 ```
-
-Note: You will see an error message, that `setup.sh` and `openai_api_key.sh` were not found. This is fine and fixed in the next steps.
-
-This project is build on crazyswarm. Since the original (legacy) version is broken, please use our fork:
-```bash
-git clone --recurse-submodules git@github.com:utiasDSL/crazyswarm.git submodules/crazyswarm
-cd submodules/crazyswarm && ./build.sh
-exit # to force sourcing of setup.sh
-```
-
-To test the crazyswarm installation, you can try to run the unit tests after reactivating the shell with `pixi shell`:
-```bash
-cd submodules/crazyswarm/ros_ws/src/crazyswarm/scripts
-python -m pytest
-```
-Note: Those tests will fail after completion of the installation, since they require `numpy<2`.
-
-Crazyswarm needs tracking information (for **deployment only**). At the Learning Systems Lab, we use a Vicon motion capture and therefore need this `vicon_bridge` package:
-```bash
-git clone git@github.com:ethz-asl/vicon_bridge.git submodules/catkin_ws/src/vicon_bridge
-cd submodules/catkin_ws && catkin_make -DCMAKE_POLICY_VERSION_MINIMUM=3.5
-exit # to force sourcing of setup.bash
-```
-You need to set the IP in `submodules/catkin_ws/src/vicon_bridge/launch/vicon.launch` (`datastream_hostport`) and in `submodules/crazyswarm/ros_ws/src/crazyswarm/launch/hover_swarm.launch` (`motion_capture_host_name`).
 
 Lastly, we rely on the VLC media player to play the music. In case you don't have it installed, run:
 ```bash
 sudo apt install vlc
 ```
+Your setup is ready now. 
 
-Next we can install axswarm and swarmGPT, given an active environment, with:
-```bash
-git clone git@github.com:utiasDSL/axswarm.git submodules/axswarm
-pip install -e .
-pip install -e ./submodules/axswarm
-```
-
-Note: We are installing axswarm last to force `numpy>=2.0`, which is needed for some of our packages.
-
-Your setup is ready now. If you are unsure if the installation was successful, you can run tests after exporting the API key (see below).
-```bash
-python -m pytest tests
-```
-
-The environment includes:
-- **Python 3.11** with essential scientific computing packages
-- **ROS Noetic Desktop** for robot communication and control
-- **Build tools** (cmake, ninja, catkin_tools) for ROS workspace compilation
-- **Development tools** (ruff for linting, uv for fast Python package management)
-- **Point Cloud Library (PCL)** for 3D processing
-
-### Documentation Environment
+<!-- ### Documentation Environment
 
 To work with documentation, use the docs environment:
 
@@ -94,32 +54,28 @@ pixi run -e docs docs-serve
 
 # Build documentation
 pixi run -e docs docs-build
-```
+``` -->
 ## How to run SwarmGPT
 
 ### Prerequisites
 
-Before running SwarmGPT, start your pixi shell with `pixi shell`. Then, ensure you have:
+Before running SwarmGPT, ensure you have:
 
 1. **OpenAI API Key**: Set your OpenAI API key as an environment variable:
    ```bash
    export OPENAI_API_KEY="your-api-key-here"
    ```
-   For convinience, you can create a `key.sh` with the command above, which is automatically executed whenever you start you `pixi shell`.
+   For convinience, you can create a `openai_api_key.sh` script in the swarmGPT root directory containing the command above, which is automatically executed whenever you start you start your pixi environment.
 
-2. **Crazyswarm Configuration**: Configure your drone swarm by editing the `crazyflies.yaml` file in your Crazyswarm installation. SwarmGPT automatically locates this file at:
+2. **Configuration**: Configure your drone swarm by editing the settings. SwarmGPT automatically locates the files at:
+   ```bash
+   swarmGPT/data/drones.toml # Contains the drone URIs and home positions
+   swarmGPT/data/settings.yaml # Contains the environment and safety filter settings
    ```
-   submodules/crazyswarm/ros_ws/src/crazyswarm/launch/crazyflies.yaml
-   ```
-   
-   This file defines:
-   - Drone IDs and radio addresses
-   - Initial positions for each drone in the swarm
-   - Flight area boundaries
 
 ### Launching the Interface
 
-1. **Activate the Pixi environment** (if not already active):
+1. **Activate the Pixi environment**:
    ```bash
    pixi shell
    ```
@@ -160,11 +116,11 @@ Once you're happy with your generated choreography, you can proceed to deploy it
 
 ## Deployment
 
-To deploy the generated choreography on your physical drone swarm, crazyswarm has to be running **before** starting the SwarmGPT interface!
+Use the deploy environment (`pixi shell -e deploy`) to run the following code. You need to start two terminals.
 
-1. **Start the Crazyswarm server**:
+1. **Start the motion_capture_tracking lib**:
    ```bash
-   roslaunch crazyswarm hover_swarm.launch
+   ros2 launch motion_capture_tracking launch.py
    ```
 2. **Launch SwarmGPT** as described in the [Launching the Interface](#launching-the-interface) section.
 3. **Generate and preview choreography** using the web interface.

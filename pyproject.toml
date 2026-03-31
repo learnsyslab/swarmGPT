@@ -82,6 +82,8 @@ scripts = ["openai_api_key.sh"]
 [tool.pixi.environments]
 default = { features = ["sim"], solve-group = "default" }
 deploy = { features = ["sim", "kilted", "deploy"] }
+docs = { features = ["docs"] }
+tests = { features = ["tests", "sim", "kilted", "deploy"] }
 
 [tool.pixi.dependencies]
 # Environment packages
@@ -121,12 +123,37 @@ ros-kilted-desktop = "*"
 [tool.pixi.feature.kilted.activation]
 scripts = ["tools/setup_mocap.sh"]
 
-# # feature[tests]
-# [tool.pixi.feature.tests.tasks]
-# tests = { cmd = "pytest -v tests", description = "Run tests" }
+# feature[tests]
+[tool.pixi.feature.tests.dependencies]
+pytest = ">=8.4.1"
+pytest-timeout = ">=2.1.0"
+pytest-cov = ">=6.0.0"
+array-api-strict = ">=2.4.1"
 
-# [tool.pixi.feature.tests.dependencies]
-# pytest = "*"
+[tool.pixi.feature.tests.pypi-dependencies]
+torch = ">=2.7.0"  # For doctests
+jax = ">=0.7.0"
+# pytest-markdown-docs = "*"
+
+[tool.pixi.feature.tests.tasks]
+tests = { cmd = "pytest -v tests", description = "Run tests" }
+# test-docs = { cmd = "pytest -v --markdown-docs --markdown-docs-syntax=superfences drone_models/ docs/ --ignore=docs/gen_ref_pages.py", env = { SCIPY_ARRAY_API = "1" }, description = "Run doctests for docstrings and documentation" }
+
+# feature[docs]
+[tool.pixi.feature.docs.dependencies]
+mkdocs = "*"
+mkdocs-material = "*"
+click = "8.2.1.*"  # https://github.com/mkdocs/mkdocs/issues/4032
+
+[tool.pixi.feature.docs.pypi-dependencies]
+mkdocstrings = { version = "*", extras = ["python"] }
+mkdocs-gen-files = "*"
+mkdocs-literate-nav = "*"
+mkdocs-section-index = "*"
+
+[tool.pixi.feature.docs.tasks]
+docs-serve = { cmd = "mkdocs serve", description = "Serve docs locally" }
+docs-build = { cmd = "mkdocs build", description = "Build docs" }
 
 ########################
 # ruff Settings

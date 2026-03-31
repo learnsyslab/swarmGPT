@@ -1,7 +1,7 @@
 .vscode
 *.pyc
 */**__pycache__
-swarm_gpt.egg-info
+*.egg-info
 saves
 # !saves/sim2real.bag*
 #!saves/.gitkeep
