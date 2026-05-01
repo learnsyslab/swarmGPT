@@ -13,7 +13,7 @@ import cflib.crtp
 import numpy as np
 import rclpy
 from cflib.crazyflie import Crazyflie, Localization
-from cflib.crazyflie.swarm import Swarm
+from cflib.crazyflie.swarm import CachedCfFactory, Swarm
 from cflib.crtp.crtpstack import CRTPPacket, CRTPPort
 from cflib.utils.power_switch import PowerSwitch
 from drone_estimators.ros_nodes.ros2_connector import ROSConnector
@@ -61,7 +61,7 @@ class DroneSwarm:
         drones: dict[str, dict[str, Array]],
         ctrl_freq: float = 50,
         update_freq: float = 10,
-        col_freq: float = 1,
+        col_freq: float = 10,
     ):
         """TODO.
 
@@ -69,7 +69,7 @@ class DroneSwarm:
             drones: dictionary of the drones.toml including id, pos, and uri
             ctrl_freq: Control frequency (Hz). Defaults to 50.
             update_freq: Frequency (Hz) of position updates sent to the drone. Defaults to 10.
-            col_freq: Maximum frequency (Hz) of color updates. Defaults to 1
+            col_freq: Maximum frequency (Hz) of color updates. Defaults to 10
         """
         self.drones = drones
         self.ctrl_freq = ctrl_freq
@@ -84,7 +84,8 @@ class DroneSwarm:
         for uri in self.uris:
             PowerSwitch(uri).stm_power_cycle()
         time.sleep(2)
-        self.swarm = Swarm(self.uris)
+        factory = CachedCfFactory(rw_cache="./cache")
+        self.swarm = Swarm(self.uris, factory=factory)
         self.swarm.open_links()
         self.reset()
         logger.info("init done")
@@ -193,7 +194,7 @@ class DroneSwarm:
         Args:
             choreography: Reference in the form of a 3d spline
             t_end: End time of the choreography
-            colors: Cues for colors in the form {'t': Array, 'color_top': Array, 'color_bot': Array, 'mode': Array}
+            colors: Cues for colors in the form {'t': Array, 'color_top': Array, 'color_bot': Array}
                     If None, colors are set to default values.
         """
 
@@ -221,10 +222,10 @@ class DroneSwarm:
                     if i_next_col_cmd < len(colors["t"]) and t_cur >= colors["t"][i_next_col_cmd]:
                         apply_drone_color(scf.cf, colors["color_top"][i_next_col_cmd], "top")
                         apply_drone_color(scf.cf, colors["color_bot"][i_next_col_cmd], "bot")
-                        scf.cf.param.set_value("ledpat.pattern", colors["mode"][i_next_col_cmd])
                         i_next_col_cmd += 1
 
-                    time.sleep(1 / self.ctrl_freq)
+                    if (sleep_time := 1 / self.ctrl_freq + t_cur - (time.time() - t_start)) > 0:
+                        time.sleep(sleep_time)
             except KeyError as e:
                 logger.error(f"Choreography execution failed for {scf.cf.link_uri}: {e}")
 
@@ -235,19 +236,34 @@ class DroneSwarm:
         # build args_dict
         args_dict = {}
         if colors is None:
-            colors = {
-                # TODO use default colors
-                uri: {
-                    "t": np.array([0.0]),
-                    "color_top": [default_colors[i % len(default_colors)]],
-                    "color_bot": [default_colors[i % len(default_colors)]],
-                    "mode": np.array([0.0]),
-                }
-                for i, uri in enumerate(choreography.keys())
-            }
+            logger.warning("No colors provided for choreography.")
+            colors = {uri: np.array([]) for uri in choreography.keys()}  # empty colors
         for uri in choreography.keys():
             args_dict[uri] = [choreography[uri], t_end, colors[uri]]
         self.swarm.parallel_safe(_parallel_execution, args_dict=args_dict)
+
+    def apply_colors(self, colors: dict[str, dict[str, Array]]):
+        """Applies colors to the drones.
+
+        Args:
+            colors: Cues for colors in the form {'color_top': Array, 'color_bot': Array}
+        """
+
+        def _parallel_color(scf: SyncCrazyflie, colors: dict[str, Array]):
+            try:
+                apply_drone_color(scf.cf, colors["color_top"][0], "top")
+                time.sleep(1 / self.col_freq)
+                apply_drone_color(scf.cf, colors["color_bot"][0], "bot")
+                time.sleep(1 / self.col_freq)
+            except KeyError as e:
+                logger.error(f"Applying colors failed for {scf.cf.link_uri}: {e}")
+
+        # build args_dict
+        args_dict = {}
+        for uri in colors.keys():
+            args_dict[uri] = [colors[uri]]
+        self.swarm.parallel_safe(_parallel_color, args_dict=args_dict)
+        time.sleep(5 / self.col_freq)
 
     def emergency_stop(self, id: int | None = None):
         """Sends an emergency stop signal to one (id) or all drones (default)."""
@@ -290,7 +306,7 @@ class DroneSwarm:
                     # TODO make parallel safe version
                     scf.cf.param.set_value("led.bitmask", 0)  # turn on all LEDs
                     apply_drone_color(scf.cf, np.zeros(4), "both")
-                    scf.cf.param.set_value("ledpat.pattern", 0)
+                    # scf.cf.param.set_value("ledpat.pattern", 0)
                     time.sleep(0.1)
                 except Exception as e:
                     logger.error(f"Error while closing drone {scf.cf.link_uri}: {e}")
@@ -355,4 +371,4 @@ def reset_drone(scf: SyncCrazyflie, obs: dict[str, Array]):
     time.sleep(0.1)  # Wait for settings to be applied
     scf.cf.param.set_value("kalman.resetEstimation", "0")
     scf.cf.platform.send_arming_request(True)
-    time.sleep(0.5)  # Wait for motors to start
+    time.sleep(0.8)  # Wait for motors to start

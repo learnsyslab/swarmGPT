@@ -213,24 +213,6 @@ def simulate_spline(
     )
     # TODO set initial rotor velocities to hover values
 
-    # Set up colours for tracking lines
-    # rgbas = np.array(  # hard coded rainbow colors, https://www.figma.com/color-wheel/
-    #     [
-    #         [1, 0, 0, 1],
-    #         [1, 0.5, 0, 1],
-    #         [1, 1, 0, 1],
-    #         [0.5, 1, 0, 1],
-    #         [0, 1, 0, 1],
-    #         [0, 1, 0.5, 1],
-    #         [0, 1, 1, 1],
-    #         [0, 0.5, 1, 1],
-    #         [0, 0, 1, 1],
-    #         [0.5, 0, 1, 1],
-    #         [1, 0, 1, 1],
-    #         [1, 0, 0.5, 1],
-    #     ]
-    # )
-    # rgbas[..., 3] = 1
     rgbas = np.ones((sim.n_drones, 4))
     rgbas[:, :3] = generate_default_colors(sim.n_drones, limit=1.0)
     swarm_pos = [deque(maxlen=100) for _ in range(sim.n_drones)]

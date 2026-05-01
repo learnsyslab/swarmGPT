@@ -216,7 +216,7 @@ class AppBackend:
             else:
                 sim_data = data
                 break
-        t = sim_data["timestamps"][::10]
+        t = sim_data["timestamps"][::5]  # TODO remove hard coded downsampling factor
         lam = 0.1  # TODO: Adjust the smoothing parameters
         self.splines.clear()
         for i, drone in self.choreographer.agents.items():
@@ -262,6 +262,7 @@ class AppBackend:
         colors_dict = {}
         colors_array = np.zeros((self.choreographer.num_drones, 4))
         colors_array[:, 1:] = generate_default_colors(self.choreographer.num_drones, limit=255)
+        colors_array[:, 3] *= 0.8  # Dim blue channel since that LED is brighter
 
         for i, d in enumerate(self.choreographer.drones.values()):
             init_pos = np.array(self.splines[i](0))
@@ -270,33 +271,29 @@ class AppBackend:
             init_pos_dict[d["uri"]] = [np.array([*init_pos, 0.0])]
             final_pos_dict[d["uri"]] = [np.array([*final_pos, 0.0])]
             choreography_dict[d["uri"]] = self.splines[i]
-            # colors_dict[d["uri"]] = {
-            #     "t": np.array([0, 6.3, 11, 23, 32.5]),
-            #     "color_top": np.array(
-            #         [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]]
-            #     ),
-            #     "color_bot": np.array(
-            #         [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]]
-            #     ),
-            #     "mode": np.array([6, 5, 3, 2, 4]),
-            # } # Christmas video colors
             colors_dict[d["uri"]] = {
-                "t": np.array([0]),
-                "color_top": np.array([colors_array[i]]),
-                "color_bot": np.array([colors_array[i]]),
-                "mode": np.array([0]),
+                "t": np.array([0, 0.5, 1.0]),
+                "color_top": np.array([colors_array[i], colors_array[i], colors_array[i]]),
+                "color_bot": np.array([colors_array[i], colors_array[i], colors_array[i]]),
             }  # Default colors
 
         swarm = DroneSwarm(self.choreographer.drones)
         logger.info("Swarm connected...")
         try:
+            swarm.apply_colors(colors_dict)
             swarm.goto(init_pos_dict)
-            self.music_manager.play()
-            swarm.execute_choreography(
-                choreography_dict, self.waypoints["time"][0, -1], colors_dict
-            )
+            # check if all drones have taken off
+            taken_off = True
+            for i, d in enumerate(self.choreographer.drones.values()):
+                if swarm.get_obs(d["uri"])["pos"][2] < 0.2:
+                    taken_off = False
+                    logger.warning(f"Drone {d['uri']} has not taken off yet")
+            if taken_off:
+                self.music_manager.play()
+                swarm.execute_choreography(
+                    choreography_dict, self.waypoints["time"][0, -1], colors_dict
+                )
             swarm.goto(final_pos_dict, duration=3.0)
-            # swarm.land(duration=0.5)
         finally:
             swarm.close()
         self.music_manager.song = original_song

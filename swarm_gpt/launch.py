@@ -31,9 +31,8 @@ def mklog_date(path: Path) -> Path:
     return save_file
 
 
-def main(
-    strict: bool = True, model_id: str = "gpt-4o-2024-05-13", use_motion_primitives: bool = True
-):
+# models: gpt-4o-2024-05-13, o3-mini
+def main(strict: bool = True, model_id: str = "gpt-4o", use_motion_primitives: bool = True):
     """Build the gui and launch the demo."""
     logging.basicConfig(level=logging.WARNING)
     logging.getLogger("httpx").setLevel(logging.WARNING)  # Suppress httpx info messages
