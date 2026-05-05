@@ -8,6 +8,7 @@
         <rgba haze="0.15 0.25 0.35 0" fog="1 1 1 0"/>
         <map fogstart="0" fogend="0"/>
         <global azimuth="-20" elevation="-20" ellipsoidinertia="true"/>
+        <quality offsamples="8"/>
     </visual>
 
     <asset>
@@ -20,5 +21,16 @@
     <worldbody>
         <!-- <light pos="0 0 3" dir="0 0 -1" directional="true"/> -->
         <geom name="floor" size="0 0 0.05" type="plane" material="groundplane"/>
+        <body name="render_camera_rig" mocap="true" pos="4 -3 2">
+            <geom
+                name="render_camera_rig_marker"
+                type="sphere"
+                size="0.02"
+                rgba="1 1 1 0"
+                contype="0"
+                conaffinity="0"
+            />
+            <camera name="cinema_cam" pos="0 0 0" fovy="44.1"/>
+        </body>
     </worldbody>
 </mujoco>

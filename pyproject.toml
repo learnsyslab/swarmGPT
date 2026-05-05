@@ -46,9 +46,9 @@ dependencies = [
 # option[sim]: basic simulation
 sim = [
     "axswarm @ git+https://github.com/utiasDSL/axswarm.git",
-    "crazyflow @ git+https://github.com/utiasDSL/crazyflow.git@0.1.0b0",
-    "drone-models==0.1.0b0",
-    "drone-controllers==0.1.0b0",
+    "crazyflow==0.1.0",
+    "drone-models==0.1.0",
+    "drone-controllers==0.1.0",
     "jax >= 0.7",
 ]
 # option[deploy]: deploy to real drones
@@ -98,6 +98,8 @@ make = "*"
 numpy = ">=2.0.0,<2.4.0"
 gradio = "==5.49.1"
 gradio-client = "==1.13.3"
+imageio = ">=2.37.0,<3"  # for saving videos
+av = ">=15.1.0,<18"  # for saving videos
 
 
 [tool.pixi.pypi-dependencies]

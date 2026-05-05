@@ -20,6 +20,8 @@ from axswarm import SolverData, SolverSettings, solve
 from crazyflow.control import Control
 from crazyflow.sim import Physics, Sim
 from crazyflow.sim.visualize import change_material, draw_line
+from drone_models.core import load_params
+from drone_models.transform import motor_force2rotor_vel
 from tqdm import tqdm
 
 from swarm_gpt.utils import MusicManager, generate_default_colors
@@ -198,7 +200,10 @@ def simulate_spline(
     )
     # Setting Up Initial States
     pos = np.array([splines[i](0) for i in splines.keys()])[None, ...]
-    rotor_vel = np.ones((1, sim.n_drones, 4)) * 25000.0  # TODO use hover values
+    hover_thrust = -sim.data.params.mass * sim.data.params.gravity_vec[2] / 4
+    params = load_params("first_principles", "cf21B_500")  # TODO make model configurable
+    hover_rpm = motor_force2rotor_vel(hover_thrust, params["rpm2thrust"])
+    rotor_vel = np.ones_like(sim.data.states.rotor_vel) * hover_rpm
     assert pos.shape == sim.data.states.pos.shape, (
         f"Initial drone position shape mismatch ({pos.shape}) vs ({sim.data.states.pos.shape})"
     )
@@ -206,12 +211,11 @@ def simulate_spline(
         f"Initial drone position shape mismatch ({rotor_vel.shape}) vs ({sim.data.states.rotor_vel.shape})"
     )
     sim.data = sim.data.replace(
-        states=sim.data.states.replace(pos=sim.data.states.pos.at[...].set(pos))
+        states=sim.data.states.replace(
+            pos=sim.data.states.pos.at[...].set(pos),
+            rotor_vel=sim.data.states.rotor_vel.at[...].set(rotor_vel),
+        )
     )
-    sim.data = sim.data.replace(
-        states=sim.data.states.replace(rotor_vel=sim.data.states.rotor_vel.at[...].set(rotor_vel))
-    )
-    # TODO set initial rotor velocities to hover values
 
     rgbas = np.ones((sim.n_drones, 4))
     rgbas[:, :3] = generate_default_colors(sim.n_drones, limit=1.0)
