@@ -19,8 +19,8 @@ from cflib.utils.power_switch import PowerSwitch
 from drone_estimators.ros_nodes.ros2_connector import ROSConnector
 
 os.environ["SCIPY_ARRAY_API"] = "1"
-from scipy.spatial.transform import Rotation as R
 from scipy.interpolate import interp1d
+from scipy.spatial.transform import Rotation as R
 
 if TYPE_CHECKING:
     from cflib.crayzflie.synccrayzflie import SyncCrazyflie

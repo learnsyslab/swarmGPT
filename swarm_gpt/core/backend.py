@@ -17,7 +17,7 @@ from swarm_gpt.core import Choreographer
 from swarm_gpt.core.drone_swarm import DroneSwarm
 from swarm_gpt.core.sim import simulate_axswarm, simulate_spline
 from swarm_gpt.exception import LLMException
-from swarm_gpt.utils import MusicManager, discretize_bspline, generate_default_colors
+from swarm_gpt.utils import MusicManager, generate_default_colors
 
 if TYPE_CHECKING:
     from numpy.typing import NDArray as Array

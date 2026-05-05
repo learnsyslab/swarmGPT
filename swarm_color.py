@@ -2,7 +2,6 @@ import os
 import time
 
 import cflib.crtp
-import numpy as np
 import rclpy
 from cflib.crazyflie import Crazyflie
 from drone_estimators.ros_nodes.ros2_connector import ROSConnector

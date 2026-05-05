@@ -32,7 +32,7 @@ def discretize_bspline(
 
 
 def generate_default_colors(
-    num_drones: int, limit=255, saturation=1.0, value=1.0
+    num_drones: int, limit: float = 255, saturation: float = 1.0, value: float = 1.0
 ) -> dict[int, Array]:
     """Generates a default color sequence for the given number of drones."""
     colors = []

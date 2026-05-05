@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import colorsys
 import logging
 import os
 import struct
@@ -11,7 +10,6 @@ from typing import TYPE_CHECKING
 
 import cflib.crtp
 import numpy as np
-import rclpy
 from cflib.crazyflie import Crazyflie, Localization
 from cflib.crazyflie.swarm import CachedCfFactory, Swarm
 from cflib.crtp.crtpstack import CRTPPacket, CRTPPort

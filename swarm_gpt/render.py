@@ -61,6 +61,7 @@ class FrameSink:
     """Write frames to a video through imageio."""
 
     def __init__(self, output_path: Path, fps: int):
+        """Open an mp4 writer at the requested output path and frame rate."""
         self.output_path = output_path
         self.result_path = output_path
         self._writer = imageio.imopen(output_path, "w", plugin="pyav")
