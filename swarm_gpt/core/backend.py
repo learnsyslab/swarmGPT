@@ -22,6 +22,7 @@ from swarm_gpt.core.sim import simulate_axswarm
 from swarm_gpt.core.viewer_subprocess import run_spline_viewer_from_payload_path
 from swarm_gpt.exception import LLMException
 from swarm_gpt.utils import MusicManager, generate_default_colors
+from swarm_gpt.utils.llm_providers import LABEL_TO_PROVIDER, PROVIDER_TO_LABEL, LLMProvider
 
 if TYPE_CHECKING:
     from numpy.typing import NDArray as Array
@@ -91,9 +92,10 @@ class AppBackend:
         config_file: Path | None = None,
         strict_processing: bool = True,
         strict_drone_match: bool = True,
-        model_id: str = "gpt-4o-2024-05-13",
+        model_id: str = "gpt-4o",
         use_motion_primitives: bool = True,
         simulate_gui: bool = True,
+        llm_provider: LLMProvider = "openai",
     ):
         """Initialize the backend by loading the music files and initializing the choreographer.
 
@@ -103,11 +105,12 @@ class AppBackend:
             strict_processing: Flag to raise an error on waypoint collisions.
             strict_drone_match: Flag to raise an error when preset drones do not match the current
                 swarm.
-            model_id: The OpenAI GPT model ID.
+            model_id: The OpenAI or Ollama model name (see LLM selector in the UI).
             use_motion_primitives: If we want LLM to use motion primitives for choreography
             simulate_gui: If True, open the MuJoCo interactive viewer after the axswarm pass
                 (second simulation phase). On macOS this can crash with Gradio; use False for
                 headless completion.
+            llm_provider: ``openai`` or ``ollama`` for the choreographer backend.
         """
         self.root_path = Path(__file__).resolve().parents[2]
         with open(self.root_path / "swarm_gpt/data/settings.yaml", "r") as f:
@@ -118,7 +121,10 @@ class AppBackend:
         self.drone_controller = None  # TODO Controller for the Crazyflie drones
         # Initialize chat elements
         self.choreographer = Choreographer(
-            config_file=config_file, model_id=model_id, use_motion_primitives=use_motion_primitives
+            config_file=config_file,
+            model_id=model_id,
+            llm_provider=llm_provider,
+            use_motion_primitives=use_motion_primitives,
         )
         self.music_manager = MusicManager(music_dir)
         self.mode: Literal["preset", "real"] = "real"
@@ -128,6 +134,22 @@ class AppBackend:
         self._simulate_gui = simulate_gui
         if set(self.songs) & set(self.presets):
             raise ValueError("Songs and presets must have unique names")
+
+    def configure_llm_from_ui(self, provider_label: str, model_id: str | None) -> None:
+        """Apply provider + model from Gradio widgets (labels from ``LABEL_TO_PROVIDER`` keys)."""
+        if provider_label not in LABEL_TO_PROVIDER:
+            raise ValueError(f"Unknown LLM backend label: {provider_label!r}")
+        mid = (model_id or "").strip()
+        if not mid:
+            raise ValueError("Select or enter a model name.")
+        prov = LABEL_TO_PROVIDER[provider_label]
+        self.choreographer.configure_llm(prov, mid)
+        logger.info("LLM configured via UI: provider=%s model=%s", prov, mid)
+
+    @property
+    def llm_provider_label_for_ui(self) -> str:
+        """Gradio label for the active ``llm_provider``."""
+        return PROVIDER_TO_LABEL[self.choreographer.llm_provider]
 
     def _run_simulate_spline_viewer_subprocess(self, t_end: float) -> None:
         """Play spline trajectory in MuJoCo inside a ``spawn`` child (macOS / Gradio-safe)."""
