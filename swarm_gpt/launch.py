@@ -2,8 +2,7 @@
 
 import logging
 import os
-
-os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
+import sys
 from datetime import datetime
 from pathlib import Path
 
@@ -11,6 +10,15 @@ import fire
 
 from swarm_gpt.core import AppBackend
 from swarm_gpt.ui import create_ui
+
+os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
+
+# Stable JAX on Apple Silicon (avoids some Metal/backend edge cases during MJX stepping).
+if sys.platform == "darwin":
+    os.environ.setdefault("JAX_PLATFORMS", "cpu")
+
+# Viewer runs in a spawn child (see viewer_subprocess); safe to default GUI on all platforms.
+_DEFAULT_SIM_GUI = True
 
 
 def mklog_date(path: Path) -> Path:
@@ -32,7 +40,12 @@ def mklog_date(path: Path) -> Path:
 
 
 # models: gpt-4o-2024-05-13, o3-mini
-def main(strict: bool = True, model_id: str = "gpt-4o", use_motion_primitives: bool = True):
+def main(
+    strict: bool = True,
+    model_id: str = "gpt-4o",
+    use_motion_primitives: bool = True,
+    simulate_gui: bool = _DEFAULT_SIM_GUI,
+):
     """Build the gui and launch the demo."""
     logging.basicConfig(level=logging.WARNING)
     logging.getLogger("httpx").setLevel(logging.WARNING)  # Suppress httpx info messages
@@ -51,6 +64,7 @@ def main(strict: bool = True, model_id: str = "gpt-4o", use_motion_primitives: b
         strict_processing=strict,
         model_id=model_id,
         use_motion_primitives=use_motion_primitives,
+        simulate_gui=simulate_gui,
     )
     ui = create_ui(backend)
     ui.launch()

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import sys
 import time
 from typing import TYPE_CHECKING
 
@@ -11,9 +12,9 @@ import libfmp.c6
 import librosa
 import matplotlib.pyplot as plt
 import numpy as np
+import vlc
 from mutagen.mp3 import MP3
 from scipy.signal import find_peaks
-from vlc import MediaPlayer
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -37,7 +38,40 @@ class MusicManager:
         assert not any("|" in s for s in self.songs), "Songs cannot contain |"
         assert len(self.songs) > 0, "No songs found in music directory"
         self._song = ""
-        self._music_player: MediaPlayer = None
+        self._vlc_instance: vlc.Instance | None = None
+        self._music_player: vlc.MediaPlayer | None = None
+
+    def _vlc_instance_args(self) -> tuple[str, ...]:
+        """CLI args for libvlc: one shared instance avoids duplicate Core Audio listeners (macOS)."""
+        base: tuple[str, ...] = (
+            "--intf=dummy",
+            "--no-video",
+            "--quiet",
+        )
+        if sys.platform != "darwin":
+            return base
+        return (*base, "--aout=audiounit")
+
+    def _get_vlc_instance(self) -> vlc.Instance:
+        if self._vlc_instance is None:
+            variants: list[tuple[str, ...]] = [self._vlc_instance_args()]
+            # Older VLC.app builds may not ship ``audiounit``; fall back to default (usually auhal).
+            if sys.platform == "darwin" and any(x == "--aout=audiounit" for x in variants[0]):
+                variants.append(("--intf=dummy", "--no-video", "--quiet"))
+            last_err: BaseException | None = None
+            for args in variants:
+                try:
+                    inst = vlc.Instance(*args)
+                except (AttributeError, OSError, TypeError) as e:
+                    last_err = e
+                    continue
+                if inst is not None:
+                    self._vlc_instance = inst
+                    return inst
+            raise RuntimeError(
+                "Could not initialize libvlc; install VLC.app and ensure python-vlc matches it."
+            ) from last_err
+        return self._vlc_instance
 
     @property
     def song(self) -> str:
@@ -63,13 +97,22 @@ class MusicManager:
     def play(self):
         """Play the song with VLC."""
         assert self.song, "Song not set"
-        self._music_player = MediaPlayer(str(self.music_dir / (self.song + ".mp3")))
+        media_path = str(self.music_dir / (self.song + ".mp3"))
+        inst = self._get_vlc_instance()
+        if self._music_player is not None:
+            self._music_player.stop()
+            self._music_player.release()
+            self._music_player = None
+        self._music_player = inst.media_player_new()
+        self._music_player.set_media(inst.media_new(media_path))
         self._music_player.play()
 
     def stop(self):
         """Stop the song."""
         if self._music_player is not None:
             self._music_player.stop()
+            self._music_player.release()
+            self._music_player = None
 
     @property
     def is_playing(self) -> bool:

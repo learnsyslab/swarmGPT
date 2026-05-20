@@ -6,6 +6,7 @@ import json
 import logging
 import math
 import os
+import sys
 from collections import deque
 from fractions import Fraction
 from pathlib import Path
@@ -14,7 +15,12 @@ from drone_models.core import load_params
 from drone_models.transform import motor_force2rotor_vel
 
 os.environ.setdefault("XLA_PYTHON_CLIENT_PREALLOCATE", "false")
-os.environ.setdefault("MUJOCO_GL", "egl")
+# EGL is typical for headless Linux; macOS needs GLFW for MuJoCo rendering (rgb_array / viewer).
+if sys.platform == "darwin":
+    os.environ.setdefault("MUJOCO_GL", "glfw")
+    os.environ.setdefault("JAX_PLATFORMS", "cpu")
+else:
+    os.environ.setdefault("MUJOCO_GL", "egl")
 os.environ.setdefault("MPLCONFIGDIR", "/tmp/matplotlib")
 
 import imageio.v3 as imageio
