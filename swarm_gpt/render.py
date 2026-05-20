@@ -46,7 +46,7 @@ CAMERA_MOVE_START_TIME = 2.0
 CAMERA_MOVE_END_TIME = 10.0
 CAMERA_START_POS = np.array([6.0, 0.0, 6.0], dtype=float)
 CAMERA_END_POS = np.array([0.0, -2.98, 2.91], dtype=float)
-CAMERA_LOOKAT = np.array([0.0, 0.0, 1.2], dtype=float)
+CAMERA_LOOKAT = np.array([0.0, 0.0, 1.1], dtype=float)
 CAMERA_UP = np.array([0.0, 0.0, 1.0], dtype=float)
 
 WIDTH = 3840

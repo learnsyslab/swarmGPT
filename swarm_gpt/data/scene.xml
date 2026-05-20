@@ -30,7 +30,7 @@
                 contype="0"
                 conaffinity="0"
             />
-            <camera name="cinema_cam" pos="0 0 0" fovy="44.1"/>
+            <camera name="cinema_cam" pos="0 0 0" fovy="39.2"/>
         </body>
     </worldbody>
 </mujoco>
