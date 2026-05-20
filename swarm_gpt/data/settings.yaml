@@ -1,4 +1,7 @@
 starting_height: 1.0  # Starting height for all drones
+lighthouse: true  # Whether to use lighthouse or mocap for localization
+
+# Simulation
 sim_freq: 500 # Frequency for the crazyflow simulation
 attitude_freq: 500 # Frequency for the crazyflow simulation for the drone attitudes
 state_freq: 50 # Frequency for the crazyflow simulation for the drone states
@@ -23,7 +26,7 @@ axswarm:
   input_smoothness_weight: 10.0  # Weight of the input smoothness objective in the cost
   input_continuity_weight: 1.0  # Weight of the input continuity objective in the cost
 
-  # Limits. TODO: Reset back to 2, 2, 2
+  # Limits
   pos_min: [-1.9, -1.3, 0.25]  # Minimum position of the AMSwarm drones
   pos_max: [1.9, 1.3, 2.5]  # Maximum position of the AMSwarm drones
   vel_max: 1.73  # Maximum velocity of the AMSwarm drones

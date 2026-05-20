@@ -277,7 +277,7 @@ class AppBackend:
                 "color_bot": np.array([colors_array[i], colors_array[i], colors_array[i]]),
             }  # Default colors
 
-        swarm = DroneSwarm(self.choreographer.drones)
+        swarm = DroneSwarm(self.choreographer.drones, lighthouse=self.settings["lighthouse"])
         logger.info("Swarm connected...")
         try:
             swarm.apply_colors(colors_dict)

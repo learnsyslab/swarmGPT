@@ -60,6 +60,7 @@ class DroneSwarm:
         ctrl_freq: float = 50,
         update_freq: float = 10,
         col_freq: float = 10,
+        lighthouse: bool = True,
     ):
         """TODO.
 
@@ -68,15 +69,19 @@ class DroneSwarm:
             ctrl_freq: Control frequency (Hz). Defaults to 50.
             update_freq: Frequency (Hz) of position updates sent to the drone. Defaults to 10.
             col_freq: Maximum frequency (Hz) of color updates. Defaults to 10
+            lighthouse: Whether to use lighthouse or mocap for localization. Defaults to True.
         """
         self.drones = drones
         self.ctrl_freq = ctrl_freq
         self.update_freq = update_freq
         self.col_freq = col_freq
+        self.lighthouse = lighthouse
 
-        self.ros_connector = ROSConnector(
-            tf_names=[f"cf{int(d['uri'][-2:], 16)}" for d in self.drones.values()], timeout=10.0
-        )
+        self.ros_connector: ROSConnector | None = None
+        if not lighthouse:
+            self.ros_connector = ROSConnector(
+                tf_names=[f"cf{int(d['uri'][-2:], 16)}" for d in self.drones.values()], timeout=10.0
+            )
         self.uris = [d["uri"] for d in self.drones.values()]
         cflib.crtp.init_drivers()
         for uri in self.uris:
@@ -89,6 +94,7 @@ class DroneSwarm:
         logger.info("init done")
 
     def get_obs(self, uri: str) -> dict[str, Array]:
+        """Generates the observation for a drone using mocap."""
         drone_name = f"cf{int(uri[-2:], 16):02d}"
         obs = {
             "pos": self.ros_connector.pos[drone_name],
@@ -101,11 +107,14 @@ class DroneSwarm:
         return obs
 
     def takeoff(self, height: float = 1.5, duration: float = 3.0):
+        """Takes off the drones at a given height over a given duration."""
+
         def _parallel_takeoff(scf: SyncCrazyflie):
             try:
                 # send one position update before taking off
-                obs = self.get_obs(scf.cf.link_uri)
-                scf.cf.extpos.send_extpose(*obs["pos"], *obs["quat"])
+                if not self.lighthouse:
+                    obs = self.get_obs(scf.cf.link_uri)
+                    scf.cf.extpos.send_extpose(*obs["pos"], *obs["quat"])
 
                 scf.cf.commander.send_stop_setpoint()
                 scf.cf.commander.send_notify_setpoint_stop()
@@ -116,8 +125,9 @@ class DroneSwarm:
                 # TODO this should be done via broadcast to reduce load
                 t_start = time.time()
                 while time.time() < t_start + duration:
-                    obs = self.get_obs(scf.cf.link_uri)
-                    scf.cf.extpos.send_extpose(*obs["pos"], *obs["quat"])
+                    if not self.lighthouse:
+                        obs = self.get_obs(scf.cf.link_uri)
+                        scf.cf.extpos.send_extpose(*obs["pos"], *obs["quat"])
                     time.sleep(1 / self.update_freq)
                 hlc.stop()
             except KeyError as e:
@@ -126,6 +136,8 @@ class DroneSwarm:
         self.swarm.parallel_safe(_parallel_takeoff)
 
     def land(self, height: float = 0.0, duration: float = 3.0):
+        """Lands the drones at a given height over a given duration."""
+
         def _parallel_land(scf: SyncCrazyflie):
             try:
                 scf.cf.commander.send_stop_setpoint()
@@ -137,8 +149,9 @@ class DroneSwarm:
                 # TODO this should be done via broadcast to reduce load
                 t_start = time.time()
                 while time.time() < t_start + duration:
-                    obs = self.get_obs(scf.cf.link_uri)
-                    scf.cf.extpos.send_extpose(*obs["pos"], *obs["quat"])
+                    if not self.lighthouse:
+                        obs = self.get_obs(scf.cf.link_uri)
+                        scf.cf.extpos.send_extpose(*obs["pos"], *obs["quat"])
                     time.sleep(1 / self.update_freq)
                 hlc.stop()
             except KeyError as e:
@@ -167,7 +180,7 @@ class DroneSwarm:
                     -np.inf
                 )  # Last est update time, starting negative to force an initial update
                 while (t := (time.time() - t_start)) < duration:
-                    if t - t_est >= 1 / self.update_freq:
+                    if not self.lighthouse and t - t_est >= 1 / self.update_freq:
                         obs = self.get_obs(scf.cf.link_uri)
                         scf.cf.extpos.send_extpose(*obs["pos"], *obs["quat"])
                         t_est = t
@@ -208,7 +221,7 @@ class DroneSwarm:
 
                 while (t_cur := (time.time() - t_start)) < t_end:
                     # estimator update
-                    if t_cur - t_est >= 1 / self.update_freq:
+                    if not self.lighthouse and t_cur - t_est >= 1 / self.update_freq:
                         obs = self.get_obs(scf.cf.link_uri)
                         scf.cf.extpos.send_extpose(*obs["pos"], *obs["quat"])
                         t_est = t_cur
