@@ -280,12 +280,12 @@ class AppBackend:
         swarm = DroneSwarm(self.choreographer.drones, lighthouse=self.settings["lighthouse"])
         logger.info("Swarm connected...")
         try:
-            swarm.apply_colors(colors_dict)
+            # swarm.apply_colors(colors_dict)
             swarm.goto(init_pos_dict)
             # check if all drones have taken off
             taken_off = True
             for i, d in enumerate(self.choreographer.drones.values()):
-                if swarm.get_obs(d["uri"])["pos"][2] < 0.2:
+                if not swarm.lighthouse and swarm.get_obs(d["uri"])["pos"][2] < 0.2:
                     taken_off = False
                     logger.warning(f"Drone {d['uri']} has not taken off yet")
             if taken_off:

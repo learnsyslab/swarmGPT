@@ -13,6 +13,7 @@ saves
 !/docs/media/video/*.mp4
 backup
 build
+cache
 sandbox/
 /data/
 /video

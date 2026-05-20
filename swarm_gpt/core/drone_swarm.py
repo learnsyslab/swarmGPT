@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING
 import cflib.crtp
 import numpy as np
 from cflib.crazyflie import Crazyflie, Localization
+from cflib.crazyflie.log import LogConfig
 from cflib.crazyflie.swarm import CachedCfFactory, Swarm
 from cflib.crtp.crtpstack import CRTPPacket, CRTPPort
 from cflib.utils.power_switch import PowerSwitch
@@ -170,9 +171,46 @@ class DroneSwarm:
         def _parallel_goto(scf: SyncCrazyflie, pos: Array):
             try:
                 scf.cf.param.set_value("commander.enHighLevel", 0)
-                pos_start = np.array(
-                    [*self.get_obs(scf.cf.link_uri)["pos"], self.get_obs(scf.cf.link_uri)["rpy"][0]]
-                )
+                if self.lighthouse:
+                    pos_start = None
+
+                    def log_callback(timestamp: int, data: dict[str, float], logconf: LogConfig):
+                        nonlocal pos_start
+                        pos_start = np.array(
+                            [
+                                data["stateEstimate.x"],
+                                data["stateEstimate.y"],
+                                data["stateEstimate.z"],
+                                data["stateEstimate.yaw"],
+                            ]
+                        )
+
+                    logconf = LogConfig(name="StateEstimate", period_in_ms=10)
+                    logconf.add_variable("stateEstimate.x", "float")
+                    logconf.add_variable("stateEstimate.y", "float")
+                    logconf.add_variable("stateEstimate.z", "float")
+
+                    logconf.add_variable("stateEstimate.roll", "float")
+                    logconf.add_variable("stateEstimate.pitch", "float")
+                    logconf.add_variable("stateEstimate.yaw", "float")
+
+                    scf.cf.log.add_config(logconf)
+
+                    logconf.data_received_cb.add_callback(log_callback)
+
+                    logconf.start()
+
+                    while pos_start is None:
+                        time.sleep(0.01)
+
+                    logconf.stop()
+                else:
+                    pos_start = np.array(
+                        [
+                            *self.get_obs(scf.cf.link_uri)["pos"],
+                            self.get_obs(scf.cf.link_uri)["rpy"][0],
+                        ]
+                    )
                 pos_goal = np.array(pos)
                 ref = interp1d([0.0, duration], [pos_start, pos_goal], axis=0)
                 t_start = time.time()
@@ -293,7 +331,7 @@ class DroneSwarm:
         """Resets all drones."""
         obs_dict = {}
         for uri in self.uris:
-            obs_dict[uri] = [self.get_obs(uri)]
+            obs_dict[uri] = [None] if self.lighthouse else [self.get_obs(uri)]
         self.swarm.parallel_safe(reset_drone, args_dict=obs_dict)
         # for scf in self.swarm._cfs.values():
         #     logger.info(f"Resetting {scf.cf.link_uri}")
@@ -323,7 +361,8 @@ class DroneSwarm:
                     logger.error(f"Error while closing drone {scf.cf.link_uri}: {e}")
             time.sleep(0.2)  # Wait for commands to be sent
             self.swarm.close_links()
-        self.ros_connector.close()
+        if self.ros_connector is not None:
+            self.ros_connector.close()
 
 
 def build_uris(drones: list[dict[str, int]]) -> list[str]:
@@ -355,7 +394,7 @@ def apply_drone_color(
         cf.param.set_value("colorLedBot.wrgb8888", int(f"0x{w:02x}{r:02x}{g:02x}{b:02x}", 16))
 
 
-def reset_drone(scf: SyncCrazyflie, obs: dict[str, Array]):
+def reset_drone(scf: SyncCrazyflie, obs: dict[str, Array] | None):
     """Resets a given Crazyflie.
 
     Note:
@@ -374,10 +413,11 @@ def reset_drone(scf: SyncCrazyflie, obs: dict[str, Array]):
     scf.cf.param.set_value("led.bitmask", 128)  # turn off all LEDs
     time.sleep(0.1)  # Wait for settings to be applied
     # Reset Kalman filter values
-    scf.cf.param.set_value("kalman.initialX", obs["pos"][0])
-    scf.cf.param.set_value("kalman.initialY", obs["pos"][1])
-    scf.cf.param.set_value("kalman.initialZ", obs["pos"][2])
-    scf.cf.param.set_value("kalman.initialYaw", obs["rpy"][2])
+    if obs is not None:
+        scf.cf.param.set_value("kalman.initialX", obs["pos"][0])
+        scf.cf.param.set_value("kalman.initialY", obs["pos"][1])
+        scf.cf.param.set_value("kalman.initialZ", obs["pos"][2])
+        scf.cf.param.set_value("kalman.initialYaw", obs["rpy"][2])
     scf.cf.param.set_value("kalman.resetEstimation", "1")
     time.sleep(0.1)  # Wait for settings to be applied
     scf.cf.param.set_value("kalman.resetEstimation", "0")
