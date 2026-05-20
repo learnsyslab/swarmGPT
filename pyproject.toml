@@ -25,21 +25,25 @@ classifiers = [
 ########################
 
 dependencies = [
-    "cflib",
     "fire",
     "toml",
     "einops",
     "numpy>=2.0.0,<2.4.0",
-    "tqdm",
-    "ollama",
-    "pyyaml",
-    "libfmp @ git+https://github.com/meinardmueller/libfmp.git", # currently released versions have a dependency on numpy<2
-    "mutagen",
-    "openai",
     "scipy>=1.17.0,<1.18.0",
-    "python-vlc",
+    "tqdm",
+    "pyyaml",
+    # LLM packages
+    "ollama",
+    "openai",
+    # Webinterface
     "gradio==5.49.1",
     "gradio-client==1.13.3",
+    # Media management
+    "libfmp>=1.3.0",
+    "python-vlc",
+    "mutagen",
+    "imageio>=2.37.0,<3",
+    "av>=15.1.0,<18",
 ]
 
 [project.optional-dependencies]
@@ -53,7 +57,7 @@ sim = [
 ]
 # option[deploy]: deploy to real drones
 deploy = [
-    "cflib",
+    "cflib", 
     "drone-estimators",
 ]
 
@@ -89,18 +93,11 @@ tests = { features = ["tests", "sim", "kilted", "deploy"] }
 # Environment packages
 openblas = ">=0.3.30,<0.4"
 ruff = "*"
-python = ">=3.11.12,<3.14"
+python = ">=3.12.0,<3.14"
 pip = ">=25.0.1,<26"
 cmake = "*"
 compilers = ">=1.9.0, <1.11.0"
 make = "*"
-# Python packages
-numpy = ">=2.0.0,<2.4.0"
-gradio = "==5.49.1"
-gradio-client = "==1.13.3"
-imageio = ">=2.37.0,<3"  # for saving videos
-av = ">=15.1.0,<18"  # for saving videos
-
 
 [tool.pixi.pypi-dependencies]
 swarmgpt = { path = ".", editable = true }
@@ -191,11 +188,12 @@ exclude = [
     "site-packages",
     "venv",
     "docs/conf.py",
+    "tools/*",
 ]
 
 line-length = 100
 indent-width = 4
-target-version = "py311"
+target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E4", "E7", "E9", "F", "I", "D", "TCH", "ANN"]
