@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ast
+import json
 import logging
 import re
 from pathlib import Path
@@ -15,6 +16,10 @@ import yaml
 
 from swarm_gpt.core.motion_primitives import motion_primitives as motion_primitives_collection
 from swarm_gpt.core.motion_primitives import primitive_by_name
+from swarm_gpt.core.structured_output_schema import (
+    build_motion_primitive_response_schema,
+    structured_payload_to_choreography,
+)
 from swarm_gpt.exception import LLMFormatError, LLMPlanError, LLMResponseProcessingError
 from swarm_gpt.utils.llm_providers import (
     RESPONSES_MAX_OUTPUT_TOKENS,
@@ -123,7 +128,12 @@ class Choreographer:
         msgs.append({"role": "system", "content": self.prompts["system_initial"]})
         msgs.append({"role": "user", "content": user_prompt})
         msgs.append({"role": "system", "content": self.prompts["example"]})
-        msgs.append({"role": "system", "content": self.prompts["output_format"]})
+        output_format_key = (
+            "output_format_structured"
+            if self._uses_structured_outputs() and "output_format_structured" in self.prompts
+            else "output_format"
+        )
+        msgs.append({"role": "system", "content": self.prompts[output_format_key]})
         return msgs
 
     def format_reprompt(self, message: str) -> list[dict[str, str]]:
@@ -131,16 +141,31 @@ class Choreographer:
         logger.debug("Formatting reprompt")
         msgs = []
         msgs.append({"role": "user", "content": message})
-        msgs.append({"role": "system", "content": self.prompts["output_format"]})
+        output_format_key = (
+            "output_format_structured"
+            if self._uses_structured_outputs() and "output_format_structured" in self.prompts
+            else "output_format"
+        )
+        msgs.append({"role": "system", "content": self.prompts[output_format_key]})
         return msgs
 
-    def generate_choreography(self, prompt: list[dict[str, str]]) -> str:
+    def _uses_structured_outputs(self) -> bool:
+        """Use OpenAI Structured Outputs for motion primitives on cloud models."""
+        return self.llm_provider == "openai" and self.use_motion_primitives
+
+    def generate_choreography(self, prompt: list[dict[str, str]], num_beats: int | None = None) -> str:
         """Generate the initial choreography for the LLM."""
         logger.debug(
             "Generating choreography with provider=%s model=%s", self.llm_provider, self._model_id
         )
         self.messages.extend(prompt)
-        response = self._call_responses(self.messages)
+        if self._uses_structured_outputs():
+            if num_beats is None:
+                raise ValueError("num_beats is required for structured output generation")
+            payload = self._call_responses_structured(self.messages, num_beats=num_beats)
+            response = self._structured_payload_to_text(payload)
+        else:
+            response = self._call_responses(self.messages)
         self.messages.append({"role": "assistant", "content": response})
         return response
 
@@ -278,6 +303,67 @@ class Choreographer:
             drones, times = np.nonzero(min_distance < min_dist)
             drones, times = drones.tolist(), times.tolist()
             raise LLMPlanError(f"Drones {set(drones)} get too close at waypoints {set(times)}")
+
+    def _call_responses_structured(self, messages: list[dict[str, str]], num_beats: int) -> dict:
+        """Call Responses API with strict json_schema and parse JSON output."""
+        client = self._chat_client_for_call()
+        schema = build_motion_primitive_response_schema(
+            num_beats=num_beats,
+            num_drones=self.num_drones,
+        )
+        input_messages, instructions = prepare_responses_messages(messages)
+        try:
+            response = client.responses.create(
+                model=self._model_id,
+                input=input_messages,
+                instructions=instructions,
+                max_output_tokens=RESPONSES_MAX_OUTPUT_TOKENS,
+                temperature=RESPONSES_TEMPERATURE,
+                text={
+                    "format": {
+                        "type": "json_schema",
+                        "name": "swarmgpt_choreography",
+                        "schema": schema,
+                        "strict": True,
+                    }
+                },
+            )
+        except Exception as e:
+            raise LLMPlanError(
+                "Structured output call failed. Check OPENAI_API_KEY and model availability."
+                f" ({e})"
+            ) from e
+        if response.error is not None:
+            raise LLMPlanError(
+                f"Model {self._model_id!r} returned an error: {response.error.message}"
+            )
+        content = response.output_text
+        if not content:
+            raise LLMPlanError(
+                f"Model {self._model_id!r} returned empty structured content."
+            )
+        try:
+            return json.loads(content)
+        except json.JSONDecodeError as e:
+            raise LLMFormatError(f"Structured output was not valid JSON: {e}") from e
+
+    def _structured_payload_to_choreography(self, payload: dict) -> dict[int, str]:
+        """Convert structured payload to the existing beat -> primitive string format."""
+        return structured_payload_to_choreography(payload)
+
+    def _structured_payload_to_text(self, payload: dict) -> str:
+        """Convert structured payload to legacy YAML-like text for downstream parsing/history."""
+        choreography = self._structured_payload_to_choreography(payload)
+        lines = [
+            f"song_mood: {json.dumps(payload['song_mood'])}",
+            f"cord_analysis: {json.dumps(payload['cord_analysis'])}",
+            f"choreography_plan: {json.dumps(payload['choreography_plan'])}",
+            "choreography:",
+        ]
+        for beat in sorted(choreography):
+            lines.append(f"  {beat}: {choreography[beat]}")
+        lines.append("  END")
+        return "\n".join(lines)
 
     def response2waypoints(
         self, text: str, music_info: dict, strict: bool = True, t_rth: float = 3.0

@@ -205,7 +205,10 @@ class AppBackend:
             self.choreographer.messages.append({"role": "assistant", "content": response})
         else:  # Use LLM to generate the choreography
             logger.debug(f"Using LLM to generate choreography for song: {song_name}")
-            response = self.choreographer.generate_choreography(prompt)
+            response = self.choreographer.generate_choreography(
+                prompt,
+                num_beats=len(music_info["beat_times"]),
+            )
 
         try:
             self.waypoints = self.choreographer.response2waypoints(
@@ -237,7 +240,10 @@ class AppBackend:
             return self.choreographer.messages
         prompt = self.choreographer.format_reprompt(message)
         music_info = self.music_manager.extract_song_info()
-        response = self.choreographer.generate_choreography(prompt)
+        response = self.choreographer.generate_choreography(
+            prompt,
+            num_beats=len(music_info["beat_times"]),
+        )
         self.waypoints = self.choreographer.response2waypoints(
             response, music_info=music_info, strict=self._strict_processing
         )

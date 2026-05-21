@@ -263,6 +263,11 @@ output_format: >
   in the song. It is important you never skip beats and always provide the full list of waypoints
   for each drone! Never skip lines with ... !
 
+output_format_structured: >
+  Return only the choreography content (no markdown fences). The caller enforces a strict JSON
+  schema with exactly num_beats entries and typed motion primitive arguments, so focus on producing
+  musically coherent primitive choices that satisfy the beat-by-beat constraints.
+
 example_output: |
     ```yaml
     song_mood: "The Pirates of the Caribbean theme song is rousing and adventurous, invoking feelings of excitement, danger, and the thrill of the high seas. The energetic melody and dynamic rhythms give a sense of swashbuckling daring and epic voyages."
