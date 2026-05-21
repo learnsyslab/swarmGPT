@@ -31,6 +31,9 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# Set to True to see raw LLM outputs in terminal
+DEBUG_LLM_OUTPUT = True
+
 
 # Investigate and improve error message for the case when func = "", and we get key error, during sanitize llm output
 # Also improve error message when there is an issue with function output, so that we can re-prompt with super specific messag
@@ -249,6 +252,11 @@ class Choreographer:
             raise LLMPlanError(
                 f"Model {self._model_id!r} returned empty content. Try another model or reprompt."
             )
+        if DEBUG_LLM_OUTPUT:
+            print("\n" + "="*80)
+            print("RAW LLM OUTPUT:")
+            print(content)
+            print("="*80 + "\n")
         return content
 
     def _collision_check(self, pos: NDArray, min_dist: float = 0.1):
@@ -413,6 +421,12 @@ class Choreographer:
             yaml_text = yaml_text[0]
         except IndexError:
             yaml_text = text
+        
+        if DEBUG_LLM_OUTPUT:
+            print("\n" + "="*80)
+            print("EXTRACTED YAML TEXT (after slicing):")
+            print(yaml_text)
+            print("="*80 + "\n")
 
         # Step 1: Extract the chunk between `choreography:` and `END` or end of file
         match = re.search(r"choreography:\s*(.*?)(?:\s*END|$)", yaml_text, re.DOTALL)
