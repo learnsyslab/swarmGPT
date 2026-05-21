@@ -61,7 +61,7 @@ crazyflies:
 
 ## 3. Run the Interface and Simulate and Deploy the Drones
 
-To run the interface navigate to `swarmGPT/swarm_gpt` and run
+To run the interface navigate to `swarm_GPT/swarm_gpt` and run
 
 ```bash
 python3 launch.py
@@ -75,5 +75,5 @@ From there you can select the song and have the LLM generate choreography for it
 
 Before you deploy the dances onto the crazyflies, run the communication launch in a separate terminal by `roslaunch crazyswarm hover_swarm.launch`. Don’t forget to source the ros_ws by source `ros_ws/devel/setup.bash`, if you get crazyswarm ros package is not recognized. Or you can put the source command into your `~/.bashrc` script.
 
-In addition, if you want to test if the crazyflies are properly connected, you can open a third terminal, navigate to `ros_ws/src/crazyswarm/scripts/` and execute `python3 niceHover.py`. It will hover all the connected crazyflies and land all of them once you press any button.
+In addition, if you want to test if the crazyflies are properly connected, you can open a third terminal, navigate to `swarm_GPT/ros_ws/src/crazyswarm/scripts/` and execute `python3 niceHover.py`. It will hover all the connected crazyflies and land all of them once you press any button.
 

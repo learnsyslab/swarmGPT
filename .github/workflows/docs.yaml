@@ -34,7 +34,7 @@ jobs:
         ls -lh docs/media/video
         echo
         echo "Checking for Git LFS pointers:"
-        head -n 5 docs/media/video* || true
+        head -n 5 docs/media/video/* || true
 
     - name: Setup pixi
       uses: prefix-dev/setup-pixi@v0.8.1
