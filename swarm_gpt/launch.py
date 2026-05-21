@@ -2,64 +2,57 @@
 
 import logging
 import os
-
-os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
-from datetime import datetime
+import sys
 from pathlib import Path
 
 import fire
+import uvicorn
 
-from swarm_gpt.core import AppBackend
-from swarm_gpt.ui import create_ui
-from swarm_gpt.utils import get_ros_package_path
+from swarm_gpt.api.server import ApiConfig, create_app
+from swarm_gpt.utils.llm_providers import LLMProvider
 
+os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 
-def mklog_date(path: Path) -> Path:
-    """Make a unique directory within the given directory with the current time as name.
-
-    Args:
-        path: Parent folder path.
-    """
-    assert path.is_dir()
-    save_file = path / (str(datetime.now().strftime("%Y_%m_%d_%H_%M")) + "_log.json")
-    if not save_file.is_file():
-        return save_file
-    t = 1
-    while save_file.is_file():
-        curr_date_unique = datetime.now().strftime("%Y_%m_%d_%H_%M") + f"_({t})"
-        save_file = path / (str(curr_date_unique) + "_log.json")
-        t += 1
-    return save_file
+# Stable JAX on Apple Silicon (avoids some Metal/backend edge cases during MJX stepping).
+if sys.platform == "darwin":
+    os.environ.setdefault("JAX_PLATFORMS", "cpu")
 
 
+# models: gpt-4o-2024-05-13, o3-mini
 def main(
-    strict: bool = True, model_id: str = "gpt-4o-2024-05-13", use_motion_primitives: bool = True
+    strict: bool = True,
+    model_id: str = "gpt-4o",
+    llm_provider: LLMProvider = "openai",
+    use_motion_primitives: bool = True,
+    host: str = "127.0.0.1",
+    port: int = 8000,
 ):
-    """Build the gui and launch the demo."""
+    """Launch the SwarmGPT browser app API."""
     logging.basicConfig(level=logging.WARNING)
     logging.getLogger("httpx").setLevel(logging.WARNING)  # Suppress httpx info messages
     logging.getLogger("jax").setLevel(logging.WARNING)
-    #logging.getLogger("swarm_gpt").setLevel(logging.DEBUG)
+    # logging.getLogger("swarm_gpt").setLevel(logging.DEBUG)
 
-    # Check if the OpenAI API key is present
-    if "OPENAI_API_KEY" not in os.environ:
-        raise RuntimeError("OPENAI_API_KEY environment variable required, has not been set")
-    # Get a list of all music titles available in the music directory
+    if llm_provider not in ("openai", "ollama"):
+        raise ValueError(f"llm_provider must be 'openai' or 'ollama', got {llm_provider!r}")
+    if llm_provider == "openai" and not os.getenv("OPENAI_API_KEY"):
+        logging.warning(
+            "OPENAI_API_KEY is unset. OpenAI-backed runs will fail until you export it "
+            "or switch the UI to Ollama (local)."
+        )
+
     music_dir = Path(__file__).resolve().parents[1] / "music"
 
-    crazyswarm_path = get_ros_package_path("crazyswarm", heuristic_search=True)
-    config_file = crazyswarm_path / "launch/crazyflies.yaml"
-
-    # Model IDs: "gpt-4o-2024-05-13", "gpt-3.5-turbo-0125", "gpt-4o-2024-05-13"
-    backend = AppBackend(
-        config_file=config_file,
-        music_dir=music_dir,
-        strict_processing=strict,
-        model_id=model_id,
-        use_motion_primitives=use_motion_primitives,
+    app = create_app(
+        ApiConfig(
+            music_dir=music_dir,
+            strict_processing=strict,
+            model_id=model_id,
+            llm_provider=llm_provider,
+            use_motion_primitives=use_motion_primitives,
+        )
     )
-    ui = create_ui(backend)
-    ui.launch()
+    uvicorn.run(app, host=host, port=port)
 
 
 if __name__ == "__main__":

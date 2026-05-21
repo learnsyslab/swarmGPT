@@ -1,7 +1,7 @@
 from pathlib import Path
 
 import numpy as np
-import yaml
+import toml
 
 
 def virtual_crazyswarm_config(n_drones: int) -> Path:
@@ -28,19 +28,20 @@ def virtual_crazyswarm_config(n_drones: int) -> Path:
     # Round to integers
     positions = np.round(positions).astype(int)
 
-    config = {
-        "crazyflies": [
-            {"channel": 80, "id": i, "initialPosition": pos.tolist(), "type": "LSYMultiMarker"}
-            for i, pos in enumerate(positions)
-        ]
-    }
+    config = {}
+    for i, pos in enumerate(positions):
+        config[f"cf{i}"] = {
+            "name": f"cf{i}",
+            "uri": f"radio://0/80/2M/E7E7E7E7{i:02X}",
+            "pos": pos.astype(float).tolist(),
+        }
 
     # Create temporary config file
     tmp_dir = Path("/tmp/swarm_gpt_test")
     tmp_dir.mkdir(exist_ok=True)
-    config_path = tmp_dir / "crazyflies.yaml"
+    config_path = tmp_dir / "drones.toml"
 
     with open(config_path, "w") as f:
-        yaml.dump(config, f)
+        toml.dump(config, f)
 
     return config_path

@@ -1,14 +1,14 @@
 [build-system]
-requires = ["setuptools>=61.0.0", "wheel"]
+requires = ["setuptools>=61.0.0", "wheel", "numpy>=2.0.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "swarm_gpt"
+name = "swarmgpt"
 version = "0.0.1"
 description = "Drone swarm dancing choreographies using LLMs and optimization-based collision avoidance"
 readme = "README.md"
-requires-python = ">=3.8"
 license = { file = "LICENSE" }
+requires-python = ">=3.10"
 classifiers = [
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python",
@@ -18,30 +18,152 @@ classifiers = [
     "Intended Audience :: Education",
     "Intended Audience :: Science/Research",
 ]
-keywords = ["GPT", "LLM", "crazyflies", "drones", "swarm", "crazyswarm"]
+
+
+########################
+# Pip Dependencies
+########################
+
 dependencies = [
     "fire",
+    "toml",
     "einops",
-    "numpy",
-    "ollama",
+    "numpy>=2.0.0,<2.5.0",
+    "scipy>=1.17.0,<1.18.0",
+    "tqdm",
     "pyyaml",
+    # LLM packages
+    "ollama",
     "openai",
-    "scipy",
-    "rospkg",
-    "libfmp",
-    "mutagen",
+    # Webinterface
+    "fastapi>=0.115.0,<1.0.0",
+    "uvicorn[standard]>=0.32.0,<1.0.0",
+    # Media management
+    "libfmp>=1.3.0",
     "python-vlc",
-    "gradio",
+    "mutagen",
+    "imageio>=2.37.0,<3",
+    "av>=15.1.0,<18",
 ]
 
-[tool.setuptools.packages.find]
-include = ["swarm_gpt*"]
-
+# option[sim]: basic simulation
 [project.optional-dependencies]
-test = ["pytest"]
+sim = [
+    "axswarm @ git+https://github.com/utiasDSL/axswarm.git",
+    "crazyflow==0.1.0",
+    "drone-models==0.1.0",
+    "drone-controllers==0.1.0",
+    "jax >= 0.7",
+]
+# option[deploy]: deploy to real drones
+deploy = [
+    "cflib", 
+    "drone-estimators",
+]
 
-[project.urls]
-Repository = "https://github.com/utiasDSL/swarmGPT"
+[tool.setuptools.packages]
+find = {}
+
+[tool.setuptools.package-data]
+lsy_drone_racing = ["envs/assets/*.xml", "envs/assets/*.png"]
+
+[tool.pytest.ini_options]
+markers = ["unit", "integration"]
+
+
+########################
+# Pixi Sessions
+########################
+
+[tool.pixi.workspace]
+channels = ["conda-forge"]
+platforms = ["linux-64", "osx-arm64"]
+
+[tool.pixi.activation]
+scripts = ["openai_api_key.sh"]
+
+# environments
+[tool.pixi.environments]
+default = { features = ["sim"], solve-group = "default" }
+deploy = { features = ["sim", "kilted", "deploy"] }
+docs = { features = ["docs"] }
+tests = { features = ["tests", "sim", "kilted", "deploy"] }
+
+[tool.pixi.dependencies]
+# Environment packages
+openblas = ">=0.3.30,<0.4"
+ruff = "*"
+python = ">=3.12.0,<3.13"
+nodejs = ">=22.12.0,<23"
+pip = ">=25.0.1,<26"
+cmake = "*"
+compilers = ">=1.9.0, <1.11.0"
+make = "*"
+
+[tool.pixi.tasks]
+api = { cmd = "python swarm_gpt/launch.py", description = "Serve the SwarmGPT browser API and built frontend" }
+web-install = { cmd = "npm --prefix web install", description = "Install browser frontend dependencies" }
+web-dev = { cmd = "npm --prefix web run dev", description = "Serve the browser frontend with Vite" }
+web-build = { cmd = "npm --prefix web run build", description = "Build the browser frontend" }
+
+[tool.pixi.pypi-dependencies]
+swarmgpt = { path = ".", editable = true }
+
+# feature[kilted]
+[tool.pixi.feature.kilted]
+channels = ["https://prefix.dev/robostack-kilted"]
+
+[tool.pixi.feature.kilted.dependencies]
+# Build tools
+compilers = "*"
+cmake = "*"
+pkg-config = "*"
+make = "*"
+ninja = "*"
+# ROS specific tools
+rosdep = "*"
+colcon-common-extensions = "*"
+# Kilted specific tools
+ros-kilted-desktop = "*"
+
+[tool.pixi.feature.kilted.activation]
+scripts = ["tools/setup_mocap.sh"]
+
+# feature[tests]
+[tool.pixi.feature.tests.dependencies]
+pytest = ">=8.4.1"
+pytest-timeout = ">=2.1.0"
+pytest-cov = ">=6.0.0"
+array-api-strict = ">=2.4.1"
+
+[tool.pixi.feature.tests.pypi-dependencies]
+torch = ">=2.7.0"  # For doctests
+jax = ">=0.7.0"
+# pytest-markdown-docs = "*"
+
+[tool.pixi.feature.tests.tasks]
+tests = { cmd = "pytest -v tests", description = "Run tests" }
+# test-docs = { cmd = "pytest -v --markdown-docs --markdown-docs-syntax=superfences drone_models/ docs/ --ignore=docs/gen_ref_pages.py", env = { SCIPY_ARRAY_API = "1" }, description = "Run doctests for docstrings and documentation" }
+
+# feature[docs]
+[tool.pixi.feature.docs.dependencies]
+mkdocs = "*"
+mkdocs-material = "*"
+click = "8.2.1.*"  # https://github.com/mkdocs/mkdocs/issues/4032
+
+[tool.pixi.feature.docs.pypi-dependencies]
+mkdocstrings = { version = "*", extras = ["python"] }
+mkdocs-gen-files = "*"
+mkdocs-literate-nav = "*"
+mkdocs-section-index = "*"
+
+[tool.pixi.feature.docs.tasks]
+docs-serve = { cmd = "mkdocs serve", description = "Serve docs locally" }
+docs-build = { cmd = "mkdocs build", description = "Build docs" }
+
+########################
+# ruff Settings
+########################
 
 [tool.ruff]
 # Exclude a variety of commonly ignored directories.
@@ -73,17 +195,21 @@ exclude = [
     "site-packages",
     "venv",
     "docs/conf.py",
+    "tools/*",
 ]
 
 line-length = 100
 indent-width = 4
-target-version = "py38"
+target-version = "py312"
 
 [tool.ruff.lint]
 select = ["E4", "E7", "E9", "F", "I", "D", "TCH", "ANN"]
 ignore = ["ANN401"]
 fixable = ["ALL"]
 unfixable = []
+
+[tool.ruff.lint.isort]  # Prevent ruff from reporting conflicting settings with isort
+split-on-trailing-comma = false
 
 [tool.ruff.lint.per-file-ignores]
 "scripts/*" = ["D", "ANN"]
@@ -96,9 +222,6 @@ convention = "google"
 [tool.ruff.lint.flake8-annotations]
 suppress-dummy-args = true
 suppress-none-returning = true
-
-[tool.ruff.lint.isort]
-split-on-trailing-comma = false
 
 [tool.ruff.format]
 quote-style = "double"

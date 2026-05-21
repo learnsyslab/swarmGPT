@@ -1,7 +1,7 @@
 .vscode
 *.pyc
 */**__pycache__
-swarm_gpt.egg-info
+*.egg-info
 saves
 # !saves/sim2real.bag*
 #!saves/.gitkeep
@@ -13,6 +13,7 @@ saves
 !/docs/media/video/*.mp4
 backup
 build
+cache
 sandbox/
 /data/
 /video
@@ -23,5 +24,14 @@ crazyswarm
 axswarm
 vicon_bridge
 catkin_ws
+ros_ws
 
 openai_api_key.sh
+
+.cursor
+docs/ui-previews
+test-results
+playwright-report
+web/dist
+web/node_modules
+web/tsconfig.tsbuildinfo

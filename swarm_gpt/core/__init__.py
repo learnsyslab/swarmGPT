@@ -5,7 +5,6 @@ and the crazyflies.
 """
 
 from swarm_gpt.core.choreographer import Choreographer  # noqa: I001 (avoid circular import)
-from swarm_gpt.core.drone_controller import DroneController
 from swarm_gpt.core.backend import AppBackend
 
-__all__ = ["AppBackend", "Choreographer", "DroneController"]
+__all__ = ["AppBackend", "Choreographer"]

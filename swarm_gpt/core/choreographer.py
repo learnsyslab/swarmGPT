@@ -4,25 +4,31 @@ from __future__ import annotations
 
 import ast
 import logging
-import os
 import re
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import einops
 import numpy as np
-import ollama
+import toml
 import yaml
-from openai import OpenAI
 
 from swarm_gpt.core.motion_primitives import motion_primitives as motion_primitives_collection
 from swarm_gpt.core.motion_primitives import primitive_by_name
 from swarm_gpt.exception import LLMFormatError, LLMPlanError, LLMResponseProcessingError
+from swarm_gpt.utils.llm_providers import (
+    RESPONSES_MAX_OUTPUT_TOKENS,
+    RESPONSES_TEMPERATURE,
+    openai_client_for_provider,
+    prepare_responses_messages,
+)
 
 if TYPE_CHECKING:
     from numpy.typing import NDArray
+    from openai import OpenAI
 
-client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+    from swarm_gpt.utils.llm_providers import LLMProvider
+
 logger = logging.getLogger(__name__)
 
 
@@ -38,22 +44,28 @@ class Choreographer:
 
     def __init__(
         self,
-        config_file: Path,
         *,
-        model_id: str = "gpt-4o-2024-05-13",
+        config_file: Path | None = None,
+        model_id: str = "gpt-4o",
+        llm_provider: LLMProvider = "openai",
         use_motion_primitives: bool = False,
     ):
         """Initialize the choreographer.
 
         Args:
             config_file: Path to the drone configuration file that is used for crazyswarm.
-            model_id: The OpenAI GPT model ID.
+            model_id: Model name passed to ``responses.create`` (OpenAI id or Ollama tag).
+            llm_provider: ``openai`` for the cloud API, ``ollama`` for local via OpenAI-compatible URL.
             use_motion_primitives: Whether to use motion primitives or raw waypoints.
         """
         self.settings = None
+        self.llm_provider: LLMProvider = llm_provider
         self._model_id = model_id
+        self._chat_client: OpenAI | None = None
+        self._chat_client_provider: LLMProvider | None = None
         self.use_motion_primitives = use_motion_primitives
         self.agents = {}
+        self.uris = {}
         self.starting_pos = {}
         self.num_drones = 0
         self.messages = []
@@ -66,6 +78,31 @@ class Choreographer:
         self.lim_lower = np.array(self.settings["axswarm"]["pos_min"])
         self.lim_upper = np.array(self.settings["axswarm"]["pos_max"])
         assert len(self.lim_lower) == 3 and len(self.lim_upper) == 3, "Limits must be 3D"
+
+    def configure_llm(self, provider: LLMProvider, model_id: str) -> None:
+        """Switch provider and model (used by the web UI).
+
+        Keeps choreography history untouched; callers should reset when switching songs as today.
+        """
+        if provider != self.llm_provider:
+            self._chat_client = None
+            self._chat_client_provider = None
+        self.llm_provider = provider
+        self._model_id = model_id
+
+    @property
+    def model_id(self) -> str:
+        """Currently selected inference model id (OpenAI or Ollama tag)."""
+        return self._model_id
+
+    def _chat_client_for_call(self) -> OpenAI:
+        if self._chat_client is None or self._chat_client_provider != self.llm_provider:
+            try:
+                self._chat_client = openai_client_for_provider(self.llm_provider)
+            except RuntimeError as e:
+                raise LLMPlanError(str(e)) from e
+            self._chat_client_provider = self.llm_provider
+        return self._chat_client
 
     def format_initial_prompt(self, song: str, music_info: dict) -> list[dict[str, str]]:
         """Format the initial prompt for the LLM.
@@ -96,14 +133,11 @@ class Choreographer:
 
     def generate_choreography(self, prompt: list[dict[str, str]]) -> str:
         """Generate the initial choreography for the LLM."""
-        logger.debug(f"Generating choreography with model: {self._model_id}")
+        logger.debug(
+            "Generating choreography with provider=%s model=%s", self.llm_provider, self._model_id
+        )
         self.messages.extend(prompt)
-        if re.match("^gpt-[0-9].*", self._model_id):
-            response = self._call_openai(self.messages)
-        elif re.match("^llama[0-9].*", self._model_id):
-            response = self._call_local_llama(self.messages)
-        else:
-            raise ValueError(f"Model ID {self._model_id} not recognized")
+        response = self._call_responses(self.messages)
         self.messages.append({"role": "assistant", "content": response})
         return response
 
@@ -111,22 +145,26 @@ class Choreographer:
         """Reset the LLM history to ensure a clean slate."""
         self.messages.clear()
 
-    def load_drone_config(self, config_file: Path):
+    def load_drone_config(self, config_file: Path | None = None):
         """Load the drone configuration from the config file.
 
         The configuration file is a yaml file that contains the drone IDs and their initial
         positions.
         """
-        with open(config_file) as f:
-            cfg = yaml.safe_load(f)
         with open(Path(__file__).resolve().parents[1] / "data/settings.yaml", "r") as f:
             self.settings = yaml.safe_load(f)
-        robots = sorted(cfg["crazyflies"], key=lambda x: x["id"])
 
-        for i, robot in enumerate(robots):
-            self.agents[i] = int(robot["id"])
-            self.starting_pos[i] = np.array(robot["initialPosition"])
+        if config_file is None:
+            config_file = Path(__file__).resolve().parents[1] / "data/drones.toml"
+        with open(config_file) as f:
+            self.drones = toml.load(f)
+
+        for drone_name, data in self.drones.items():
+            i = int(drone_name[2:])
+            self.agents[i] = i
+            self.starting_pos[i] = np.array(data["pos"])
             self.starting_pos[i][2] = self.settings["starting_height"]
+            self.uris[i] = data["uri"]
         self.num_drones = len(self.agents.values())
         assert self.num_drones > 0, "No drones detected in config file"
 
@@ -180,14 +218,38 @@ class Choreographer:
         }
         return self.prompts["user_initial"].format(**prompt_kwargs)
 
-    def _call_openai(self, messages: list[dict[str, str]]) -> str:
-        response = client.chat.completions.create(
-            model=self._model_id, messages=messages, max_tokens=4096
-        )
-        return response.choices[0].message.content
-
-    def _call_local_llama(self, messages: list[dict[str, str]]) -> str:
-        return ollama.chat(model=self._model_id, messages=messages)["message"]["content"]
+    def _call_responses(self, messages: list[dict[str, str]]) -> str:
+        """Call ``responses.create`` (OpenAI cloud or Ollama's OpenAI-compatible endpoint)."""
+        client = self._chat_client_for_call()
+        input_messages, instructions = prepare_responses_messages(messages)
+        try:
+            response = client.responses.create(
+                model=self._model_id,
+                input=input_messages,
+                instructions=instructions,
+                max_output_tokens=RESPONSES_MAX_OUTPUT_TOKENS,
+                temperature=RESPONSES_TEMPERATURE,
+            )
+        except Exception as e:
+            hint = (
+                "Ensure `ollama serve` is running and the model is pulled."
+                if self.llm_provider == "ollama"
+                else "Check OPENAI_API_KEY and model availability."
+            )
+            raise LLMPlanError(
+                f"Responses API call failed for provider={self.llm_provider!r} "
+                f"model={self._model_id!r}. {hint} ({e})"
+            ) from e
+        if response.error is not None:
+            raise LLMPlanError(
+                f"Model {self._model_id!r} returned an error: {response.error.message}"
+            )
+        content = response.output_text
+        if not content:
+            raise LLMPlanError(
+                f"Model {self._model_id!r} returned empty content. Try another model or reprompt."
+            )
+        return content
 
     def _collision_check(self, pos: NDArray, min_dist: float = 0.1):
         """Check that no two drones are too close to each other at the same time.
@@ -210,7 +272,7 @@ class Choreographer:
             raise LLMPlanError(f"Drones {set(drones)} get too close at waypoints {set(times)}")
 
     def response2waypoints(
-        self, text: str, music_info: dict, strict: bool = True
+        self, text: str, music_info: dict, strict: bool = True, t_rth: float = 3.0
     ) -> dict[str, NDArray]:
         """Translate the LLM output into waypoints.
 
@@ -219,6 +281,7 @@ class Choreographer:
                 format instructions of the output parser.
             music_info: The beat times, amplitude and frequency of the song.
             strict: Enable/disable waypoint proximity and distance checks.
+            t_rth: Time for the drones to return to their starting position
 
         Returns:
             The waypoints as a dictionary of "time", "pos", "vel", "acc". "time" has shape
@@ -233,7 +296,22 @@ class Choreographer:
         # Clip waypoint values to the physical limits
         waypoints["pos"] = np.clip(waypoints["pos"], self.lim_lower, self.lim_upper)
         if strict:
-            self._collision_check(waypoints["pos"])
+            self._collision_check(waypoints["pos"], 0.25)
+
+        # Add home position (TODO make cleaner)
+        home = np.zeros((len(self.agents.values()), 1, 3))
+        for i in self.agents.values():
+            home[i, :, :] = self.starting_pos[i]
+        waypoints["time"] = np.concat(
+            (
+                waypoints["time"],
+                waypoints["time"][:, -1][:, None] + t_rth,
+                waypoints["time"][:, -1][:, None] + t_rth + 1.0,
+            ),
+            axis=1,
+        )
+        waypoints["pos"] = np.concat((waypoints["pos"], home, home), axis=1)
+
         return waypoints
 
     def _response2choreo(self, text: str) -> dict[int, list[str]]:
