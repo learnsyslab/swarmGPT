@@ -101,3 +101,13 @@ def test_schema_contains_no_openai_unsupported_keywords():
     assert "oneOf" not in schema_text
     assert "uniqueItems" not in schema_text
     assert '"items": false' not in schema_text.lower()
+
+
+def test_ollama_motion_primitives_uses_structured_outputs():
+    config_path = virtual_crazyswarm_config(n_drones=4)
+    choreographer = Choreographer(
+        config_file=config_path,
+        llm_provider="ollama",
+        use_motion_primitives=True,
+    )
+    assert choreographer._uses_structured_outputs() is True

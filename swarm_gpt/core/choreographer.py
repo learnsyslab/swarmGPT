@@ -150,8 +150,8 @@ class Choreographer:
         return msgs
 
     def _uses_structured_outputs(self) -> bool:
-        """Use OpenAI Structured Outputs for motion primitives on cloud models."""
-        return self.llm_provider == "openai" and self.use_motion_primitives
+        """Use Structured Outputs for all motion-primitive providers."""
+        return self.use_motion_primitives
 
     def generate_choreography(self, prompt: list[dict[str, str]], num_beats: int | None = None) -> str:
         """Generate the initial choreography for the LLM."""
@@ -329,9 +329,14 @@ class Choreographer:
                 },
             )
         except Exception as e:
+            hint = (
+                "Ensure `ollama serve` is running and the model supports json_schema response format."
+                if self.llm_provider == "ollama"
+                else "Check OPENAI_API_KEY and model availability."
+            )
             raise LLMPlanError(
-                "Structured output call failed. Check OPENAI_API_KEY and model availability."
-                f" ({e})"
+                f"Structured output call failed for provider={self.llm_provider!r} "
+                f"model={self._model_id!r}. {hint} ({e})"
             ) from e
         if response.error is not None:
             raise LLMPlanError(
