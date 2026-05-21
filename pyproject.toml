@@ -77,7 +77,7 @@ markers = ["unit", "integration"]
 
 [tool.pixi.workspace]
 channels = ["conda-forge"]
-platforms = ["linux-64"]
+platforms = ["linux-64", "osx-arm64"]
 
 [tool.pixi.activation]
 scripts = ["openai_api_key.sh"]

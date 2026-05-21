@@ -27,3 +27,6 @@ catkin_ws
 ros_ws
 
 openai_api_key.sh
+
+.cursor
+docs/ui-previews

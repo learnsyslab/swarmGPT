@@ -3,12 +3,68 @@
 from __future__ import annotations
 
 import warnings
-from typing import TYPE_CHECKING, Callable, List
+from typing import TYPE_CHECKING, Any, Callable, List
 
 import gradio as gr
 
+from swarm_gpt.utils.llm_providers import (
+    DEFAULT_OPENAI_MODEL_CHOICES,
+    LABEL_TO_PROVIDER,
+    PROVIDER_LABEL_OLLAMA,
+    PROVIDER_LABEL_OPENAI,
+    ollama_installed_model_names,
+)
+
 if TYPE_CHECKING:
     from swarm_gpt.core import AppBackend
+
+
+def _run_initial_with_llm(backend: AppBackend, song: str, provider_label: str, model_id: str) -> list[dict[str, str]]:
+    backend.configure_llm_from_ui(provider_label, model_id)
+    return backend.initial_prompt(song)
+
+
+def _run_reprompt_with_llm(
+    backend: AppBackend, message: str, provider_label: str, model_id: str
+) -> list[dict[str, str]]:
+    backend.configure_llm_from_ui(provider_label, model_id)
+    return backend.reprompt(message)
+
+
+def _model_choices_for_provider_label(provider_label: str) -> tuple[list[str], str | None]:
+    """Return (choices, default_value) for the model dropdown."""
+    if LABEL_TO_PROVIDER[provider_label] == "openai":
+        ch = list(DEFAULT_OPENAI_MODEL_CHOICES)
+        return ch, ch[0]
+    names = ollama_installed_model_names()
+    if not names:
+        return [], None
+    return names, names[0]
+
+
+def _on_llm_backend_change(provider_label: str) -> Any:
+    choices, default = _model_choices_for_provider_label(provider_label)
+    return gr.update(choices=choices, value=default)
+
+
+def _refresh_ollama_models(provider_label: str) -> Any:
+    if LABEL_TO_PROVIDER[provider_label] != "ollama":
+        return gr.update()
+    choices, default = _model_choices_for_provider_label(provider_label)
+    return gr.update(choices=choices, value=default)
+
+
+def _initial_llm_model_state(backend: AppBackend) -> tuple[list[str], str | None]:
+    label = backend.llm_provider_label_for_ui
+    choices, fallback = _model_choices_for_provider_label(label)
+    mid = backend.choreographer.model_id
+    if mid and mid not in choices:
+        choices = list(choices) + [mid]
+    if choices:
+        value = mid if mid in choices else fallback or choices[0]
+    else:
+        value = mid or None
+    return choices, value
 
 
 def padding_column():
@@ -95,6 +151,26 @@ def create_ui(backend: AppBackend) -> gr.Blocks:
                     visible=False,
                     interactive=True,
                 )
+        init_label = backend.llm_provider_label_for_ui
+        init_choices, init_model_value = _initial_llm_model_state(backend)
+        with gr.Row():
+            padding_column()
+            with gr.Column():
+                llm_backend_dd = gr.Dropdown(
+                    choices=[PROVIDER_LABEL_OPENAI, PROVIDER_LABEL_OLLAMA],
+                    value=init_label,
+                    label="Choreography LLM",
+                )
+            with gr.Column():
+                llm_model_dd = gr.Dropdown(
+                    choices=init_choices,
+                    value=init_model_value,
+                    label="Model name",
+                    allow_custom_value=True,
+                )
+            with gr.Column():
+                refresh_ollama_btn = gr.Button("Refresh local models (Ollama)")
+            padding_column()
         # Interface during data processing and simulation
         with gr.Row():
             with gr.Column():
@@ -139,6 +215,9 @@ def create_ui(backend: AppBackend) -> gr.Blocks:
                 )
             padding_column()
 
+        llm_backend_dd.change(_on_llm_backend_change, llm_backend_dd, llm_model_dd)
+        refresh_ollama_btn.click(_refresh_ollama_models, llm_backend_dd, llm_model_dd)
+
         # Define the UI control flow when the user interacts with the UI elements
         # Song selection flow. On select, the start button and the show output checkbox appear.
         song_input.select(update_visibility([True, True]), [], [start_button, show_output])
@@ -149,7 +228,11 @@ def create_ui(backend: AppBackend) -> gr.Blocks:
         )
         # The song is handed to the backend start function, and the output of `start` is piped into
         # the chatbot.
-        start_button_flow = start_button_flow.success(backend.initial_prompt, song_input, chatbot)
+        start_button_flow = start_button_flow.success(
+            lambda song, pb, pm: _run_initial_with_llm(backend, song, pb, pm),
+            [song_input, llm_backend_dd, llm_model_dd],
+            chatbot,
+        )
         # The choreo message disappears and the simulate, modify and select song buttons appear
         start_button_flow = start_button_flow.success(
             update_visibility([False, True, True, True, True, True]),
@@ -184,7 +267,11 @@ def create_ui(backend: AppBackend) -> gr.Blocks:
         message_flow = message.submit(
             update_visibility([False, False, True]), [], [sim_msg, replay_msg, choreo_msg]
         )
-        message_flow = message_flow.success(backend.reprompt, [message], [chatbot])
+        message_flow = message_flow.success(
+            lambda msg, pb, pm: _run_reprompt_with_llm(backend, msg, pb, pm),
+            [message, llm_backend_dd, llm_model_dd],
+            chatbot,
+        )
         message_flow = message_flow.success(
             update_visibility([False, False, True, True, False]),
             [],
