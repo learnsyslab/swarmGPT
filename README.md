@@ -1,9 +1,12 @@
 # SwarmGPT
 
 ![swarm_gpt_banner](/docs/img/swarm_gpt_banner.png)
-[![Format Check](https://github.com/utiasDSL/swarmGPT/actions/workflows/ruff.yaml/badge.svg)](https://github.com/utiasDSL/swarmGPT/actions/workflows/ruff.yaml)
-[![website](https://github.com/utiasDSL/swarmGPT/actions/workflows/website.yaml/badge.svg)](https://github.com/utiasDSL/swarmGPT/actions/workflows/website.yaml)
-[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
+[![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/downloads/)
+[![Pixi Badge](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/prefix-dev/pixi/main/assets/badge/v0.json)](https://pixi.sh)
+[![ROS Noetic](https://img.shields.io/badge/ROS2-Kilted-blue.svg)](https://docs.ros.org/en/kilted/index.html)
+[![Ruff](https://github.com/utiasDSL/swarmGPT/actions/workflows/ruff.yaml/badge.svg)](https://github.com/utiasDSL/swarmGPT/actions/workflows/ruff.yaml)
+[![Tests](https://github.com/utiasDSL/swarmGPT/actions/workflows/testing.yaml/badge.svg)](https://github.com/utiasDSL/swarmGPT/actions/workflows/testing.yaml)
+[![Docs](https://github.com/utiasDSL/swarmGPT/actions/workflows/docs.yaml/badge.svg)](https://github.com/utiasDSL/swarmGPT/actions/workflows/docs.yaml)
 
 SwarmGPT integrates large language models (LLMs) with safe swarm motion planning, providing an automated and novel approach to deployable drone swarm choreography. Users can automatically generate synchronized drone performances through natural language instructions. Emphasizing safety and creativity, the system combines the creative power of generative models with the effectiveness and safety of model-based planning algorithms. For more information, visit the [project website](https://utiasdsl.github.io/swarm_GPT/) or read our [paper](https://ieeexplore.ieee.org/document/11197931/).
 
@@ -14,13 +17,12 @@ SwarmGPT integrates large language models (LLMs) with safe swarm motion planning
   - [How to run SwarmGPT](#how-to-run-swarmgpt)
     - [Prerequisites](#prerequisites-1)
     - [Launching the Interface](#launching-the-interface)
+    - [Using the Interface](#using-the-interface)
+    - [Ready for Deployment](#ready-for-deployment)
+  - [Deployment](#deployment)
   - [Citing](#citing)
 
 ## Installation
-
-[![Pixi Badge](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/prefix-dev/pixi/main/assets/badge/v0.json)](https://pixi.sh)
-[![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/downloads/)
-[![ROS Noetic](https://img.shields.io/badge/ROS2-Kilted-blue.svg)](https://docs.ros.org/en/kilted/index.html)
 
 SwarmGPT uses [Pixi](https://pixi.sh) for dependency management and environment setup. Pixi provides a fast, reliable package manager that handles both conda and PyPI dependencies seamlessly.
 
@@ -80,29 +82,43 @@ Before running SwarmGPT, ensure you have:
    pixi shell
    ```
 
-2. **Launch SwarmGPT**:
+2. **Install and build the browser UI**:
    ```bash
-   python swarm_gpt/launch.py
+   pixi run web-install
+   pixi run web-build
    ```
-   
+
+3. **Launch SwarmGPT**:
+   ```bash
+   pixi run api
+   ```
+
    Optional parameters:
    ```bash
    # Use different LLM model
-   python swarm_gpt/launch.py --model_id="gpt-3.5-turbo"
+   python swarm_gpt/launch.py --model_id="gpt-4o-mini"
    
    # Disable motion primitives (use raw waypoints)
    python swarm_gpt/launch.py --use_motion_primitives=False
-      ```
+   ```
 
-3. **Access the web interface**: The terminal will display a local URL (typically `http://127.0.0.1:7860`). Open this link in your web browser.
+4. **Access the web interface**: Open `http://127.0.0.1:8000` after building the UI.
+
+For frontend development, run the API and Vite dev server in separate terminals:
+```bash
+pixi run api
+pixi run web-dev
+```
+Then open `http://127.0.0.1:5173`.
 
 ### Using the Interface
 
-1. **Select a song** from the available music library
+1. **Preview and select a song** from the available music library
 2. **Generate choreography** - SwarmGPT will create a first synchronized drone performance automatically
-3. **Preview the results** in the simulation viewer
-4. **Refine as needed** by providing additional prompts or modifications
-5. **Deploy when satisfied** with the generated choreography
+3. **Wait for the automatic safety filter**
+4. **Preview the result** in the browser playback view
+5. **Refine as needed** by providing additional prompts or modifications
+6. **Deploy when satisfied** with the generated choreography
 
 The system will automatically:
 - Analyze the selected music for beats, rhythm, and musical features

@@ -3,13 +3,12 @@
 import logging
 import os
 import sys
-from datetime import datetime
 from pathlib import Path
 
 import fire
+import uvicorn
 
-from swarm_gpt.core import AppBackend
-from swarm_gpt.ui import create_ui
+from swarm_gpt.api.server import ApiConfig, create_app
 from swarm_gpt.utils.llm_providers import LLMProvider
 
 os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
@@ -18,37 +17,16 @@ os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 if sys.platform == "darwin":
     os.environ.setdefault("JAX_PLATFORMS", "cpu")
 
-# Viewer runs in a spawn child (see viewer_subprocess); safe to default GUI on all platforms.
-_DEFAULT_SIM_GUI = True
-
-
-def mklog_date(path: Path) -> Path:
-    """Make a unique directory within the given directory with the current time as name.
-
-    Args:
-        path: Parent folder path.
-    """
-    assert path.is_dir()
-    save_file = path / (str(datetime.now().strftime("%Y_%m_%d_%H_%M")) + "_log.json")
-    if not save_file.is_file():
-        return save_file
-    t = 1
-    while save_file.is_file():
-        curr_date_unique = datetime.now().strftime("%Y_%m_%d_%H_%M") + f"_({t})"
-        save_file = path / (str(curr_date_unique) + "_log.json")
-        t += 1
-    return save_file
-
-
 # models: gpt-4o-2024-05-13, o3-mini
 def main(
     strict: bool = True,
     model_id: str = "gpt-4o",
     llm_provider: LLMProvider = "openai",
     use_motion_primitives: bool = True,
-    simulate_gui: bool = _DEFAULT_SIM_GUI,
+    host: str = "127.0.0.1",
+    port: int = 8000,
 ):
-    """Build the gui and launch the demo."""
+    """Launch the SwarmGPT browser app API."""
     logging.basicConfig(level=logging.WARNING)
     logging.getLogger("httpx").setLevel(logging.WARNING)  # Suppress httpx info messages
     logging.getLogger("jax").setLevel(logging.WARNING)
@@ -62,20 +40,18 @@ def main(
             "or switch the UI to Ollama (local)."
         )
 
-    # Get a list of all music titles available in the music directory
     music_dir = Path(__file__).resolve().parents[1] / "music"
 
-    # Model IDs: "gpt-4o-2024-05-13", "gpt-3.5-turbo-0125", "gpt-4o-2024-05-13"
-    backend = AppBackend(
-        music_dir=music_dir,
-        strict_processing=strict,
-        model_id=model_id,
-        llm_provider=llm_provider,
-        use_motion_primitives=use_motion_primitives,
-        simulate_gui=simulate_gui,
+    app = create_app(
+        ApiConfig(
+            music_dir=music_dir,
+            strict_processing=strict,
+            model_id=model_id,
+            llm_provider=llm_provider,
+            use_motion_primitives=use_motion_primitives,
+        )
     )
-    ui = create_ui(backend)
-    ui.launch()
+    uvicorn.run(app, host=host, port=port)
 
 
 if __name__ == "__main__":

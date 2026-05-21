@@ -133,11 +133,23 @@ def simulate_axswarm(
 
             # Log inputs
             controls.append(control[0, :, :6].copy())
-            states.append(control[0, :, :6].copy())
 
         # Run the simulation
         sim.state_control(control)
         sim.step(sim.freq // sim.control_freq)
+
+        # Store the state
+        states.append(
+            np.concatenate(
+                (
+                    np.asarray(sim.data.states.pos[0]),
+                    np.asarray(sim.data.states.quat[0]),
+                    np.asarray(sim.data.states.vel[0]),
+                    np.asarray(sim.data.states.ang_vel[0]),
+                ),
+                axis=-1,
+            )
+        )
 
         # Render simulation with visualizations of the planned trajectories
         if ((step * fps) % sim.control_freq) < fps and gui:
@@ -148,12 +160,23 @@ def simulate_axswarm(
                 time.sleep(dt)
     sim.close()
 
+    timestamps = np.arange(n_steps) / sim.control_freq
+    states = np.array(states)
+    if len(states) != len(timestamps):
+        raise RuntimeError(
+            f"Simulation log mismatch: {len(states)} states for {len(timestamps)} timestamps"
+        )
+    if states.shape[1:] != (sim.n_drones, 13):
+        raise RuntimeError(
+            f"Expected states with shape (T, {sim.n_drones}, 13), got {states.shape}"
+        )
+
     sim_log = {
         "num_drones": sim.n_drones,
         "log_freq": solver_settings.freq,
         "sim_freq": sim.freq,
-        "timestamps": np.arange(n_steps) / sim.control_freq,
-        "states": np.array(states),
+        "timestamps": timestamps,
+        "states": states,
         "controls": np.array(controls),
         "waypoints": waypoints,
         "simulation_freq": sim.freq,
@@ -164,16 +187,28 @@ def simulate_axswarm(
     # return sim_log
 
 
-def simulate_spline(
-    splines: dict[str, BSpline], settings: dict, t: float, music_manager: MusicManager, gui: bool
-):
-    """Run the simulation using splines as control reference."""
-    # Setting Up Simulation
+def replay_sim_states(
+    sim_data: dict[str, NDArray], settings: dict, music_manager: MusicManager | None = None
+) -> None:
+    """Replay a previously recorded Crazyflow state log in MuJoCo.
+
+    This is a debug viewer for the exact states produced by ``simulate_axswarm``. Unlike
+    ``simulate_spline``, it does not run another controller/physics pass.
+    """
+    timestamps = np.asarray(sim_data["timestamps"], dtype=float)
+    states = np.asarray(sim_data["states"], dtype=np.float32)
+    if states.ndim != 3 or states.shape[-1] != 13:
+        raise ValueError(f"Expected states with shape (T, drones, 13), got {states.shape}")
+    if len(states) != len(timestamps):
+        raise ValueError(f"State/timestamp mismatch: {len(states)} != {len(timestamps)}")
+    if len(states) == 0:
+        return
+
     fps = 60
-    amswarm_freq = settings["axswarm"]["freq"]
+    default_cam_config = {"distance": 4.0, "azimuth": 180, "elevation": -20, "lookat": [0, 0, 1]}
     sim = Sim(
         n_worlds=1,
-        n_drones=len(splines),
+        n_drones=int(sim_data["num_drones"]),
         drone_model="cf21B_500",
         physics=Physics.first_principles,
         control=Control.state,
@@ -183,84 +218,93 @@ def simulate_spline(
         device="cpu",
         xml_path=Path("swarm_gpt/data/scene.xml"),
     )
-    default_cam_config = {"distance": 4.0, "azimuth": 180, "elevation": -20, "lookat": [0, 0, 1]}
     sim.max_visual_geom = 100_000
-    # JIT compile the simulation
-    sim.reset()
-    sim.state_control(np.random.random((1, sim.n_drones, 13)))
-    sim.step(sim.freq // sim.control_freq)
-    sim.reset()
-
-    vel_splines = {i: splines[i].derivative() for i in splines.keys()}
-    assert sim.freq % sim.control_freq == 0, (
-        "control freq {sim.control_freq} must be divisible by sim.freq {sim.freq}"
-    )
-    assert sim.control_freq % amswarm_freq == 0, (
-        "control freq {sim.control_freq} must be divisible by amswarm freq {amswarm_freq}"
-    )
-    # Setting Up Initial States
-    pos = np.array([splines[i](0) for i in splines.keys()])[None, ...]
-    hover_thrust = -sim.data.params.mass * sim.data.params.gravity_vec[2] / 4
-    params = load_params("first_principles", "cf21B_500")  # TODO make model configurable
-    hover_rpm = motor_force2rotor_vel(hover_thrust, params["rpm2thrust"])
-    rotor_vel = np.ones_like(sim.data.states.rotor_vel) * hover_rpm
-    assert pos.shape == sim.data.states.pos.shape, (
-        f"Initial drone position shape mismatch ({pos.shape}) vs ({sim.data.states.pos.shape})"
-    )
-    assert rotor_vel.shape == sim.data.states.rotor_vel.shape, (
-        f"Initial drone position shape mismatch ({rotor_vel.shape}) vs ({sim.data.states.rotor_vel.shape})"
-    )
-    sim.data = sim.data.replace(
-        states=sim.data.states.replace(
-            pos=sim.data.states.pos.at[...].set(pos),
-            rotor_vel=sim.data.states.rotor_vel.at[...].set(rotor_vel),
-        )
-    )
 
     rgbas = np.ones((sim.n_drones, 4))
     rgbas[:, :3] = generate_default_colors(sim.n_drones, limit=1.0)
     swarm_pos = [deque(maxlen=100) for _ in range(sim.n_drones)]
-    # Start music if a song is specified
-    if music_manager is not None and gui:
-        sim.render(cam_config=default_cam_config)  # Start gui before playing music
-        time.sleep(0.5)  # Wait for gui to initialize
-        music_manager.play()
 
-    # MAIN SIMULATION LOOP
-    tstart = time.time()
-    for i in tqdm(range(0, int(t * sim.control_freq))):
-        current_time = i / sim.control_freq
-        des_pos = np.array([splines[i](current_time) for i in splines.keys()])
-        des_vel = np.array([vel_splines[i](current_time) for i in vel_splines.keys()])
-        controls = np.concatenate((des_pos, des_vel, np.zeros((sim.n_drones, 7))), axis=-1)[
-            None, ...
-        ]
-        # Updates Simulation data
-        sim.state_control(controls)
-        sim.step(sim.freq // sim.control_freq)
+    def sample_state(t: float) -> NDArray:
+        if len(states) == 1:
+            return states[0]
+        t = float(np.clip(t, timestamps[0], timestamps[-1]))
+        idx = int(np.searchsorted(timestamps, t, side="right") - 1)
+        idx = min(max(idx, 0), len(timestamps) - 2)
+        t0, t1 = timestamps[idx], timestamps[idx + 1]
+        alpha = 0.0 if t1 <= t0 else (t - t0) / (t1 - t0)
+        frame = (1 - alpha) * states[idx] + alpha * states[idx + 1]
 
-        # Set up tracking lines that show the future drone positions
-        if (((i * fps) % sim.control_freq) < fps) and gui:
-            for j, dq in enumerate(swarm_pos):
-                dq.append(np.asarray(sim.data.states.pos[0, j]))
-                draw_line(sim, np.array(dq), rgba=rgbas[j % len(rgbas)], start_size=2, end_size=5)
+        # Keep quaternion interpolation on the shortest arc and normalized.
+        q0 = states[idx, :, 3:7]
+        q1 = states[idx + 1, :, 3:7]
+        q1 = np.where(np.sum(q0 * q1, axis=-1, keepdims=True) < 0, -q1, q1)
+        quat = (1 - alpha) * q0 + alpha * q1
+        quat /= np.linalg.norm(quat, axis=-1, keepdims=True) + 1e-8
+        frame[:, 3:7] = quat
+        return frame.astype(np.float32, copy=False)
 
-            change_material(
-                sim,
-                mat_name="led_top",
-                drone_ids=np.arange(sim.n_drones),
-                rgba=rgbas[np.arange(sim.n_drones) % len(rgbas)],
-                emission=np.ones((sim.n_drones,)),
-            )
-            change_material(
-                sim,
-                mat_name="led_bot",
-                drone_ids=np.arange(sim.n_drones),
-                rgba=rgbas[np.arange(sim.n_drones) % len(rgbas)],
-                emission=np.ones((sim.n_drones,)),
-            )
+    def set_state(frame: NDArray) -> None:
+        nonlocal sim
+        sim.data = sim.data.replace(
+            states=sim.data.states.replace(
+                pos=sim.data.states.pos.at[0, ...].set(frame[:, 0:3]),
+                quat=sim.data.states.quat.at[0, ...].set(frame[:, 3:7]),
+                vel=sim.data.states.vel.at[0, ...].set(frame[:, 7:10]),
+                ang_vel=sim.data.states.ang_vel.at[0, ...].set(frame[:, 10:13]),
+            ),
+            core=sim.data.core.replace(mjx_synced=sim.data.core.mjx_synced.at[...].set(False)),
+        )
 
-            sim.render(cam_config=default_cam_config)
-            if (dt := current_time - (time.time() - tstart)) > 0:
-                time.sleep(dt)
-    sim.close()
+    set_state(states[0])
+    sim.render(cam_config=default_cam_config)
+    time.sleep(0.5)  # Wait for the viewer to initialize
+    assert music_manager is not None, "Music manager is required for debug replay"
+    try:
+        music_manager.play(wait=True)
+    except RuntimeError as exc:
+        logger.warning("Could not start music playback for debug replay: %s", exc)
+
+    tstart = time.perf_counter()
+    last_progress_time = timestamps[0]
+    try:
+        with tqdm(total=float(timestamps[-1] - timestamps[0]), unit="s") as progress:
+            while True:
+                t_frame_start = time.perf_counter()
+                t_playback = timestamps[0] + (t_frame_start - tstart)
+
+                t = float(np.clip(t_playback, timestamps[0], timestamps[-1]))
+                frame = sample_state(t)
+                progress.update(max(0.0, t - last_progress_time))
+                last_progress_time = t
+
+                set_state(frame)
+                for j, dq in enumerate(swarm_pos):
+                    dq.append(frame[j, 0:3])
+                    draw_line(
+                        sim, np.array(dq), rgba=rgbas[j % len(rgbas)], start_size=2, end_size=5
+                    )
+
+                change_material(
+                    sim,
+                    mat_name="led_top",
+                    drone_ids=np.arange(sim.n_drones),
+                    rgba=rgbas[np.arange(sim.n_drones) % len(rgbas)],
+                    emission=np.ones((sim.n_drones,)),
+                )
+                change_material(
+                    sim,
+                    mat_name="led_bot",
+                    drone_ids=np.arange(sim.n_drones),
+                    rgba=rgbas[np.arange(sim.n_drones) % len(rgbas)],
+                    emission=np.ones((sim.n_drones,)),
+                )
+
+                sim.render(cam_config=default_cam_config)
+                if t_playback >= timestamps[-1]:
+                    break
+                if (dt := (1 / fps) - (time.perf_counter() - t_frame_start)) > 0:
+                    time.sleep(dt)
+    finally:
+        if music_manager is not None:
+            music_manager.stop()
+        sim.close()

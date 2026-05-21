@@ -1,16 +1,18 @@
-"""Shared LLM routing helpers (OpenAI vs Ollama) for UI and Choreographer."""
+"""Shared LLM routing helpers (OpenAI vs Ollama)."""
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 from typing import Final, Literal
+from urllib.request import urlopen
 
 from openai import OpenAI
 
 logger = logging.getLogger(__name__)
 
-# Ollama exposes OpenAI-compatible /v1/responses (and legacy chat) APIs.
+# Ollama exposes an OpenAI-compatible /v1/responses API.
 OLLAMA_OPENAI_BASE_URL: Final = os.getenv("OLLAMA_OPENAI_BASE_URL", "http://localhost:11434/v1")
 OLLAMA_API_KEY: Final = os.getenv("OLLAMA_API_KEY", "ollama")
 
@@ -22,17 +24,7 @@ LLMProvider = Literal["openai", "ollama"]
 PROVIDER_LABEL_OPENAI: Final = "ChatGPT / OpenAI"
 PROVIDER_LABEL_OLLAMA: Final = "Ollama (local)"
 
-LABEL_TO_PROVIDER: dict[str, LLMProvider] = {
-    PROVIDER_LABEL_OPENAI: "openai",
-    PROVIDER_LABEL_OLLAMA: "ollama",
-}
-
-PROVIDER_TO_LABEL: dict[LLMProvider, str] = {
-    "openai": PROVIDER_LABEL_OPENAI,
-    "ollama": PROVIDER_LABEL_OLLAMA,
-}
-
-# Shown in the UI; users can type another OpenAI id if needed (allow_custom_value).
+# Shown in the browser UI; users can type another OpenAI id if needed.
 DEFAULT_OPENAI_MODEL_CHOICES: tuple[str, ...] = (
     "gpt-4o",
     "gpt-4o-mini",
@@ -84,17 +76,12 @@ def openai_client_for_provider(provider: LLMProvider) -> OpenAI:
 def ollama_installed_model_names() -> list[str]:
     """Return sorted Ollama model names, or [] if the daemon is unreachable."""
     try:
-        import ollama
-
-        resp = ollama.list()
-        models = getattr(resp, "models", None)
-        if models is None and isinstance(resp, dict):
-            models = resp.get("models", [])
-        names: list[str] = []
-        for m in models:
-            name = getattr(m, "model", None) or getattr(m, "name", None)
-            if name is None and isinstance(m, dict):
-                name = m.get("model") or m.get("name")
+        base_url = OLLAMA_OPENAI_BASE_URL.rsplit("/v1", 1)[0].rstrip("/")
+        with urlopen(f"{base_url}/api/tags", timeout=0.75) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+        names = []
+        for model in payload.get("models", []):
+            name = model.get("model") or model.get("name")
             if name:
                 names.append(str(name))
         return sorted(set(names))

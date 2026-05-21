@@ -1,0 +1,73 @@
+name: Docs
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+      with:
+        lfs: true
+
+    - name: Check out LFS objects
+      run: git lfs pull --include="docs/*"
+
+    - name: Verify LFS files
+      run: |
+        echo "Listing docs/media/video files with sizes:"
+        ls -lh docs/media/video
+        echo
+        echo "Checking for Git LFS pointers:"
+        head -n 5 docs/media/video* || true
+
+    - name: Setup pixi
+      uses: prefix-dev/setup-pixi@v0.8.1
+      with:
+        pixi-version: v0.49.0
+        cache: true
+        
+    - name: Build documentation
+      run: pixi run -e docs mkdocs build
+      
+    - name: Setup Pages
+      uses: actions/configure-pages@v3
+      
+    - name: Upload artifact
+      uses: actions/upload-pages-artifact@v4
+      with:
+        path: ./site
+
+    - name: Inspect built site
+      run: |
+        echo "Listing site/ directory:"
+        find site/ -type f -exec sh -c 'head -n 3 "$1" | grep -q "git-lfs" && echo "Pointer found: $1"' _ {} \;
+
+
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.ref == 'refs/heads/main'
+    
+    steps:
+    - name: Deploy to GitHub Pages
+      id: deployment
+      uses: actions/deploy-pages@v4

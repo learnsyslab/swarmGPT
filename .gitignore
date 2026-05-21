@@ -30,3 +30,8 @@ openai_api_key.sh
 
 .cursor
 docs/ui-previews
+test-results
+playwright-report
+web/dist
+web/node_modules
+web/tsconfig.tsbuildinfo

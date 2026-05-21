@@ -94,8 +94,16 @@ class MusicManager:
         assert self.song, "Song has not been set yet!"
         return MP3(self.music_dir / (self.song + ".mp3")).info.length  # in seconds
 
-    def play(self):
-        """Play the song with VLC."""
+    def play(self, *, wait: bool = False, timeout: float = 2.0) -> bool:
+        """Play the song with VLC.
+
+        Args:
+            wait: If True, block briefly until VLC reports active playback.
+            timeout: Maximum time to wait for playback to start.
+
+        Returns:
+            True if VLC accepted the play request and, when ``wait`` is set, started playback.
+        """
         assert self.song, "Song not set"
         media_path = str(self.music_dir / (self.song + ".mp3"))
         inst = self._get_vlc_instance()
@@ -105,7 +113,21 @@ class MusicManager:
             self._music_player = None
         self._music_player = inst.media_player_new()
         self._music_player.set_media(inst.media_new(media_path))
-        self._music_player.play()
+        self._music_player.audio_set_volume(100)
+        result = self._music_player.play()
+        if result == -1:
+            logger.error("VLC failed to start playback for %s", media_path)
+            return False
+        if not wait:
+            return True
+
+        deadline = time.perf_counter() + timeout
+        while time.perf_counter() < deadline:
+            if self.is_playing:
+                return True
+            time.sleep(0.01)
+        logger.warning("Timed out waiting for VLC playback to start for %s", media_path)
+        return self.is_playing
 
     def stop(self):
         """Stop the song."""
@@ -120,6 +142,16 @@ class MusicManager:
         if self._music_player is None:
             return False
         return self._music_player.is_playing()
+
+    @property
+    def current_time(self) -> float | None:
+        """Current VLC playback time in seconds."""
+        if self._music_player is None:
+            return None
+        current_ms = self._music_player.get_time()
+        if current_ms < 0:
+            return None
+        return current_ms / 1000
 
     def extract_song_info(self) -> dict:
         """Extract the song information."""

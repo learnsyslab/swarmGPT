@@ -2,14 +2,11 @@
 
 from __future__ import annotations
 
-import copy
 import json
 import logging
-import pickle
-import tempfile
+import shutil
 from datetime import datetime
 from functools import wraps
-from multiprocessing import get_context
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, Literal, ParamSpec, TypeVar
 
@@ -18,14 +15,14 @@ import yaml
 from scipy.interpolate import make_smoothing_spline
 
 from swarm_gpt.core import Choreographer
-from swarm_gpt.core.sim import simulate_axswarm
-from swarm_gpt.core.viewer_subprocess import run_spline_viewer_from_payload_path
+from swarm_gpt.core.sim import replay_sim_states, simulate_axswarm
 from swarm_gpt.exception import LLMException
 from swarm_gpt.utils import MusicManager, generate_default_colors
-from swarm_gpt.utils.llm_providers import LABEL_TO_PROVIDER, PROVIDER_TO_LABEL, LLMProvider
 
 if TYPE_CHECKING:
     from numpy.typing import NDArray as Array
+
+    from swarm_gpt.utils.llm_providers import LLMProvider
 
 logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
@@ -83,18 +80,18 @@ def self_correct(n_retries: int) -> Callable[[Callable[P, R]], Callable[P, R]]:
 
 
 class AppBackend:
-    """Backend class for the swarm_gpt gradio web app."""
+    """Backend for choreography generation, filtering, preset storage, and deployment."""
 
     def __init__(
         self,
         *,
         music_dir: Path = Path(__file__).parents[2] / "music",
+        preset_dir: Path | None = None,
         config_file: Path | None = None,
         strict_processing: bool = True,
         strict_drone_match: bool = True,
         model_id: str = "gpt-4o",
         use_motion_primitives: bool = True,
-        simulate_gui: bool = True,
         llm_provider: LLMProvider = "openai",
     ):
         """Initialize the backend by loading the music files and initializing the choreographer.
@@ -102,17 +99,16 @@ class AppBackend:
         Args:
             config_file: Path to the config file.
             music_dir: Path to the music directory.
+            preset_dir: Path to the preset directory.
             strict_processing: Flag to raise an error on waypoint collisions.
             strict_drone_match: Flag to raise an error when preset drones do not match the current
                 swarm.
             model_id: The OpenAI or Ollama model name (see LLM selector in the UI).
             use_motion_primitives: If we want LLM to use motion primitives for choreography
-            simulate_gui: If True, open the MuJoCo interactive viewer after the axswarm pass
-                (second simulation phase). On macOS this can crash with Gradio; use False for
-                headless completion.
             llm_provider: ``openai`` or ``ollama`` for the choreographer backend.
         """
         self.root_path = Path(__file__).resolve().parents[2]
+        self.preset_dir = preset_dir or self.root_path / "swarm_gpt/data/presets"
         with open(self.root_path / "swarm_gpt/data/settings.yaml", "r") as f:
             self.settings = yaml.safe_load(f)
         # Initialize drone control elements
@@ -131,52 +127,8 @@ class AppBackend:
         self._preset: None | str = None
         self._strict_processing = strict_processing
         self._strict_drone_match = strict_drone_match
-        self._simulate_gui = simulate_gui
         if set(self.songs) & set(self.presets):
             raise ValueError("Songs and presets must have unique names")
-
-    def configure_llm_from_ui(self, provider_label: str, model_id: str | None) -> None:
-        """Apply provider + model from Gradio widgets (labels from ``LABEL_TO_PROVIDER`` keys)."""
-        if provider_label not in LABEL_TO_PROVIDER:
-            raise ValueError(f"Unknown LLM backend label: {provider_label!r}")
-        mid = (model_id or "").strip()
-        if not mid:
-            raise ValueError("Select or enter a model name.")
-        prov = LABEL_TO_PROVIDER[provider_label]
-        self.choreographer.configure_llm(prov, mid)
-        logger.info("LLM configured via UI: provider=%s model=%s", prov, mid)
-
-    @property
-    def llm_provider_label_for_ui(self) -> str:
-        """Gradio label for the active ``llm_provider``."""
-        return PROVIDER_TO_LABEL[self.choreographer.llm_provider]
-
-    def _run_simulate_spline_viewer_subprocess(self, t_end: float) -> None:
-        """Play spline trajectory in MuJoCo inside a ``spawn`` child (macOS / Gradio-safe)."""
-        with tempfile.NamedTemporaryFile(suffix=".pkl", delete=False) as fh:
-            pickle_path = Path(fh.name)
-        try:
-            payload = {
-                "root_path": str(self.root_path.resolve()),
-                "splines": self.splines,
-                "settings": copy.deepcopy(self.settings),
-                "t_end": float(t_end),
-                "music_dir": str(self.music_manager.music_dir.resolve()),
-                "song": self.music_manager.song,
-                "gui": True,
-            }
-            with pickle_path.open("wb") as out:
-                pickle.dump(payload, out, protocol=pickle.HIGHEST_PROTOCOL)
-            proc = get_context("spawn").Process(
-                target=run_spline_viewer_from_payload_path,
-                args=(str(pickle_path),),
-            )
-            proc.start()
-            proc.join()
-            if proc.exitcode != 0:
-                logger.error("MuJoCo viewer subprocess exited with code %s", proc.exitcode)
-        finally:
-            pickle_path.unlink(missing_ok=True)
 
     @property
     def songs(self) -> list[str]:
@@ -186,7 +138,46 @@ class AppBackend:
     @property
     def presets(self) -> list[str]:
         """List of available presets."""
-        return [s.name for s in (self.root_path / "swarm_gpt/data/presets").glob("*")]
+        if not self.preset_dir.is_dir():
+            return []
+        return sorted(s.name for s in self.preset_dir.iterdir() if s.is_dir())
+
+    @staticmethod
+    def parse_preset_id(preset_id: str) -> dict[str, Any]:
+        """Parse the preset directory name into display metadata."""
+        try:
+            song, n_drones, timestamp = [part.strip() for part in preset_id.rsplit("|", 2)]
+            n_drones_int = int(n_drones)
+        except ValueError:
+            return {
+                "id": preset_id,
+                "song": preset_id,
+                "numDrones": None,
+                "createdAt": None,
+                "createdLabel": None,
+            }
+
+        created_at = None
+        created_label = timestamp
+        try:
+            created = datetime.strptime(timestamp, "%Y%m%d_%H%M%S")
+            created_at = created.isoformat()
+            created_label = created.strftime("%Y-%m-%d %H:%M")
+        except ValueError:
+            ...
+        return {
+            "id": preset_id,
+            "song": song,
+            "numDrones": n_drones_int,
+            "createdAt": created_at,
+            "createdLabel": created_label,
+        }
+
+    def preset_metadata(self, preset_id: str) -> dict[str, Any]:
+        """Return display metadata for a preset id."""
+        if preset_id not in self.presets:
+            raise FileNotFoundError(f"Preset not found: {preset_id}")
+        return self.parse_preset_id(preset_id)
 
     @self_correct(n_retries=2)
     def initial_prompt(self, song: str, *, response: str | None = None) -> list[dict[str, str]]:
@@ -253,20 +244,18 @@ class AppBackend:
         logger.info("Successfully generated choreography")
         return self.choreographer.messages
 
-    def simulate(self: Any, gui: bool | None = None) -> dict[str, Any]:
+    def simulate(self, gui: bool = True) -> dict[str, Any]:
         """Run the simulation with waypoints generated by the choreographer.
 
         Before the simulation is run, the waypoints are interpolated by axswarm to ensure that the
         trajectories are collision-free.
 
         Args:
-            gui: Whether to show the MuJoCo GUI for the spline replay phase. If None, uses
-                ``self._simulate_gui`` set at backend construction.
+            gui: Whether to show the MuJoCo debug replay after filtering. Use for debugging only.
 
         Returns:
             A collection of data from the simulation.
         """
-        gui = self._simulate_gui if gui is None else gui
         logger.info("Simulating trajectories with axswarm")
         assert self.waypoints is not None, "Please generate a choreography first"
 
@@ -282,12 +271,12 @@ class AppBackend:
         for i, drone in self.choreographer.agents.items():
             controls = sim_data["controls"][:, i, :3]
             self.splines[drone] = make_smoothing_spline(t, controls, lam=lam)
-        if gui:  # MuJoCo window must run on the real main thread → separate process
-            self._run_simulate_spline_viewer_subprocess(t[-1])
+        if gui:
+            replay_sim_states(sim_data, self.settings, self.music_manager)
         logger.info("Simulation successful")
         return sim_data
 
-    def deploy(self, drone_ids: list[int] | None = None):
+    def deploy(self, drone_ids: list[int] | None = None) -> bool:
         """Run the Crazyflie drones with waypoints generated by the choreographer.
 
         We call the waypoint_helpers.py script from the Crazyflie ROS package to run the drones.
@@ -303,7 +292,7 @@ class AppBackend:
                 rclpy.init()  # Do it only once to be able to deploy multiple times
         except ImportError as _:
             logger.error("ROS2 is not installed. Switch to deploy environment!")
-            return
+            return False
 
         from swarm_gpt.core.drone_swarm import DroneSwarm
 
@@ -360,8 +349,9 @@ class AppBackend:
             swarm.close()
         self.music_manager.song = original_song
         logger.info("Deployment successful")
+        return True
 
-    def load_preset(self, preset_id: str) -> list[dict[str, str]]:
+    def load_preset(self, preset_id: str) -> str:
         """Load a preset response.
 
         Args:
@@ -369,9 +359,9 @@ class AppBackend:
         """
         assert preset_id, "Please select a valid preset"
         assert preset_id in self.presets, "No preset for this song"
-        preset_path = self.root_path / "swarm_gpt/data/presets" / preset_id
+        preset_path = self.preset_dir / preset_id
         n_drones = self.choreographer.num_drones
-        preset_n_drones = int(preset_id.split("|")[1].strip())
+        preset_n_drones = int(preset_id.rsplit("|", 2)[1].strip())
         if preset_n_drones != n_drones and self._strict_drone_match:
             raise ValueError(
                 f"Preset n_drones ({preset_n_drones}) do not match current swarm ({n_drones})"
@@ -386,14 +376,29 @@ class AppBackend:
         self.choreographer.messages = history
         return history[-1]["content"]
 
-    def save_preset(self):
+    def save_preset(self) -> str:
         """Save the preset."""
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        preset_name = self.music_manager.song + f" | {self.choreographer.num_drones} | {timestamp}"
-        path = self.root_path / "swarm_gpt/data/presets" / preset_name
-        path.mkdir(parents=True, exist_ok=True)
         if not self.choreographer.messages:
             raise ValueError("No preset to save. Run Simulation first")
+        if self.waypoints is None or not self.splines:
+            raise ValueError("No safe preset to save. Run the safety filter first")
+
+        self.preset_dir.mkdir(parents=True, exist_ok=True)
+        now = datetime.now()
+        for offset_seconds in range(100):
+            timestamp = datetime.fromtimestamp(now.timestamp() + offset_seconds).strftime(
+                "%Y%m%d_%H%M%S"
+            )
+            preset_name = (
+                self.music_manager.song + f" | {self.choreographer.num_drones} | {timestamp}"
+            )
+            path = self.preset_dir / preset_name
+            if not path.exists():
+                break
+        else:
+            raise FileExistsError("Could not create a unique preset name")
+        path.mkdir(parents=True)
+
         with open(path / "history.json", "w") as f:
             json.dump(self.choreographer.messages, f)
         meta = {"n_drones": self.choreographer.num_drones, "song": self.music_manager.song}
@@ -432,11 +437,22 @@ class AppBackend:
 
         csv_path = path / "trajectory.csv"
         np.savetxt(csv_path, combined, delimiter=",", header=header_str, comments="", fmt="%.6f")
-        print(f"Saved trajectory CSV: {csv_path}")
+        logger.info("Saved trajectory CSV: %s", csv_path)
+        return preset_name
 
-    def _load_song(self, song: str) -> tuple[str, str]:
+    def delete_preset(self, preset_id: str) -> None:
+        """Delete a saved preset directory."""
+        if preset_id not in self.presets:
+            raise FileNotFoundError(f"Preset not found: {preset_id}")
+        preset_root = self.preset_dir.resolve()
+        preset_path = (self.preset_dir / preset_id).resolve()
+        if not preset_path.is_dir() or not preset_path.is_relative_to(preset_root):
+            raise FileNotFoundError(f"Preset not found: {preset_id}")
+        shutil.rmtree(preset_path)
+
+    def _load_song(self, song: str) -> str:
         """Load the song on the music manager."""
         if song in self.presets:
-            song = song.split("|")[0].strip()
+            song = self.parse_preset_id(song)["song"]
         self.music_manager.song = song
         return song
