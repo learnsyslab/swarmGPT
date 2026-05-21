@@ -5,7 +5,7 @@
 [![ROS Noetic](https://img.shields.io/badge/ROS2-Kilted-blue.svg)](https://docs.ros.org/en/kilted/index.html)
 [![Pixi Badge](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/prefix-dev/pixi/main/assets/badge/v0.json)](https://pixi.sh)
 [![Ruff](https://github.com/utiasDSL/swarmGPT/actions/workflows/ruff.yaml/badge.svg)](https://github.com/utiasDSL/swarmGPT/actions/workflows/ruff.yaml)
-[![Tests](https://github.com/utiasDSL/swarmGPT/actions/workflows/testing.yaml/badge.svg)](https://github.com/utiasDSL/swarmGPT/actions/workflows/testing.yaml)
+[![Tests](https://github.com/utiasDSL/swarmGPT/actions/workflows/tests.yaml/badge.svg)](https://github.com/utiasDSL/swarmGPT/actions/workflows/tests.yaml)
 [![Docs](https://github.com/utiasDSL/swarmGPT/actions/workflows/docs.yaml/badge.svg)](https://github.com/utiasDSL/swarmGPT/actions/workflows/docs.yaml)
 
 SwarmGPT integrates large language models (LLMs) with safe swarm motion planning, providing an automated and novel approach to deployable drone swarm choreography. Users can automatically generate synchronized drone performances through natural language instructions. Emphasizing safety and creativity, the system combines the creative power of generative models with the effectiveness and safety of model-based planning algorithms. For more information, visit the [project website](https://utiasdsl.github.io/swarm_GPT/) or read our [paper](https://ieeexplore.ieee.org/document/11197931/).
