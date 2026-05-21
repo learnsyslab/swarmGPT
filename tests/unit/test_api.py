@@ -18,8 +18,7 @@ def test_normalize_playback_schema():
     states = np.zeros((2, 3, 13))
     states[:, :, 3:7] = [0, 0, 0, 1]
     payload = normalize_playback(
-        {"timestamps": np.array([0.0, 0.02]), "states": states, "num_drones": 3},
-        backend,
+        {"timestamps": np.array([0.0, 0.02]), "states": states, "num_drones": 3}, backend
     )
     assert payload["schemaVersion"] == 1
     assert payload["audioUrl"] == "/api/media/music/Example%20Song"
@@ -35,11 +34,7 @@ def test_normalize_playback_rejects_mismatched_states():
     )
     with pytest.raises(ValueError, match="State/timestamp mismatch"):
         normalize_playback(
-            {
-                "timestamps": np.array([0.0, 0.02]),
-                "states": np.zeros((1, 3, 13)),
-                "num_drones": 3,
-            },
+            {"timestamps": np.array([0.0, 0.02]), "states": np.zeros((1, 3, 13)), "num_drones": 3},
             backend,
         )
 

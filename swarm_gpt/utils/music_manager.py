@@ -43,11 +43,7 @@ class MusicManager:
 
     def _vlc_instance_args(self) -> tuple[str, ...]:
         """CLI args for libvlc: one shared instance avoids duplicate Core Audio listeners (macOS)."""
-        base: tuple[str, ...] = (
-            "--intf=dummy",
-            "--no-video",
-            "--quiet",
-        )
+        base: tuple[str, ...] = ("--intf=dummy", "--no-video", "--quiet")
         if sys.platform != "darwin":
             return base
         return (*base, "--aout=audiounit")

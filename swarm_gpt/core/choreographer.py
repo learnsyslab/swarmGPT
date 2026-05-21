@@ -134,9 +134,7 @@ class Choreographer:
     def generate_choreography(self, prompt: list[dict[str, str]]) -> str:
         """Generate the initial choreography for the LLM."""
         logger.debug(
-            "Generating choreography with provider=%s model=%s",
-            self.llm_provider,
-            self._model_id,
+            "Generating choreography with provider=%s model=%s", self.llm_provider, self._model_id
         )
         self.messages.extend(prompt)
         response = self._call_responses(self.messages)

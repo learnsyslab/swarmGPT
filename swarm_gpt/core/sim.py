@@ -20,8 +20,6 @@ from axswarm import SolverData, SolverSettings, solve
 from crazyflow.control import Control
 from crazyflow.sim import Physics, Sim
 from crazyflow.sim.visualize import change_material, draw_line
-from drone_models.core import load_params
-from drone_models.transform import motor_force2rotor_vel
 from tqdm import tqdm
 
 from swarm_gpt.utils import MusicManager, generate_default_colors
@@ -30,7 +28,6 @@ logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from numpy.typing import NDArray
-    from scipy.interpolate import BSpline
 
     from swarm_gpt.utils import MusicManager
 

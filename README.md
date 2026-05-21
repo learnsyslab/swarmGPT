@@ -2,8 +2,8 @@
 
 ![swarm_gpt_banner](/docs/img/swarm_gpt_banner.png)
 [![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/downloads/)
-[![Pixi Badge](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/prefix-dev/pixi/main/assets/badge/v0.json)](https://pixi.sh)
 [![ROS Noetic](https://img.shields.io/badge/ROS2-Kilted-blue.svg)](https://docs.ros.org/en/kilted/index.html)
+[![Pixi Badge](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/prefix-dev/pixi/main/assets/badge/v0.json)](https://pixi.sh)
 [![Ruff](https://github.com/utiasDSL/swarmGPT/actions/workflows/ruff.yaml/badge.svg)](https://github.com/utiasDSL/swarmGPT/actions/workflows/ruff.yaml)
 [![Tests](https://github.com/utiasDSL/swarmGPT/actions/workflows/testing.yaml/badge.svg)](https://github.com/utiasDSL/swarmGPT/actions/workflows/testing.yaml)
 [![Docs](https://github.com/utiasDSL/swarmGPT/actions/workflows/docs.yaml/badge.svg)](https://github.com/utiasDSL/swarmGPT/actions/workflows/docs.yaml)

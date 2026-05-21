@@ -17,6 +17,7 @@ os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 if sys.platform == "darwin":
     os.environ.setdefault("JAX_PLATFORMS", "cpu")
 
+
 # models: gpt-4o-2024-05-13, o3-mini
 def main(
     strict: bool = True,
