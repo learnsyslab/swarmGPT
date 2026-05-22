@@ -9,11 +9,11 @@ import re
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-import einops
+import einops  # pyright: ignore[reportMissingImports]
 import numpy as np
 import toml
 import yaml
-from ollama import chat as ollama_chat
+from ollama import chat as ollama_chat  # pyright: ignore[reportMissingImports]
 
 from swarm_gpt.core.motion_primitives import motion_primitives as motion_primitives_collection
 from swarm_gpt.core.motion_primitives import primitive_by_name
@@ -39,7 +39,7 @@ logger = logging.getLogger(__name__)
 
 # Set to True to see raw LLM outputs in terminal
 DEBUG_LLM_OUTPUT = True
-OLLAMA_CONTEXT_LENGTH = 4096
+OLLAMA_CONTEXT_LENGTH = None  # Set None to use Ollama's VRAM-based default.
 
 
 # Investigate and improve error message for the case when func = "", and we get key error, during sanitize llm output
@@ -381,6 +381,8 @@ class Choreographer:
                 options={
                     "temperature": RESPONSES_TEMPERATURE,
                     "num_ctx": OLLAMA_CONTEXT_LENGTH,
+                } if OLLAMA_CONTEXT_LENGTH is not None else {
+                    "temperature": RESPONSES_TEMPERATURE,
                 },
             )
         except Exception as e:

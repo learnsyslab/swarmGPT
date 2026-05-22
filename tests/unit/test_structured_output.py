@@ -7,6 +7,7 @@ from conftest import virtual_crazyswarm_config
 from swarm_gpt.core.choreographer import Choreographer
 from swarm_gpt.core.structured_output_schema import build_motion_primitive_response_schema
 from swarm_gpt.exception import LLMFormatError
+from swarm_gpt.utils.llm_providers import RESPONSES_TEMPERATURE
 
 
 def _contains_one_of(node):
@@ -141,7 +142,7 @@ def test_call_responses_structured_ollama_uses_native_chat(monkeypatch):
     assert captured["model"] == choreographer.model_id
     assert captured["format"]["properties"]["choreography"]["required"] == ["1"]
     assert "JSON schema exactly" in captured["messages"][-1]["content"]
-    assert captured["options"]["num_ctx"] == 4096
+    assert captured["options"] == {"temperature": RESPONSES_TEMPERATURE}
 
 
 def test_generate_choreography_ollama_raises_on_structured_errors(monkeypatch):
