@@ -83,13 +83,19 @@ Before running SwarmGPT, ensure you have:
    pixi shell
    ```
 
-2. **Install and build the browser UI**:
+2. **Install and start Ollama**:
+   ```bash
+   pixi run ollama-setup
+   ```
+   This installs Ollama if needed, starts the local Ollama server, and pulls the default local model (`gemma4:latest`).
+
+3. **Install and build the browser UI**:
    ```bash
    pixi run web-install
    pixi run web-build
    ```
 
-3. **Launch SwarmGPT**:
+4. **Launch SwarmGPT**:
    ```bash
    pixi run api
    ```
@@ -103,7 +109,7 @@ Before running SwarmGPT, ensure you have:
    python swarm_gpt/launch.py --use_motion_primitives=False
    ```
 
-4. **Access the web interface**: Open `http://127.0.0.1:8000` after building the UI.
+5. **Access the web interface**: Open `http://127.0.0.1:8000` after building the UI.
 
 For frontend development, run the API and Vite dev server in separate terminals:
 ```bash

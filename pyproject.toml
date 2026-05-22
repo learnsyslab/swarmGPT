@@ -102,6 +102,7 @@ make = "*"
 
 [tool.pixi.tasks]
 api = { cmd = "python swarm_gpt/launch.py", description = "Serve the SwarmGPT browser API and built frontend" }
+ollama-setup = { cmd = "bash tools/setup_ollama.sh", description = "Install Ollama, start it, and pull the default local model" }
 web-install = { cmd = "npm --prefix web install", description = "Install browser frontend dependencies" }
 web-dev = { cmd = "npm --prefix web run dev", description = "Serve the browser frontend with Vite" }
 web-build = { cmd = "npm --prefix web run build", description = "Build the browser frontend" }
