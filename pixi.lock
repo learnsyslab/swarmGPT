@@ -79,7 +79,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/tzdata-2025c-hc9c84f9_1.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/wheel-0.47.0-pyhd8ed1ab_0.conda
       - pypi: .
-      - pypi: git+https://github.com/utiasdsl/axswarm#2ce7540d07983d152c3df7a0d77166de18dbd2d6
+      - pypi: git+https://github.com/utiasDSL/axswarm.git#2ce7540d07983d152c3df7a0d77166de18dbd2d6
       - pypi: https://files.pythonhosted.org/packages/01/8e/1e35281b8ab6d5d72ebe9911edcdffa3f36b04ed9d51dec6dd140396e220/scipy-1.17.1-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/02/28/167b291356c2cc315a2d62a95b0ceace72b5b0bf547de30b89313110f032/av-17.0.1-cp311-abi3-manylinux_2_28_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/04/4b/29cac41a4d98d144bf5f6d33995617b185d14b22401f75ca86f384e87ff1/h11-0.16.0-py3-none-any.whl
@@ -289,7 +289,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/zlib-1.3.2-h8088a28_2.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/zstd-1.5.7-hbf9d68e_6.conda
       - pypi: .
-      - pypi: git+https://github.com/utiasdsl/axswarm#2ce7540d07983d152c3df7a0d77166de18dbd2d6
+      - pypi: git+https://github.com/utiasDSL/axswarm.git#2ce7540d07983d152c3df7a0d77166de18dbd2d6
       - pypi: https://files.pythonhosted.org/packages/01/84/c01099b59a285a1ebba64ae93f62bfa036675340fd1b0045ae65890a0442/jiter-0.15.0-cp312-cp312-macosx_11_0_arm64.whl
       - pypi: https://files.pythonhosted.org/packages/03/dc/200013a74641f8774664bbcd2346c695c05c2e300ea792adcb40a293eed0/soxr-1.1.0-cp312-abi3-macosx_11_0_arm64.whl
       - pypi: https://files.pythonhosted.org/packages/04/4b/29cac41a4d98d144bf5f6d33995617b185d14b22401f75ca86f384e87ff1/h11-0.16.0-py3-none-any.whl
@@ -1177,7 +1177,7 @@ environments:
       - conda: https://prefix.dev/robostack-kilted/linux-64/ros-kilted-zstd-vendor-0.32.0-np2py312h2ed9cc7_17.conda
       - conda: https://prefix.dev/robostack-kilted/linux-64/ros2-distro-mutex-0.14.0-kilted_17.conda
       - pypi: .
-      - pypi: git+https://github.com/utiasdsl/axswarm#2ce7540d07983d152c3df7a0d77166de18dbd2d6
+      - pypi: git+https://github.com/utiasDSL/axswarm.git#2ce7540d07983d152c3df7a0d77166de18dbd2d6
       - pypi: https://files.pythonhosted.org/packages/01/8e/1e35281b8ab6d5d72ebe9911edcdffa3f36b04ed9d51dec6dd140396e220/scipy-1.17.1-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/02/28/167b291356c2cc315a2d62a95b0ceace72b5b0bf547de30b89313110f032/av-17.0.1-cp311-abi3-manylinux_2_28_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/04/4b/29cac41a4d98d144bf5f6d33995617b185d14b22401f75ca86f384e87ff1/h11-0.16.0-py3-none-any.whl
@@ -1982,7 +1982,7 @@ environments:
       - conda: https://prefix.dev/robostack-kilted/osx-arm64/ros-kilted-zstd-vendor-0.32.0-np2py312h50b1e4c_17.conda
       - conda: https://prefix.dev/robostack-kilted/osx-arm64/ros2-distro-mutex-0.14.0-kilted_17.conda
       - pypi: .
-      - pypi: git+https://github.com/utiasdsl/axswarm#2ce7540d07983d152c3df7a0d77166de18dbd2d6
+      - pypi: git+https://github.com/utiasDSL/axswarm.git#2ce7540d07983d152c3df7a0d77166de18dbd2d6
       - pypi: https://files.pythonhosted.org/packages/01/84/c01099b59a285a1ebba64ae93f62bfa036675340fd1b0045ae65890a0442/jiter-0.15.0-cp312-cp312-macosx_11_0_arm64.whl
       - pypi: https://files.pythonhosted.org/packages/03/dc/200013a74641f8774664bbcd2346c695c05c2e300ea792adcb40a293eed0/soxr-1.1.0-cp312-abi3-macosx_11_0_arm64.whl
       - pypi: https://files.pythonhosted.org/packages/04/4b/29cac41a4d98d144bf5f6d33995617b185d14b22401f75ca86f384e87ff1/h11-0.16.0-py3-none-any.whl
@@ -3265,7 +3265,7 @@ environments:
       - conda: https://prefix.dev/robostack-kilted/linux-64/ros-kilted-zstd-vendor-0.32.0-np2py312h2ed9cc7_17.conda
       - conda: https://prefix.dev/robostack-kilted/linux-64/ros2-distro-mutex-0.14.0-kilted_17.conda
       - pypi: .
-      - pypi: git+https://github.com/utiasdsl/axswarm#2ce7540d07983d152c3df7a0d77166de18dbd2d6
+      - pypi: git+https://github.com/utiasDSL/axswarm.git#2ce7540d07983d152c3df7a0d77166de18dbd2d6
       - pypi: https://files.pythonhosted.org/packages/01/8e/1e35281b8ab6d5d72ebe9911edcdffa3f36b04ed9d51dec6dd140396e220/scipy-1.17.1-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/02/28/167b291356c2cc315a2d62a95b0ceace72b5b0bf547de30b89313110f032/av-17.0.1-cp311-abi3-manylinux_2_28_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/04/4b/29cac41a4d98d144bf5f6d33995617b185d14b22401f75ca86f384e87ff1/h11-0.16.0-py3-none-any.whl
@@ -4098,7 +4098,7 @@ environments:
       - conda: https://prefix.dev/robostack-kilted/osx-arm64/ros-kilted-zstd-vendor-0.32.0-np2py312h50b1e4c_17.conda
       - conda: https://prefix.dev/robostack-kilted/osx-arm64/ros2-distro-mutex-0.14.0-kilted_17.conda
       - pypi: .
-      - pypi: git+https://github.com/utiasdsl/axswarm#2ce7540d07983d152c3df7a0d77166de18dbd2d6
+      - pypi: git+https://github.com/utiasDSL/axswarm.git#2ce7540d07983d152c3df7a0d77166de18dbd2d6
       - pypi: https://files.pythonhosted.org/packages/01/84/c01099b59a285a1ebba64ae93f62bfa036675340fd1b0045ae65890a0442/jiter-0.15.0-cp312-cp312-macosx_11_0_arm64.whl
       - pypi: https://files.pythonhosted.org/packages/03/dc/200013a74641f8774664bbcd2346c695c05c2e300ea792adcb40a293eed0/soxr-1.1.0-cp312-abi3-macosx_11_0_arm64.whl
       - pypi: https://files.pythonhosted.org/packages/04/4b/29cac41a4d98d144bf5f6d33995617b185d14b22401f75ca86f384e87ff1/h11-0.16.0-py3-none-any.whl
@@ -27444,7 +27444,7 @@ packages:
   - mutagen
   - imageio>=2.37.0,<3
   - av>=15.1.0,<18
-  - axswarm @ git+https://github.com/utiasdsl/axswarm ; extra == 'sim'
+  - axswarm @ git+https://github.com/utiasDSL/axswarm.git ; extra == 'sim'
   - crazyflow==0.1.0 ; extra == 'sim'
   - drone-models==0.1.0 ; extra == 'sim'
   - drone-controllers==0.1.0 ; extra == 'sim'
@@ -27452,7 +27452,7 @@ packages:
   - cflib ; extra == 'deploy'
   - drone-estimators ; extra == 'deploy'
   requires_python: '>=3.10'
-- pypi: git+https://github.com/utiasdsl/axswarm#2ce7540d07983d152c3df7a0d77166de18dbd2d6
+- pypi: git+https://github.com/utiasDSL/axswarm.git#2ce7540d07983d152c3df7a0d77166de18dbd2d6
   name: axswarm
   version: 0.1.0
   requires_dist:
