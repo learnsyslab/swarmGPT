@@ -13,6 +13,7 @@ import einops
 import numpy as np
 import toml
 import yaml
+from ollama import chat as ollama_chat
 
 from swarm_gpt.core.motion_primitives import motion_primitives as motion_primitives_collection
 from swarm_gpt.core.motion_primitives import primitive_by_name
@@ -306,6 +307,9 @@ class Choreographer:
 
     def _call_responses_structured(self, messages: list[dict[str, str]], num_beats: int) -> dict:
         """Call Responses API with strict json_schema and parse JSON output."""
+        if self.llm_provider == "ollama":
+            return self._call_ollama_structured(messages, num_beats)
+
         client = self._chat_client_for_call()
         schema = build_motion_primitive_response_schema(
             num_beats=num_beats,
@@ -352,12 +356,83 @@ class Choreographer:
         except json.JSONDecodeError as e:
             raise LLMFormatError(f"Structured output was not valid JSON: {e}") from e
 
+    def _call_ollama_structured(self, messages: list[dict[str, str]], num_beats: int) -> dict:
+        """Call Ollama's native chat structured output path."""
+        schema = build_motion_primitive_response_schema(
+            num_beats=num_beats,
+            num_drones=self.num_drones,
+        )
+        schema_str = json.dumps(schema, separators=(",", ":"))
+        grounded_messages = [
+            *messages,
+            {
+                "role": "system",
+                "content": (
+                    "Return valid JSON only. Match this JSON schema exactly:\n" + schema_str
+                ),
+            },
+        ]
+        try:
+            response = ollama_chat(
+                model=self._model_id,
+                messages=grounded_messages,
+                format=schema,
+                options={"temperature": RESPONSES_TEMPERATURE},
+            )
+        except Exception as e:
+            raise LLMPlanError(
+                f"Ollama structured chat failed for model={self._model_id!r}. "
+                "Ensure `ollama serve` is running and the model is pulled. "
+                f"({e})"
+            ) from e
+        content = self._extract_ollama_content(response)
+        if not content:
+            raise LLMPlanError(f"Model {self._model_id!r} returned empty structured content.")
+        try:
+            return json.loads(content)
+        except json.JSONDecodeError as e:
+            raise LLMFormatError(f"Structured output was not valid JSON: {e}") from e
+
+    @staticmethod
+    def _extract_ollama_content(response: object) -> str:
+        """Extract message text from Ollama responses in dict or object form."""
+        if isinstance(response, dict):
+            message = response.get("message")
+            if isinstance(message, dict):
+                content = message.get("content")
+                if isinstance(content, str):
+                    return content
+                if isinstance(content, (dict, list)):
+                    return json.dumps(content)
+            content = response.get("content")
+            if isinstance(content, str):
+                return content
+            if isinstance(content, (dict, list)):
+                return json.dumps(content)
+            return ""
+        message = getattr(response, "message", None)
+        if message is None:
+            return ""
+        content = getattr(message, "content", None)
+        if isinstance(content, str):
+            return content
+        if isinstance(content, (dict, list)):
+            return json.dumps(content)
+        return ""
+
     def _structured_payload_to_choreography(self, payload: dict) -> dict[int, str]:
         """Convert structured payload to the existing beat -> primitive string format."""
         return structured_payload_to_choreography(payload)
 
     def _structured_payload_to_text(self, payload: dict) -> str:
         """Convert structured payload to legacy YAML-like text for downstream parsing/history."""
+        required_fields = ["song_mood", "cord_analysis", "choreography_plan", "choreography"]
+        missing = [field for field in required_fields if field not in payload]
+        if missing:
+            raise LLMFormatError(
+                "Structured output is missing required keys: "
+                + ", ".join(sorted(missing))
+            )
         choreography = self._structured_payload_to_choreography(payload)
         lines = [
             f"song_mood: {json.dumps(payload['song_mood'])}",
