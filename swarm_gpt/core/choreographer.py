@@ -39,6 +39,7 @@ logger = logging.getLogger(__name__)
 
 # Set to True to see raw LLM outputs in terminal
 DEBUG_LLM_OUTPUT = True
+OLLAMA_CONTEXT_LENGTH = 4096
 
 
 # Investigate and improve error message for the case when func = "", and we get key error, during sanitize llm output
@@ -377,7 +378,10 @@ class Choreographer:
                 model=self._model_id,
                 messages=grounded_messages,
                 format=schema,
-                options={"temperature": RESPONSES_TEMPERATURE},
+                options={
+                    "temperature": RESPONSES_TEMPERATURE,
+                    "num_ctx": OLLAMA_CONTEXT_LENGTH,
+                },
             )
         except Exception as e:
             raise LLMPlanError(

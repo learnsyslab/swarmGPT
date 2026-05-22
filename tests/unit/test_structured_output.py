@@ -141,6 +141,7 @@ def test_call_responses_structured_ollama_uses_native_chat(monkeypatch):
     assert captured["model"] == choreographer.model_id
     assert captured["format"]["properties"]["choreography"]["required"] == ["1"]
     assert "JSON schema exactly" in captured["messages"][-1]["content"]
+    assert captured["options"]["num_ctx"] == 4096
 
 
 def test_generate_choreography_ollama_raises_on_structured_errors(monkeypatch):
