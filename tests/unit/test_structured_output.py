@@ -1,5 +1,6 @@
 import json
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 from conftest import virtual_crazyswarm_config
@@ -10,7 +11,7 @@ from swarm_gpt.exception import LLMFormatError
 from swarm_gpt.utils.llm_providers import RESPONSES_TEMPERATURE
 
 
-def _contains_one_of(node):
+def _contains_one_of(node: Any) -> bool:
     if isinstance(node, dict):
         if "oneOf" in node:
             return True
@@ -70,16 +71,16 @@ def test_call_responses_structured_includes_json_schema_format():
         llm_provider="openai",
         use_motion_primitives=True,
     )
-    captured = {}
+    captured: dict[str, Any] = {}
 
     class FakeResponses:
-        def create(self, **kwargs):
+        def create(self, **kwargs: Any) -> SimpleNamespace:
             captured.update(kwargs)
             payload = {
                 "song_mood": "energetic",
                 "cord_analysis": "major",
                 "choreography_plan": "test",
-                    "choreography": {"1": [{"primitive": "PLAN", "args": []}]},
+                "choreography": {"1": [{"primitive": "PLAN", "args": []}]},
             }
             return SimpleNamespace(error=None, output_text=json.dumps(payload))
 
@@ -116,16 +117,16 @@ def test_ollama_motion_primitives_uses_structured_outputs():
     assert choreographer._uses_structured_outputs() is True
 
 
-def test_call_responses_structured_ollama_uses_native_chat(monkeypatch):
+def test_call_responses_structured_ollama_uses_native_chat(monkeypatch: pytest.MonkeyPatch):
     config_path = virtual_crazyswarm_config(n_drones=4)
     choreographer = Choreographer(
         config_file=config_path,
         llm_provider="ollama",
         use_motion_primitives=True,
     )
-    captured = {}
+    captured: dict[str, Any] = {}
 
-    def fake_ollama_chat(**kwargs):
+    def fake_ollama_chat(**kwargs: Any) -> dict[str, Any]:
         captured.update(kwargs)
         payload = {
             "song_mood": "energetic",
@@ -145,7 +146,9 @@ def test_call_responses_structured_ollama_uses_native_chat(monkeypatch):
     assert captured["options"] == {"temperature": RESPONSES_TEMPERATURE}
 
 
-def test_generate_choreography_ollama_raises_on_structured_errors(monkeypatch):
+def test_generate_choreography_ollama_raises_on_structured_errors(
+    monkeypatch: pytest.MonkeyPatch,
+):
     config_path = virtual_crazyswarm_config(n_drones=4)
     choreographer = Choreographer(
         config_file=config_path,
@@ -169,7 +172,9 @@ def test_generate_choreography_ollama_raises_on_structured_errors(monkeypatch):
         )
 
 
-def test_generate_choreography_ollama_raises_when_structured_payload_incomplete(monkeypatch):
+def test_generate_choreography_ollama_raises_when_structured_payload_incomplete(
+    monkeypatch: pytest.MonkeyPatch,
+):
     config_path = virtual_crazyswarm_config(n_drones=4)
     choreographer = Choreographer(
         config_file=config_path,
