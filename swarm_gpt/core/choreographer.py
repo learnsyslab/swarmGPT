@@ -23,10 +23,11 @@ from swarm_gpt.exception import LLMFormatError, LLMPlanError, LLMResponseProcess
 from swarm_gpt.utils.llm_providers import (
     RESPONSES_MAX_OUTPUT_TOKENS,
     RESPONSES_TEMPERATURE,
+    cancellable_ollama_chat,
     openai_client_for_provider,
     prepare_responses_messages,
+    register_ollama_client,
 )
-from swarm_gpt.utils.ollama_cancel import cancellable_ollama_chat, register_ollama_client
 
 if TYPE_CHECKING:
     from numpy.typing import NDArray

@@ -96,10 +96,10 @@ ruff = "*"
 python = ">=3.12.0,<3.13"
 nodejs = ">=22.12.0,<23"
 pip = ">=25.0.1,<26"
+ollama = ">=0.18.0,<0.25"  # conda-forge CLI; PyPI `ollama` client is in project dependencies
 
 [tool.pixi.tasks]
 api = { cmd = "python swarm_gpt/launch.py", description = "Serve the SwarmGPT browser API and built frontend" }
-ollama-setup = { cmd = "bash tools/setup_ollama.sh", description = "Install Ollama, start it, and pull the default local model" }
 web-install = { cmd = "npm --prefix web install", description = "Install browser frontend dependencies" }
 web-dev = { cmd = "npm --prefix web run dev", description = "Serve the browser frontend with Vite" }
 web-build = { cmd = "npm --prefix web run build", description = "Build the browser frontend" }

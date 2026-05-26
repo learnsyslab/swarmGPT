@@ -1,24 +1,24 @@
-"""Tests for Ollama shutdown cancellation helpers."""
+"""Tests for Ollama shutdown cancellation in llm_providers."""
 
 from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from swarm_gpt.utils import ollama_cancel
+from swarm_gpt.utils import llm_providers
 
 
 def test_shutdown_closes_registered_clients(monkeypatch):
-    ollama_cancel._active_clients.clear()
-    ollama_cancel._active_models.clear()
+    llm_providers._active_ollama_clients.clear()
+    llm_providers._active_ollama_models.clear()
 
     client = MagicMock()
-    ollama_cancel.register_ollama_client(client)
+    llm_providers.register_ollama_client(client)
 
-    monkeypatch.setattr(ollama_cancel, "_close_module_default_client", lambda: None)
-    monkeypatch.setattr(ollama_cancel, "_unload_models", lambda _models: None)
-    monkeypatch.setattr(ollama_cancel, "_unload_models_from_ps", lambda: None)
+    monkeypatch.setattr(llm_providers, "_close_module_default_ollama_client", lambda: None)
+    monkeypatch.setattr(llm_providers, "_unload_ollama_models", lambda _models: None)
+    monkeypatch.setattr(llm_providers, "_unload_ollama_models_from_ps", lambda: None)
 
-    ollama_cancel.shutdown_ollama_generation()
+    llm_providers.shutdown_ollama_generation()
 
     client.close.assert_called_once()
-    assert ollama_cancel._active_clients == []
+    assert llm_providers._active_ollama_clients == []
