@@ -10,6 +10,7 @@ import uvicorn
 
 from swarm_gpt.api.server import ApiConfig, create_app
 from swarm_gpt.utils.llm_providers import LLMProvider
+from swarm_gpt.utils.ollama_cancel import shutdown_ollama_generation
 
 os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 
@@ -52,7 +53,10 @@ def main(
             use_motion_primitives=use_motion_primitives,
         )
     )
-    uvicorn.run(app, host=host, port=port)
+    try:
+        uvicorn.run(app, host=host, port=port)
+    finally:
+        shutdown_ollama_generation()
 
 
 if __name__ == "__main__":

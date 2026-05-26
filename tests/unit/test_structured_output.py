@@ -136,14 +136,16 @@ def test_call_responses_structured_ollama_uses_native_chat(monkeypatch: pytest.M
         }
         return {"message": {"content": json.dumps(payload)}}
 
-    monkeypatch.setattr("swarm_gpt.core.choreographer.ollama_chat", fake_ollama_chat)
+    monkeypatch.setattr(
+        "swarm_gpt.core.choreographer.cancellable_ollama_chat", fake_ollama_chat
+    )
     parsed = choreographer._call_responses_structured([{"role": "user", "content": "hello"}], 1)
 
     assert parsed["choreography"]["1"][0]["primitive"] == "PLAN"
     assert captured["model"] == choreographer.model_id
     assert captured["format"]["properties"]["choreography"]["required"] == ["1"]
     assert "JSON schema exactly" in captured["messages"][-1]["content"]
-    assert captured["options"] == {"temperature": RESPONSES_TEMPERATURE}
+    assert captured["options"]["temperature"] == RESPONSES_TEMPERATURE
 
 
 def test_generate_choreography_ollama_raises_on_structured_errors(
