@@ -43,7 +43,8 @@ dependencies = [
     "python-vlc",
     "mutagen",
     "imageio>=2.37.0,<3",
-    "av>=15.1.0,<18",
+    "av>=15.1.0,<18", 
+    "cflib2 @ git+https://github.com/bitcraze/crazyflie-lib-python-v2.git",
 ]
 
 # option[sim]: basic simulation
@@ -96,6 +97,9 @@ ruff = "*"
 python = ">=3.12.0,<3.13"
 nodejs = ">=22.12.0,<23"
 pip = ">=25.0.1,<26"
+rust = ">=1.95.0,<1.96"
+packaging = "<26"  # Necessary for cflib2
+maturin = ">=1.13.3,<2"
 
 [tool.pixi.tasks]
 api = { cmd = "python swarm_gpt/launch.py", description = "Serve the SwarmGPT browser API and built frontend" }
@@ -114,7 +118,7 @@ channels = ["https://prefix.dev/robostack-kilted"]
 [tool.pixi.feature.kilted.dependencies]
 # Build tools
 compilers = ">=1.9.0, <1.11.0"
-cmake = "==4.2.2"
+cmake = "==3.26.0"  # Pinned for motion_capture_tracking
 pkg-config = "*"
 make = "==4.4.1"
 ninja = "*"
