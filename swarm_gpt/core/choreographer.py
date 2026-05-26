@@ -40,7 +40,7 @@ logger = logging.getLogger(__name__)
 # Set to True to see raw LLM outputs in terminal
 DEBUG_LLM_OUTPUT = True
 # OLLAMA_CONTEXT_LENGTH = None  # Set None to use Ollama's VRAM-based default.
-OLLAMA_CONTEXT_LENGTH = 24576
+OLLAMA_CONTEXT_LENGTH = None
 
 
 # Investigate and improve error message for the case when func = "", and we get key error, during sanitize llm output
@@ -366,13 +366,17 @@ class Choreographer:
             num_beats=num_beats,
             num_drones=self.num_drones,
         )
-        schema_str = json.dumps(schema, separators=(",", ":"))
         grounded_messages = [
             *messages,
             {
                 "role": "system",
                 "content": (
-                    "Return valid JSON only. Match this JSON schema exactly:\n" + schema_str
+                    "Return valid JSON only (no markdown). "
+                    "Root keys: song_mood, cord_analysis, choreography_plan, choreography. "
+                    f'choreography must have string keys "1" through "{num_beats}" inclusive; '
+                    "each value is a non-empty array of objects with primitive (string) and "
+                    "args (array). Use primitive PLAN with args []. "
+                    "Output must satisfy the enforced JSON schema."
                 ),
             },
         ]
