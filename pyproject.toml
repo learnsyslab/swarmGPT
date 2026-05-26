@@ -49,7 +49,7 @@ dependencies = [
 # option[sim]: basic simulation
 [project.optional-dependencies]
 sim = [
-    "axswarm @ git+https://github.com/utiasDSL/axswarm.git",
+    "axswarm @ git+https://github.com/learnsyslab/axswarm.git",
     "crazyflow==0.1.0",
     "drone-models==0.1.0",
     "drone-controllers==0.1.0",
