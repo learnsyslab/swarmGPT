@@ -77,10 +77,10 @@ markers = ["unit", "integration"]
 
 [tool.pixi.workspace]
 channels = ["conda-forge"]
-platforms = ["linux-64", "osx-arm64"]
+platforms = ["linux-64"]
 
 [tool.pixi.activation]
-scripts = ["openai_api_key.sh"]
+scripts = ["openai_api_key.sh", "tools/frontend_install.sh"]
 
 # environments
 [tool.pixi.environments]
@@ -96,11 +96,10 @@ ruff = "*"
 python = ">=3.12.0,<3.13"
 nodejs = ">=22.12.0,<23"
 pip = ">=25.0.1,<26"
-ollama = ">=0.18.0,<0.25"  # conda-forge CLI; PyPI `ollama` client is in project dependencies
+
 
 [tool.pixi.tasks]
-api = { cmd = "python swarm_gpt/launch.py", description = "Serve the SwarmGPT browser API and built frontend" }
-web-install = { cmd = "npm --prefix web install", description = "Install browser frontend dependencies" }
+api = { cmd = "python swarm_gpt/launch.py", description = "Serve the SwarmGPT browser API and built frontend", depends-on = ["web-build"] }
 web-dev = { cmd = "npm --prefix web run dev", description = "Serve the browser frontend with Vite" }
 web-build = { cmd = "npm --prefix web run build", description = "Build the browser frontend" }
 

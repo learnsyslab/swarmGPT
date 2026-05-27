@@ -71,7 +71,7 @@ Before running SwarmGPT, ensure you have:
      export OPENAI_API_KEY="your-api-key-here"
      ```
      For convenience, create `openai_api_key.sh` in the repo root with that line; Pixi sources it on `pixi shell` (the file is gitignored).
-   - **Ollama (local)** — no OpenAI key required; install the CLI via `pixi install` and run the server as in step 2 below. Pull a model before generating choreography, e.g. `pixi run ollama pull gemma4:latest`.
+   - **Ollama (local)** — no OpenAI key required; install the CLI following the instructions [here](https://ollama.com/download) and run the server as in step 2 below.
 
 2. **Configuration** — edit swarm and safety settings at:
    - `swarm_gpt/data/drones.toml` — drone URIs and home positions
@@ -86,11 +86,11 @@ Typical first-time setup:
    pixi shell
    ```
 
-2. **Ollama server** (only if using Ollama; separate terminal — this command blocks):
+2. **Ollama server** (only if using Ollama; in a separate terminal, this command blocks):
    ```bash
-   pixi run ollama serve
+   ollama serve
    ```
-   Pull a model in another terminal if needed: `pixi run ollama pull <model_name>`. We have had the best results with `gemma4:latest` ([model library](https://ollama.com/library)).
+   Pull a model in another terminal if needed: `ollama pull <model_name>`. We have had the best results with `gemma4:latest` ([model library](https://ollama.com/library)).
 
 3. **Browser UI** (once, or after frontend changes):
    ```bash
