@@ -316,7 +316,8 @@ class AppBackend:
         init_pos_dict = {}
         final_pos_dict = {}
         choreography_dict = {}
-        colors_dict = {}
+        color_top = {}
+        color_bot = {}
         colors_array = np.zeros((self.choreographer.num_drones, 4))
         colors_array[:, 1:] = generate_default_colors(self.choreographer.num_drones, limit=255)
         colors_array[:, 3] *= 0.8  # Dim blue channel since that LED is brighter
@@ -328,16 +329,20 @@ class AppBackend:
             init_pos_dict[d["uri"]] = [np.array([*init_pos, 0.0])]
             final_pos_dict[d["uri"]] = [np.array([*final_pos, 0.0])]
             choreography_dict[d["uri"]] = self.splines[i]
-            colors_dict[d["uri"]] = {
-                "t": np.array([0, 0.5, 1.0]),
-                "color_top": np.array([colors_array[i], colors_array[i], colors_array[i]]),
-                "color_bot": np.array([colors_array[i], colors_array[i], colors_array[i]]),
-            }  # Default colors
+            color_top[d["uri"]] = {
+                0.0: colors_array[i],
+                0.5: colors_array[i],
+                1.0: colors_array[i],
+            }
+            color_bot[d["uri"]] = {
+                0.0: colors_array[i],
+                0.5: colors_array[i],
+                1.0: colors_array[i],
+            }
 
         swarm = DroneSwarm(self.choreographer.drones, lighthouse=self.settings["lighthouse"])
         logger.info("Swarm connected...")
         try:
-            # swarm.apply_colors(colors_dict)
             swarm.goto(init_pos_dict)
             # check if all drones have taken off
             taken_off = True
@@ -348,7 +353,10 @@ class AppBackend:
             if taken_off:
                 self.music_manager.play()
                 swarm.execute_choreography(
-                    choreography_dict, self.waypoints["time"][0, -1], colors_dict
+                    choreography_dict,
+                    self.waypoints["time"][0, -1],
+                    color_top=color_top,
+                    color_bot=color_bot,
                 )
             swarm.goto(final_pos_dict, duration=3.0)
         finally:
