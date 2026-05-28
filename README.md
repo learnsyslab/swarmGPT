@@ -85,6 +85,7 @@ Typical first-time setup:
    ```bash
    pixi shell
    ```
+   This activates the environment and installs or refreshes browser UI dependencies.
 
 2. **Ollama server** (only if using Ollama; in a separate terminal, this command blocks):
    ```bash
@@ -92,18 +93,13 @@ Typical first-time setup:
    ```
    Pull a model in another terminal if needed: `ollama pull <model_name>`. We have had the best results with `gemma4:latest` ([model library](https://ollama.com/library)).
 
-3. **Browser UI** (once, or after frontend changes):
-   ```bash
-   pixi run web-install
-   pixi run web-build
-   ```
-
-4. **API**:
+3. **API**:
    ```bash
    pixi run api
    ```
+   This builds the browser UI first, then serves the API and frontend.
 
-5. **Open** `http://127.0.0.1:8000` and choose **ChatGPT / OpenAI** or **Ollama (local)** in the UI.
+4. **Open** `http://127.0.0.1:8000` and choose **ChatGPT / OpenAI** or **Ollama (local)** in the UI.
 
    Optional parameters:
    ```bash

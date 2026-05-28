@@ -151,6 +151,28 @@ def test_call_responses_structured_ollama_uses_native_chat(monkeypatch: pytest.M
     assert captured["options"]["temperature"] == RESPONSES_TEMPERATURE
 
 
+def test_structured_initial_prompt_uses_json_example_not_yaml_choreography():
+    config_path = virtual_crazyswarm_config(n_drones=4)
+    choreographer = Choreographer(
+        config_file=config_path,
+        llm_provider="ollama",
+        use_motion_primitives=True,
+    )
+    music_info = {
+        "beat_times": [0.5, 1.0],
+        "novelty": [0.1, 0.9],
+        "chords": ["C", "G"],
+        "dBFS": [-40, -30],
+    }
+
+    messages = choreographer.format_initial_prompt("test song", music_info)
+
+    example = messages[2]["content"]
+    assert '"primitive": "PLAN"' in example
+    assert "```yaml" not in example
+    assert "choreography:" not in example
+
+
 def test_generate_choreography_ollama_raises_on_structured_errors(
     monkeypatch: pytest.MonkeyPatch,
 ):
