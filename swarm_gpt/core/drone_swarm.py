@@ -171,13 +171,17 @@ class DroneSwarm:
 
         self._run(self._parallel_by_uri("Choreography execution", self.uris, _execute))
 
-    def apply_colors(self, color_top: dict[str, Array], color_bot: dict[str, Array]):
+    def apply_colors(self, color_top: dict[str, Array] | None, color_bot: dict[str, Array] | None):
         """Apply colors to the drones.
 
         Args:
             color_top: Top deck colors in the form {uri: wrgb}.
             color_bot: Bottom deck colors in the form {uri: wrgb}.
         """
+        if color_top is None:
+            color_top = dict.fromkeys(self.uris, np.zeros(4))
+        if color_bot is None:
+            color_bot = dict.fromkeys(self.uris, np.zeros(4))
         self._validate_known_uris("color_top", color_top)
         self._validate_known_uris("color_bot", color_bot)
 
@@ -188,6 +192,19 @@ class DroneSwarm:
                 await self._apply_drone_color(uri, color_bot[uri], "bot")
 
         self._run(self._parallel_by_uri("Applying colors", self.uris, _apply_colors))
+
+    def set_param(self, param: str, value: float):
+        """Set a Crazyflie parameter on all active drones.
+
+        Args:
+            param: Parameter name in ``group.name`` format.
+            value: Value to set.
+        """
+
+        async def _set_param(uri: str) -> None:
+            await self._set_param_one(uri, param, value)
+
+        self._run(self._parallel_by_uri(f"Setting parameter {param}", self.uris, _set_param))
 
     def emergency_stop(self, id: int | None = None):
         """Send an emergency stop signal to one (id) or all drones (default)."""
@@ -382,6 +399,9 @@ class DroneSwarm:
             await param.set("colorLedTop.wrgb8888", color)
         if deck == "bot" or deck == "both":
             await param.set("colorLedBot.wrgb8888", color)
+
+    async def _set_param_one(self, uri: str, param_name: str, value: float) -> None:
+        await self._cf(uri).param().set(param_name, value)
 
     async def _reset_one(self, uri: str) -> None:
         cf = self._cf(uri)

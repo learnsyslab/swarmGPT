@@ -44,7 +44,6 @@ dependencies = [
     "mutagen",
     "imageio>=2.37.0,<3",
     "av>=15.1.0,<18", 
-    "cflib2 @ git+https://github.com/bitcraze/crazyflie-lib-python-v2.git",
 ]
 
 # option[sim]: basic simulation
@@ -58,7 +57,7 @@ sim = [
 ]
 # option[deploy]: deploy to real drones
 deploy = [
-    "cflib", 
+    "cflib2 @ git+https://github.com/bitcraze/crazyflie-lib-python-v2.git",
     "drone-estimators",
 ]
 
@@ -100,7 +99,6 @@ pip = ">=25.0.1,<26"
 rust = ">=1.95.0,<1.96"
 packaging = "<26"  # Necessary for cflib2
 maturin = ">=1.13.3,<2"
-
 
 [tool.pixi.tasks]
 api = { cmd = "python swarm_gpt/launch.py", description = "Serve the SwarmGPT browser API and built frontend", depends-on = ["web-build"] }
@@ -145,7 +143,6 @@ jax = ">=0.7.0"
 
 [tool.pixi.feature.tests.tasks]
 tests = { cmd = "pytest -v tests", description = "Run tests" }
-# test-docs = { cmd = "pytest -v --markdown-docs --markdown-docs-syntax=superfences drone_models/ docs/ --ignore=docs/gen_ref_pages.py", env = { SCIPY_ARRAY_API = "1" }, description = "Run doctests for docstrings and documentation" }
 
 # feature[docs]
 [tool.pixi.feature.docs.dependencies]

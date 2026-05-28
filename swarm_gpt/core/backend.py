@@ -289,14 +289,15 @@ class AppBackend:
             The chat history as a list of prompts and answers.
         """
         # Check if even in deploy environment
-        try:
-            import rclpy
+        if not self.settings["lighthouse"]:
+            try:
+                import rclpy
 
-            if not rclpy.ok():
-                rclpy.init()  # Do it only once to be able to deploy multiple times
-        except ImportError as _:
-            logger.error("ROS2 is not installed. Switch to deploy environment!")
-            return False
+                if not rclpy.ok():
+                    rclpy.init()  # Do it only once to be able to deploy multiple times
+            except ImportError as _:
+                logger.error("ROS2 is not installed. Switch to deploy environment!")
+                return False
 
         from swarm_gpt.core.drone_swarm import DroneSwarm
 
@@ -310,29 +311,41 @@ class AppBackend:
         except AssertionError:
             ...
 
+        swarm = DroneSwarm(self.choreographer.drones, lighthouse=self.settings["lighthouse"])
+        logger.info("Swarm connected...")
+
         # generate references
+        correct_positions = True
         init_pos_dict = {}
         final_pos_dict = {}
+        landing_pos_dict = {}
         choreography_dict = {}
         color_top = {}
         color_bot = {}
         colors_array = np.zeros((self.choreographer.num_drones, 4))
         colors_array[:, 1:] = generate_default_colors(self.choreographer.num_drones, limit=255)
         colors_array[:, 3] *= 0.8  # Dim blue channel since that LED is brighter
-
         for i, d in enumerate(self.choreographer.drones.values()):
+            uri = d["uri"]
             init_pos = np.array(self.splines[i](0))
-            final_pos = d["pos"]  # + np.array([0.0, 0.0, 0.2])
+            obs = swarm.get_obs(uri)
+            if np.linalg.norm(obs["pos"] - d["pos"]) > 0.3:
+                correct_positions = False
+                logger.warning(
+                    f"Drone {uri} is too far from the expected initial position. pos={obs['pos']}, exp={d['pos']}"
+                )
+            landing_pos = obs["pos"]
             # TODO fix hard coded yaw
-            init_pos_dict[d["uri"]] = [np.array([*init_pos, 0.0])]
-            final_pos_dict[d["uri"]] = [np.array([*final_pos, 0.0])]
-            choreography_dict[d["uri"]] = self.splines[i]
-            color_top[d["uri"]] = {0.0: colors_array[i], 0.5: colors_array[i], 1.0: colors_array[i]}
-            color_bot[d["uri"]] = {0.0: colors_array[i], 0.5: colors_array[i], 1.0: colors_array[i]}
+            init_pos_dict[uri] = [np.array([*init_pos, 0.0])]
+            final_pos_dict[uri] = [np.array([*landing_pos + np.array([0.0, 0.0, 0.4]), 0.0])]
+            landing_pos_dict[uri] = [np.array([*landing_pos - np.array([0.0, 0.0, 0.2]), 0.0])]
+            choreography_dict[uri] = self.splines[i]
+            color_top[uri] = {0.0: colors_array[i]}
+            color_bot[uri] = {0.0: colors_array[i]}
 
-        swarm = DroneSwarm(self.choreographer.drones, lighthouse=self.settings["lighthouse"])
-        logger.info("Swarm connected...")
         try:
+            if not correct_positions:
+                raise RuntimeError("Some drone(s) are not in the expected initial positions.")
             swarm.goto(init_pos_dict)
             # Check active drones after the initial climb.
             taken_off = True
@@ -353,7 +366,11 @@ class AppBackend:
                     color_top=color_top,
                     color_bot=color_bot,
                 )
-            swarm.goto(final_pos_dict, duration=3.0)
+            swarm.apply_colors(None, None)  # Turn off colors after choreography
+            swarm.goto(final_pos_dict, duration=3.0)  # Transition
+            swarm.goto(final_pos_dict, duration=2.0)  # Hovering
+            swarm.goto(landing_pos_dict, duration=0.8)  # Landing
+            # swarm.land(0.0, duration=1.0)
         finally:
             swarm.close()
         self.music_manager.song = original_song
