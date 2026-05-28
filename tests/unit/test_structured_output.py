@@ -145,9 +145,8 @@ def test_call_responses_structured_ollama_uses_native_chat(monkeypatch: pytest.M
     assert captured["model"] == choreographer.model_id
     assert captured["format"]["properties"]["choreography"]["required"] == ["1"]
     tail = captured["messages"][-1]["content"]
-    assert "Return valid JSON only" in tail
-    assert '"1" through "1"' in tail
-    assert "Match this JSON schema exactly" not in tail
+    assert "Return valid JSON only. Match this JSON schema exactly:" in tail
+    assert '"required":["1"]' in tail
     assert captured["options"]["temperature"] == RESPONSES_TEMPERATURE
 
 
