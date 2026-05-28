@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
 from unittest.mock import MagicMock
 
 from swarm_gpt.utils import llm_providers
 
+if TYPE_CHECKING:
+    from pytest import MonkeyPatch
 
-def test_shutdown_closes_registered_clients(monkeypatch):
+
+def test_shutdown_closes_registered_clients(monkeypatch: MonkeyPatch):
     llm_providers._active_ollama_clients.clear()
     llm_providers._active_ollama_models.clear()
 

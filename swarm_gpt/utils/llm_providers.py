@@ -106,6 +106,7 @@ def register_ollama_client(client: Any) -> None:
 
 
 def unregister_ollama_client(client: Any) -> None:
+    """Stop tracking an Ollama client once its request has completed."""
     with _lock:
         try:
             _active_ollama_clients.remove(client)
@@ -114,6 +115,7 @@ def unregister_ollama_client(client: Any) -> None:
 
 
 def note_ollama_model(model: str | None) -> None:
+    """Remember an Ollama model that may need unloading during shutdown."""
     if model:
         with _lock:
             _active_ollama_models.add(model)

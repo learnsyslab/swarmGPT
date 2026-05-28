@@ -13,6 +13,7 @@ import einops  # pyright: ignore[reportMissingImports]
 import numpy as np
 import toml
 import yaml
+
 from swarm_gpt.core.motion_primitives import motion_primitives as motion_primitives_collection
 from swarm_gpt.core.motion_primitives import primitive_by_name
 from swarm_gpt.core.structured_output_schema import (

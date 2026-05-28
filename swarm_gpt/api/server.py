@@ -29,8 +29,8 @@ from swarm_gpt.utils.llm_providers import (
     LLMProvider,
     default_openai_model,
     ollama_installed_model_names,
+    shutdown_ollama_generation,
 )
-from swarm_gpt.utils.llm_providers import shutdown_ollama_generation
 
 logger = logging.getLogger(__name__)
 

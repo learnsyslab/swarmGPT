@@ -9,8 +9,7 @@ import fire
 import uvicorn
 
 from swarm_gpt.api.server import ApiConfig, create_app
-from swarm_gpt.utils.llm_providers import LLMProvider
-from swarm_gpt.utils.llm_providers import shutdown_ollama_generation
+from swarm_gpt.utils.llm_providers import LLMProvider, shutdown_ollama_generation
 
 os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
 
