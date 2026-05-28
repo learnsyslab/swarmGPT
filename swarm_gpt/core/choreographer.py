@@ -367,13 +367,13 @@ class Choreographer:
             num_beats=num_beats,
             num_drones=self.num_drones,
         )
-        schema_str = json.dumps(schema, separators=(",", ":"))
         grounded_messages = [
             *messages,
             {
                 "role": "system",
                 "content": (
-                    "Return valid JSON only. Match this JSON schema exactly:\n" + schema_str
+                    "Return valid JSON only. Match the provided response format exactly. "
+                    "Use named params objects, never positional args arrays."
                 ),
             },
         ]

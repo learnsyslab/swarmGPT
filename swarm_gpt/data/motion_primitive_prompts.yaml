@@ -30,13 +30,14 @@ user_initial: >
   - Tie motion to music: louder/novel beats -> bolder primitives; all drones move on loud+novel beats when possible.
   - Prefer symmetric formations and varied 3D motion (altitude changes, geometric shapes).
   - At most 4 multi-beat primitives per song; prefer spiral, helix, zig_zag, wave over trivial moves.
-  - Put an extra PLAN beat between primitive changes (transition buffer).
+  - Use enough PLAN beats for readable motion: after a formation/rotate/height change, insert PLAN before the next different primitive unless beats are very scarce.
+  - Multi-beat primitives are exclusive: a primitive with steps=S must be followed immediately by S-1 PLAN beats before any other primitive.
   - One beat = one line. Multiple calls on one beat: separate with "; " (e.g. center([1,2]); move_z([3], 10)).
   - Each drone touched at most once per beat (except separate move() per drone).
   </rules>
 
   <primitives>
-  Single-beat (no PLAN after):
+  Single-beat (usually followed by PLAN before switching primitive):
   - rotate(angle_deg, axis) — all drones; axis usually 'z'
   - center([ids]) — listed drones to formation around their centroid
   - move_z([ids], delta_cm) — vertical shift
@@ -46,7 +47,7 @@ user_initial: >
   - swap(id1, id2) — swap two drones (only one swap pair per beat)
   - move(x_cm, y_cm, z_cm, drone_id) — absolute position for one drone
 
-  Multi-beat (steps in [2,3]; follow with steps-1 PLAN lines; start by beat s-steps+1 so it finishes before END):
+  Multi-beat (steps in [2,3]; follow immediately with steps-1 PLAN lines; start by beat s-steps+1 so it finishes before END):
   - spiral(steps, height_cm)
   - spiral_speed(steps, height_cm, angle_deg 0-360, radius_increase 1-3)
   - helix(steps, delta_h_cm 0-100, height_cm 50-100)
@@ -55,7 +56,7 @@ user_initial: >
   - wave(steps, height, mu_pairs, a_coeffs, b_coeffs) — 2D wave surface; equation:
   {wave_eqn}
 
-  PLAN — hold positions for one beat (also fills multi-beat tails). Never end the song on a multi-beat primitive without trailing PLANs.
+  PLAN — hold positions for one beat, add breathing room, and fill multi-beat tails. Never end the song on a multi-beat primitive without trailing PLANs.
   </primitives>
 
   <process>
@@ -113,20 +114,19 @@ output_format: |
   Every beat 1..N present. Use "; " for multiple calls on one beat. No ellipsis rows. Multi-beat primitives must include trailing PLAN lines.
 
 output_format_structured: |
-  Return JSON only (no markdown). Schema enforces exactly num_beats beats and typed primitive args.
-  Rules still apply: musically coherent choices, PLAN tails for multi-beat primitives, transition PLAN between primitive changes, at most 4 multi-beat primitives, respect bounds and step limits.
-  Each choreography action must be an object: {"primitive":"name","args":[...]}.
-  The args array must contain exactly one JSON item per primitive parameter, in order. Do not flatten list arguments into separate args.
+  Return JSON only (no markdown). Schema enforces exactly num_beats beats and named primitive params.
+  Rules still apply: musically coherent choices, immediate PLAN tails for multi-beat primitives, transition PLAN between different primitives, at most 4 multi-beat primitives, respect bounds and step limits.
+  Each choreography action must be an object: {"primitive":"name","params":{...}}.
+  Use exactly the parameter names from the primitive signature. PLAN uses empty params: {"primitive":"PLAN","params":{}}.
 
-  Correct JSON args examples:
-  - center([ids]) -> {"primitive":"center","args":[[1,2,3,4]]}
-  - move_z([ids], delta_cm) -> {"primitive":"move_z","args":[[1,2,3,4],30]}
-  - form_circle([ids], radius_cm) -> {"primitive":"form_circle","args":[[1,2,3,4],120]}
-  - rotate(angle_deg, axis) -> {"primitive":"rotate","args":[90,"z"]}
-  - wave(steps, height_cm, mu_pairs, a_mu, b_mu) -> {"primitive":"wave","args":[2,80,[[0,0],[1,0]],[0.5,0.25],[0.2,0.1]]}
+  Correct JSON param examples:
+  - center([ids]) -> {"primitive":"center","params":{"drone_ids":[1,2,3,4]}}
+  - move_z([ids], delta_cm) -> {"primitive":"move_z","params":{"drone_ids":[1,2,3,4],"delta_cm":30}}
+  - form_cone(delta_height_cm, spacing_cm, is_inverted) -> {"primitive":"form_cone","params":{"delta_height_cm":60,"spacing_cm":60,"is_inverted":0}}
+  - spiral_speed(steps, height_cm, degrees, radius_increase) -> {"primitive":"spiral_speed","params":{"steps":3,"height_cm":100,"degrees":180,"radius_increase":1}}
+  - wave(steps, height_cm, mu_pairs, a_mu, b_mu) -> {"primitive":"wave","params":{"steps":2,"height_cm":80,"mu_pairs":[[0,0],[1,0]],"a_mu":[0.5,0.25],"b_mu":[0.2,0.1]}}
 
   Common mistakes that will fail syntax checks:
-  - Wrong: {"primitive":"center","args":[1,2,3,4]} because center has one argument, a list of ids.
-  - Wrong: {"primitive":"move_z","args":[1,2,3,4,30]} because move_z has two arguments: a list of ids, then delta_cm.
-  - Wrong: {"primitive":"move_z","args":[20,20,"z"]} because move_z is not rotate; it needs [ids] and vertical delta_cm.
-  - Wrong: {"primitive":"wave","args":["x","y",10,2,2,0,0]} because wave needs numeric steps/height, then three list arguments.
+  - Wrong: {"primitive":"form_cone","params":{"drone_ids":[1,2,3],"delta_height_cm":60,"spacing_cm":60,"is_inverted":0}} because form_cone has no drone_ids param.
+  - Wrong: {"primitive":"spiral_speed","params":{"steps":3,"height_cm":100,"angle_deg":90,"degrees":180,"radius_increase":1}} because spiral_speed has no angle_deg param.
+  - Wrong: {"primitive":"move_z","params":{"delta_cm":30}} because move_z also needs drone_ids.

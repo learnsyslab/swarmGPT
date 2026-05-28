@@ -31,36 +31,74 @@ def _drone_ids_schema(num_drones: int) -> dict[str, Any]:
     }
 
 
-def _action_schema(num_drones: int) -> dict[str, Any]:
-    primitive_enum = ["PLAN", *_PRIMITIVE_ARG_ORDER.keys()]
-    arg_item_schema: dict[str, Any] = {
-        "anyOf": [
-            {"type": "integer"},
-            {"type": "number"},
-            {"type": "string", "enum": _AXIS_ENUM},
-            {"type": "boolean"},
-            {"type": "array", "items": {"type": "integer"}},
-            {
-                "type": "array",
-                "items": {
-                    "type": "array",
-                    "items": {"type": "number"},
-                },
-            },
-            {"type": "array", "items": {"type": "number"}},
-        ]
+def _array_schema(item_schema: dict[str, Any]) -> dict[str, Any]:
+    return {"type": "array", "items": item_schema}
+
+
+def _param_schemas(num_drones: int) -> dict[str, dict[str, Any]]:
+    return {
+        "x_cm": _number_schema(),
+        "y_cm": _number_schema(),
+        "z_cm": _number_schema(),
+        "drone_id": _int_schema(minimum=1, maximum=num_drones),
+        "angle_deg": _number_schema(),
+        "axis": {"type": "string", "enum": _AXIS_ENUM},
+        "drone_ids": _drone_ids_schema(num_drones),
+        "drone_id_1": _int_schema(minimum=1, maximum=num_drones),
+        "drone_id_2": _int_schema(minimum=1, maximum=num_drones),
+        "delta_cm": _number_schema(),
+        "steps": _int_schema(minimum=1),
+        "height_cm": _number_schema(),
+        "degrees": _number_schema(),
+        "radius_increase": _number_schema(),
+        "delta_height_cm": _number_schema(),
+        "radius_cm": _number_schema(),
+        "delta_xy_cm": _number_schema(),
+        "delta_z_cm": _number_schema(),
+        "mu_pairs": _array_schema(_array_schema(_number_schema())),
+        "a_mu": _array_schema(_number_schema()),
+        "b_mu": _array_schema(_number_schema()),
+        "omega_times_ten": _number_schema(),
+        "z_spacing_cm": _number_schema(),
+        "min_spacing_cm": _number_schema(),
+        "delta_radius_cm": _number_schema(),
+        "spacing_cm": _number_schema(),
+        "is_inverted": _int_schema(minimum=0, maximum=1),
     }
+
+
+def _params_schema(num_drones: int, param_names: list[str]) -> dict[str, Any]:
+    param_schemas = _param_schemas(num_drones)
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {name: param_schemas[name] for name in param_names},
+        "required": param_names,
+    }
+
+
+def _action_variant_schema(primitive: str, num_drones: int) -> dict[str, Any]:
+    param_names = [] if primitive == "PLAN" else _PRIMITIVE_ARG_ORDER[primitive]
     return {
         "type": "object",
         "additionalProperties": False,
         "properties": {
             "primitive": {
                 "type": "string",
-                "enum": primitive_enum,
+                "enum": [primitive],
             },
-            "args": {"type": "array", "items": arg_item_schema},
+            "params": _params_schema(num_drones, param_names),
         },
-        "required": ["primitive", "args"],
+        "required": ["primitive", "params"],
+    }
+
+
+def _action_schema(num_drones: int) -> dict[str, Any]:
+    return {
+        "anyOf": [
+            _action_variant_schema(primitive, num_drones)
+            for primitive in ["PLAN", *_PRIMITIVE_ARG_ORDER.keys()]
+        ]
     }
 
 
@@ -113,24 +151,56 @@ _PRIMITIVE_ARG_ORDER: dict[str, list[str]] = {
 
 
 def _python_literal(value: Any) -> str:
+    if isinstance(value, bool):
+        return str(int(value))
     if isinstance(value, str):
         return repr(value)
     return json.dumps(value)
 
 
+def _args_from_params(primitive: str, params: Any) -> list[Any]:
+    if not isinstance(params, dict):
+        raise LLMFormatError(
+            f"Params for primitive '{primitive}' must be an object, got {type(params).__name__}"
+        )
+    ordered_arg_names = _PRIMITIVE_ARG_ORDER[primitive]
+    missing = [name for name in ordered_arg_names if name not in params]
+    extras = [name for name in params if name not in ordered_arg_names]
+    if missing or extras:
+        details = []
+        if missing:
+            details.append(f"missing {missing}")
+        if extras:
+            details.append(f"unexpected {extras}")
+        raise LLMFormatError(
+            f"Primitive '{primitive}' params must be exactly {ordered_arg_names}; "
+            + ", ".join(details)
+        )
+    return [params[name] for name in ordered_arg_names]
+
+
 def action_to_motion_primitive(action: dict[str, Any]) -> str:
     """Convert one structured action object to legacy `primitive(args)` syntax."""
+    if not isinstance(action, dict):
+        raise LLMFormatError(
+            f"Structured choreography action must be an object, got {type(action).__name__}"
+        )
     primitive = action.get("primitive")
-    args = action.get("args", [])
-    if not isinstance(args, list):
-        raise LLMFormatError(f"Args for primitive '{primitive}' must be an array")
     if primitive == "PLAN":
-        if len(args) > 0:
-            raise LLMFormatError("PLAN does not accept args")
+        params = action.get("params", {})
+        args = action.get("args", [])
+        if params or args:
+            raise LLMFormatError("PLAN does not accept params or args")
         return "PLAN"
     if primitive not in _PRIMITIVE_ARG_ORDER:
         raise LLMFormatError(f"Unknown motion primitive '{primitive}' in structured output")
     ordered_arg_names = _PRIMITIVE_ARG_ORDER[primitive]  # used for expected arity messaging
+    if "params" in action:
+        args = _args_from_params(primitive, action["params"])
+    else:
+        args = action.get("args", [])
+        if not isinstance(args, list):
+            raise LLMFormatError(f"Args for primitive '{primitive}' must be an array")
     if len(args) != len(ordered_arg_names):
         raise LLMFormatError(
             f"Primitive '{primitive}' expects {len(ordered_arg_names)} args "
