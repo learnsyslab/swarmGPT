@@ -35,3 +35,6 @@ playwright-report
 web/dist
 web/node_modules
 web/tsconfig.tsbuildinfo
+
+/log/
+/install/

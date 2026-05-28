@@ -113,7 +113,7 @@ channels = ["https://prefix.dev/robostack-kilted"]
 [tool.pixi.feature.kilted.dependencies]
 # Build tools
 compilers = ">=1.9.0, <1.11.0"
-cmake = "==4.2.2"
+cmake = "<4"
 pkg-config = "*"
 make = "==4.4.1"
 ninja = "*"
@@ -122,6 +122,7 @@ rosdep = "*"
 colcon-common-extensions = "*"
 # Kilted specific tools
 ros-kilted-desktop = "*"
+ros2-distro-mutex = "0.12.*"
 
 [tool.pixi.feature.kilted.activation]
 scripts = ["tools/setup_mocap.sh"]
