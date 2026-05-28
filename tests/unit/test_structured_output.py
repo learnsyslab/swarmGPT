@@ -35,18 +35,14 @@ def test_build_motion_primitive_response_schema_enforces_exact_num_beats():
 def test_structured_payload_to_choreography_preserves_plan_and_action_order():
     config_path = virtual_crazyswarm_config(n_drones=4)
     choreographer = Choreographer(
-        config_file=config_path,
-        llm_provider="openai",
-        use_motion_primitives=True,
+        config_file=config_path, llm_provider="openai", use_motion_primitives=True
     )
     payload = {
         "song_mood": "calm",
         "cord_analysis": "minor",
         "choreography_plan": "simple",
         "choreography": {
-            "1": [
-                {"primitive": "form_circle", "args": [[1, 2], 100]},
-            ],
+            "1": [{"primitive": "form_circle", "args": [[1, 2], 100]}],
             "2": [{"primitive": "PLAN", "args": []}],
             "3": [
                 {"primitive": "rotate", "args": [90, "z"]},
@@ -67,9 +63,7 @@ def test_structured_payload_to_choreography_preserves_plan_and_action_order():
 def test_call_responses_structured_includes_json_schema_format():
     config_path = virtual_crazyswarm_config(n_drones=4)
     choreographer = Choreographer(
-        config_file=config_path,
-        llm_provider="openai",
-        use_motion_primitives=True,
+        config_file=config_path, llm_provider="openai", use_motion_primitives=True
     )
     captured: dict[str, Any] = {}
 
@@ -110,9 +104,7 @@ def test_schema_contains_no_openai_unsupported_keywords():
 def test_ollama_motion_primitives_uses_structured_outputs():
     config_path = virtual_crazyswarm_config(n_drones=4)
     choreographer = Choreographer(
-        config_file=config_path,
-        llm_provider="ollama",
-        use_motion_primitives=True,
+        config_file=config_path, llm_provider="ollama", use_motion_primitives=True
     )
     assert choreographer._uses_structured_outputs() is True
 
@@ -120,9 +112,7 @@ def test_ollama_motion_primitives_uses_structured_outputs():
 def test_call_responses_structured_ollama_uses_native_chat(monkeypatch: pytest.MonkeyPatch):
     config_path = virtual_crazyswarm_config(n_drones=4)
     choreographer = Choreographer(
-        config_file=config_path,
-        llm_provider="ollama",
-        use_motion_primitives=True,
+        config_file=config_path, llm_provider="ollama", use_motion_primitives=True
     )
     captured: dict[str, Any] = {}
 
@@ -172,14 +162,10 @@ def test_structured_initial_prompt_uses_legacy_example_for_ollama():
     assert '"primitive": "PLAN"' not in example
 
 
-def test_generate_choreography_ollama_raises_on_structured_errors(
-    monkeypatch: pytest.MonkeyPatch,
-):
+def test_generate_choreography_ollama_raises_on_structured_errors(monkeypatch: pytest.MonkeyPatch):
     config_path = virtual_crazyswarm_config(n_drones=4)
     choreographer = Choreographer(
-        config_file=config_path,
-        llm_provider="ollama",
-        use_motion_primitives=True,
+        config_file=config_path, llm_provider="ollama", use_motion_primitives=True
     )
     monkeypatch.setattr(
         choreographer,
@@ -193,8 +179,7 @@ def test_generate_choreography_ollama_raises_on_structured_errors(
     )
     with pytest.raises(LLMFormatError, match="bad json"):
         choreographer.generate_choreography(
-            prompt=[{"role": "user", "content": "hello"}],
-            num_beats=1,
+            prompt=[{"role": "user", "content": "hello"}], num_beats=1
         )
 
 
@@ -203,9 +188,7 @@ def test_generate_choreography_ollama_raises_when_structured_payload_incomplete(
 ):
     config_path = virtual_crazyswarm_config(n_drones=4)
     choreographer = Choreographer(
-        config_file=config_path,
-        llm_provider="ollama",
-        use_motion_primitives=True,
+        config_file=config_path, llm_provider="ollama", use_motion_primitives=True
     )
     monkeypatch.setattr(
         choreographer,
@@ -214,6 +197,5 @@ def test_generate_choreography_ollama_raises_when_structured_payload_incomplete(
     )
     with pytest.raises(LLMFormatError, match="missing required keys"):
         choreographer.generate_choreography(
-            prompt=[{"role": "user", "content": "hello"}],
-            num_beats=1,
+            prompt=[{"role": "user", "content": "hello"}], num_beats=1
         )

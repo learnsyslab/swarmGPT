@@ -24,11 +24,7 @@ def _number_schema() -> dict[str, Any]:
 
 
 def _drone_ids_schema(num_drones: int) -> dict[str, Any]:
-    return {
-        "type": "array",
-        "minItems": 1,
-        "items": _int_schema(minimum=1, maximum=num_drones),
-    }
+    return {"type": "array", "minItems": 1, "items": _int_schema(minimum=1, maximum=num_drones)}
 
 
 def _action_schema(num_drones: int) -> dict[str, Any]:
@@ -40,13 +36,7 @@ def _action_schema(num_drones: int) -> dict[str, Any]:
             {"type": "string", "enum": _AXIS_ENUM},
             {"type": "boolean"},
             {"type": "array", "items": {"type": "integer"}},
-            {
-                "type": "array",
-                "items": {
-                    "type": "array",
-                    "items": {"type": "number"},
-                },
-            },
+            {"type": "array", "items": {"type": "array", "items": {"type": "number"}}},
             {"type": "array", "items": {"type": "number"}},
         ]
     }
@@ -54,10 +44,7 @@ def _action_schema(num_drones: int) -> dict[str, Any]:
         "type": "object",
         "additionalProperties": False,
         "properties": {
-            "primitive": {
-                "type": "string",
-                "enum": primitive_enum,
-            },
+            "primitive": {"type": "string", "enum": primitive_enum},
             "args": {"type": "array", "items": arg_item_schema},
         },
         "required": ["primitive", "args"],
@@ -70,11 +57,7 @@ def build_motion_primitive_response_schema(*, num_beats: int, num_drones: int) -
         raise ValueError("num_beats must be >= 1")
     if num_drones < 1:
         raise ValueError("num_drones must be >= 1")
-    action_schema = {
-        "type": "array",
-        "minItems": 1,
-        "items": _action_schema(num_drones),
-    }
+    action_schema = {"type": "array", "minItems": 1, "items": _action_schema(num_drones)}
     beat_keys = [str(i) for i in range(1, num_beats + 1)]
     return {
         "type": "object",
@@ -164,7 +147,9 @@ def structured_payload_to_choreography(payload: dict[str, Any]) -> dict[int, str
         try:
             beat = int(beat_text)
         except (TypeError, ValueError) as e:
-            raise LLMFormatError(f"Structured output beat key {beat_text!r} is not an integer") from e
+            raise LLMFormatError(
+                f"Structured output beat key {beat_text!r} is not an integer"
+            ) from e
         if not isinstance(actions, list) or len(actions) == 0:
             raise LLMFormatError(f"Structured output beat {beat} must include non-empty 'actions'")
         converted[beat] = "; ".join(action_to_motion_primitive(action) for action in actions)

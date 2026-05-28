@@ -206,8 +206,7 @@ class AppBackend:
         else:  # Use LLM to generate the choreography
             logger.debug(f"Using LLM to generate choreography for song: {song_name}")
             response = self.choreographer.generate_choreography(
-                prompt,
-                num_beats=len(music_info["beat_times"]),
+                prompt, num_beats=len(music_info["beat_times"])
             )
 
         try:
@@ -241,8 +240,7 @@ class AppBackend:
         prompt = self.choreographer.format_reprompt(message)
         music_info = self.music_manager.extract_song_info()
         response = self.choreographer.generate_choreography(
-            prompt,
-            num_beats=len(music_info["beat_times"]),
+            prompt, num_beats=len(music_info["beat_times"])
         )
         self.waypoints = self.choreographer.response2waypoints(
             response, music_info=music_info, strict=self._strict_processing
@@ -316,7 +314,8 @@ class AppBackend:
         init_pos_dict = {}
         final_pos_dict = {}
         choreography_dict = {}
-        colors_dict = {}
+        color_top = {}
+        color_bot = {}
         colors_array = np.zeros((self.choreographer.num_drones, 4))
         colors_array[:, 1:] = generate_default_colors(self.choreographer.num_drones, limit=255)
         colors_array[:, 3] *= 0.8  # Dim blue channel since that LED is brighter
@@ -328,27 +327,31 @@ class AppBackend:
             init_pos_dict[d["uri"]] = [np.array([*init_pos, 0.0])]
             final_pos_dict[d["uri"]] = [np.array([*final_pos, 0.0])]
             choreography_dict[d["uri"]] = self.splines[i]
-            colors_dict[d["uri"]] = {
-                "t": np.array([0, 0.5, 1.0]),
-                "color_top": np.array([colors_array[i], colors_array[i], colors_array[i]]),
-                "color_bot": np.array([colors_array[i], colors_array[i], colors_array[i]]),
-            }  # Default colors
+            color_top[d["uri"]] = {0.0: colors_array[i], 0.5: colors_array[i], 1.0: colors_array[i]}
+            color_bot[d["uri"]] = {0.0: colors_array[i], 0.5: colors_array[i], 1.0: colors_array[i]}
 
         swarm = DroneSwarm(self.choreographer.drones, lighthouse=self.settings["lighthouse"])
         logger.info("Swarm connected...")
         try:
-            # swarm.apply_colors(colors_dict)
             swarm.goto(init_pos_dict)
-            # check if all drones have taken off
+            # Check active drones after the initial climb.
             taken_off = True
-            for i, d in enumerate(self.choreographer.drones.values()):
-                if not swarm.lighthouse and swarm.get_obs(d["uri"])["pos"][2] < 0.2:
+            for d in self.choreographer.drones.values():
+                uri = d["uri"]
+                if not swarm.is_active(uri):
+                    logger.warning(f"Drone {uri} is inactive after takeoff")
+                    continue
+                z = swarm.get_obs(uri)["pos"][2]
+                if z < 0.2:
                     taken_off = False
-                    logger.warning(f"Drone {d['uri']} has not taken off yet")
+                    logger.warning(f"Drone {uri} has not taken off yet: z={z:.2f}m")
             if taken_off:
                 self.music_manager.play()
                 swarm.execute_choreography(
-                    choreography_dict, self.waypoints["time"][0, -1], colors_dict
+                    choreography_dict,
+                    self.waypoints["time"][0, -1],
+                    color_top=color_top,
+                    color_bot=color_bot,
                 )
             swarm.goto(final_pos_dict, duration=3.0)
         finally:
