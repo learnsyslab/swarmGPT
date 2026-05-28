@@ -115,3 +115,18 @@ output_format: |
 output_format_structured: |
   Return JSON only (no markdown). Schema enforces exactly num_beats beats and typed primitive args.
   Rules still apply: musically coherent choices, PLAN tails for multi-beat primitives, transition PLAN between primitive changes, at most 4 multi-beat primitives, respect bounds and step limits.
+  Each choreography action must be an object: {"primitive":"name","args":[...]}.
+  The args array must contain exactly one JSON item per primitive parameter, in order. Do not flatten list arguments into separate args.
+
+  Correct JSON args examples:
+  - center([ids]) -> {"primitive":"center","args":[[1,2,3,4]]}
+  - move_z([ids], delta_cm) -> {"primitive":"move_z","args":[[1,2,3,4],30]}
+  - form_circle([ids], radius_cm) -> {"primitive":"form_circle","args":[[1,2,3,4],120]}
+  - rotate(angle_deg, axis) -> {"primitive":"rotate","args":[90,"z"]}
+  - wave(steps, height_cm, mu_pairs, a_mu, b_mu) -> {"primitive":"wave","args":[2,80,[[0,0],[1,0]],[0.5,0.25],[0.2,0.1]]}
+
+  Common mistakes that will fail syntax checks:
+  - Wrong: {"primitive":"center","args":[1,2,3,4]} because center has one argument, a list of ids.
+  - Wrong: {"primitive":"move_z","args":[1,2,3,4,30]} because move_z has two arguments: a list of ids, then delta_cm.
+  - Wrong: {"primitive":"move_z","args":[20,20,"z"]} because move_z is not rotate; it needs [ids] and vertical delta_cm.
+  - Wrong: {"primitive":"wave","args":["x","y",10,2,2,0,0]} because wave needs numeric steps/height, then three list arguments.
