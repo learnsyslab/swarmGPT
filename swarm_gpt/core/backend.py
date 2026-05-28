@@ -206,8 +206,7 @@ class AppBackend:
         else:  # Use LLM to generate the choreography
             logger.debug(f"Using LLM to generate choreography for song: {song_name}")
             response = self.choreographer.generate_choreography(
-                prompt,
-                num_beats=len(music_info["beat_times"]),
+                prompt, num_beats=len(music_info["beat_times"])
             )
 
         try:
@@ -241,8 +240,7 @@ class AppBackend:
         prompt = self.choreographer.format_reprompt(message)
         music_info = self.music_manager.extract_song_info()
         response = self.choreographer.generate_choreography(
-            prompt,
-            num_beats=len(music_info["beat_times"]),
+            prompt, num_beats=len(music_info["beat_times"])
         )
         self.waypoints = self.choreographer.response2waypoints(
             response, music_info=music_info, strict=self._strict_processing
@@ -329,16 +327,8 @@ class AppBackend:
             init_pos_dict[d["uri"]] = [np.array([*init_pos, 0.0])]
             final_pos_dict[d["uri"]] = [np.array([*final_pos, 0.0])]
             choreography_dict[d["uri"]] = self.splines[i]
-            color_top[d["uri"]] = {
-                0.0: colors_array[i],
-                0.5: colors_array[i],
-                1.0: colors_array[i],
-            }
-            color_bot[d["uri"]] = {
-                0.0: colors_array[i],
-                0.5: colors_array[i],
-                1.0: colors_array[i],
-            }
+            color_top[d["uri"]] = {0.0: colors_array[i], 0.5: colors_array[i], 1.0: colors_array[i]}
+            color_bot[d["uri"]] = {0.0: colors_array[i], 0.5: colors_array[i], 1.0: colors_array[i]}
 
         swarm = DroneSwarm(self.choreographer.drones, lighthouse=self.settings["lighthouse"])
         logger.info("Swarm connected...")

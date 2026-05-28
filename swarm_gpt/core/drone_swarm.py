@@ -30,6 +30,7 @@ logger.setLevel(logging.INFO)
 
 _DISCONNECT_ERRORS = (DisconnectedError, LinkError, TimeoutError)
 _LIGHTHOUSE_DECK_PARAM = "deck.bcLighthouse4"
+_POWER_CYCLE_BOOT_WAIT = 3.0
 
 
 class DroneSwarm:
@@ -243,7 +244,7 @@ class DroneSwarm:
 
     async def _connect(self) -> None:
         await self._power_cycle()
-        await asyncio.sleep(2.0)
+        await asyncio.sleep(_POWER_CYCLE_BOOT_WAIT)
 
         results = await asyncio.gather(
             *[Crazyflie.connect_from_uri(self.context, uri, self.toc_cache) for uri in self.uris],
@@ -252,7 +253,6 @@ class DroneSwarm:
         failures = []
         for uri, result in zip(self.uris, results, strict=True):
             if isinstance(result, BaseException):
-                logger.error(f"Connecting to {uri} failed: {result}")
                 failures.append(f"{uri}: {result}")
                 continue
             self.cfs[uri] = result
@@ -302,23 +302,27 @@ class DroneSwarm:
     async def _parallel_by_uri(
         self, action_name: str, uris: Iterable[str], action: Callable[[str], Awaitable[None]]
     ) -> None:
-        await asyncio.gather(
-            *[self._run_drone_action(uri, action, action_name) for uri in list(uris)]
+        target_uris = list(uris)
+        inactive_uris = [
+            uri for uri in target_uris if uri not in self.active_uris or uri not in self.cfs
+        ]
+        if inactive_uris:
+            raise RuntimeError(f"{action_name} skipped inactive Crazyflies: {inactive_uris}")
+
+        results = await asyncio.gather(
+            *[action(uri) for uri in target_uris], return_exceptions=True
         )
 
-    async def _run_drone_action(
-        self, uri: str, action: Callable[[str], Awaitable[None]], action_name: str
-    ) -> None:
-        if uri not in self.active_uris or uri not in self.cfs:
-            return
-        try:
-            await action(uri)
-        except _DISCONNECT_ERRORS as exc:
-            if uri in self.active_uris:
-                logger.error(f"{uri} disconnected or unreachable. {action_name} failed: {exc}")
+        failures = []
+        for uri, result in zip(target_uris, results, strict=True):
+            if not isinstance(result, BaseException):
+                continue
+            if isinstance(result, _DISCONNECT_ERRORS):
                 self.active_uris.discard(uri)
-        except Exception as exc:
-            logger.error(f"{action_name} failed for {uri}: {exc}")
+            failures.append(f"{uri}: {result}")
+
+        if failures:
+            raise RuntimeError(f"{action_name} failed: {'; '.join(failures)}")
 
     async def _read_observation(self, uri: str) -> dict[str, Array]:
         if self.lighthouse:
@@ -408,7 +412,7 @@ class DroneSwarm:
         await param.set("kalman.resetEstimation", 1)
         await asyncio.sleep(0.1)
         await param.set("kalman.resetEstimation", 0)
-        await cf.platform().send_arming_request(True)
+        await cf.platform().send_arming_request(do_arm=True)
         await asyncio.sleep(0.8)
 
     async def _send_external_pose(self, uri: str) -> None:
@@ -518,15 +522,19 @@ class DroneSwarm:
         await self._cf(uri).localization().emergency().send_emergency_stop()
 
     async def _shutdown_leds_one(self, uri: str) -> None:
-        await self._cf(uri).param().set("led.bitmask", 0)
+        await self._cf(uri).param().set("led.bitmask", 0)  # turn on all LEDs to indicate shutdown
         await self._apply_drone_color(uri, np.zeros(4), "both")
 
     async def _close(self) -> None:
-        if self.active_uris:
-            await self._parallel_by_uri("Emergency stop", self.uris, self._emergency_stop_one)
-            await asyncio.sleep(0.1)
-            await self._parallel_by_uri("Shutdown LEDs", self.uris, self._shutdown_leds_one)
-            await asyncio.sleep(0.2)
+        active_uris = [uri for uri in self.uris if uri in self.active_uris]
+        if active_uris:
+            try:
+                await self._parallel_by_uri("Emergency stop", active_uris, self._emergency_stop_one)
+                await asyncio.sleep(0.1)
+                await self._parallel_by_uri("Shutdown LEDs", active_uris, self._shutdown_leds_one)
+                await asyncio.sleep(0.2)
+            except RuntimeError as exc:
+                logger.warning(f"Shutdown failed: {exc}")
 
         await self._disconnect()
 

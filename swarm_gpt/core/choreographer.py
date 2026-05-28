@@ -155,7 +155,9 @@ class Choreographer:
         """Use Structured Outputs for all motion-primitive providers."""
         return self.use_motion_primitives
 
-    def generate_choreography(self, prompt: list[dict[str, str]], num_beats: int | None = None) -> str:
+    def generate_choreography(
+        self, prompt: list[dict[str, str]], num_beats: int | None = None
+    ) -> str:
         """Generate the initial choreography for the LLM."""
         logger.debug(
             "Generating choreography with provider=%s model=%s", self.llm_provider, self._model_id
@@ -280,10 +282,10 @@ class Choreographer:
                 f"Model {self._model_id!r} returned empty content. Try another model or reprompt."
             )
         if DEBUG_LLM_OUTPUT:
-            print("\n" + "="*80)
+            print("\n" + "=" * 80)
             print("RAW LLM OUTPUT:")
             print(content)
-            print("="*80 + "\n")
+            print("=" * 80 + "\n")
         return content
 
     def _collision_check(self, pos: NDArray, min_dist: float = 0.1):
@@ -313,8 +315,7 @@ class Choreographer:
 
         client = self._chat_client_for_call()
         schema = build_motion_primitive_response_schema(
-            num_beats=num_beats,
-            num_drones=self.num_drones,
+            num_beats=num_beats, num_drones=self.num_drones
         )
         input_messages, instructions = prepare_responses_messages(messages)
         try:
@@ -349,9 +350,7 @@ class Choreographer:
             )
         content = response.output_text
         if not content:
-            raise LLMPlanError(
-                f"Model {self._model_id!r} returned empty structured content."
-            )
+            raise LLMPlanError(f"Model {self._model_id!r} returned empty structured content.")
         try:
             return json.loads(content)
         except json.JSONDecodeError as e:
@@ -360,8 +359,7 @@ class Choreographer:
     def _call_ollama_structured(self, messages: list[dict[str, str]], num_beats: int) -> dict:
         """Call Ollama's native chat structured output path."""
         schema = build_motion_primitive_response_schema(
-            num_beats=num_beats,
-            num_drones=self.num_drones,
+            num_beats=num_beats, num_drones=self.num_drones
         )
         schema_str = json.dumps(schema, separators=(",", ":"))
         grounded_messages = [
@@ -378,12 +376,9 @@ class Choreographer:
                 model=self._model_id,
                 messages=grounded_messages,
                 format=schema,
-                options={
-                    "temperature": RESPONSES_TEMPERATURE,
-                    "num_ctx": OLLAMA_CONTEXT_LENGTH,
-                } if OLLAMA_CONTEXT_LENGTH is not None else {
-                    "temperature": RESPONSES_TEMPERATURE,
-                },
+                options={"temperature": RESPONSES_TEMPERATURE, "num_ctx": OLLAMA_CONTEXT_LENGTH}
+                if OLLAMA_CONTEXT_LENGTH is not None
+                else {"temperature": RESPONSES_TEMPERATURE},
             )
         except Exception as e:
             raise LLMPlanError(
@@ -436,8 +431,7 @@ class Choreographer:
         missing = [field for field in required_fields if field not in payload]
         if missing:
             raise LLMFormatError(
-                "Structured output is missing required keys: "
-                + ", ".join(sorted(missing))
+                "Structured output is missing required keys: " + ", ".join(sorted(missing))
             )
         choreography = self._structured_payload_to_choreography(payload)
         lines = [
@@ -593,12 +587,12 @@ class Choreographer:
             yaml_text = yaml_text[0]
         except IndexError:
             yaml_text = text
-        
+
         if DEBUG_LLM_OUTPUT:
-            print("\n" + "="*80)
+            print("\n" + "=" * 80)
             print("EXTRACTED YAML TEXT (after slicing):")
             print(yaml_text)
-            print("="*80 + "\n")
+            print("=" * 80 + "\n")
 
         # Step 1: Extract the chunk between `choreography:` and `END` or end of file
         match = re.search(r"choreography:\s*(.*?)(?:\s*END|$)", yaml_text, re.DOTALL)
