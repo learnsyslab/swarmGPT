@@ -302,27 +302,20 @@ class DroneSwarm:
     async def _parallel_by_uri(
         self, action_name: str, uris: Iterable[str], action: Callable[[str], Awaitable[None]]
     ) -> None:
-        target_uris = list(uris)
-        inactive_uris = [
-            uri for uri in target_uris if uri not in self.active_uris or uri not in self.cfs
-        ]
-        if inactive_uris:
-            raise RuntimeError(f"{action_name} skipped inactive Crazyflies: {inactive_uris}")
+        target_uris = [uri for uri in uris if uri in self.active_uris and uri in self.cfs]
 
         results = await asyncio.gather(
             *[action(uri) for uri in target_uris], return_exceptions=True
         )
 
-        failures = []
         for uri, result in zip(target_uris, results, strict=True):
             if not isinstance(result, BaseException):
                 continue
             if isinstance(result, _DISCONNECT_ERRORS):
                 self.active_uris.discard(uri)
-            failures.append(f"{uri}: {result}")
-
-        if failures:
-            raise RuntimeError(f"{action_name} failed: {'; '.join(failures)}")
+                logger.error(f"{uri} disconnected or unreachable. {action_name} failed: {result}")
+            else:
+                logger.error(f"{action_name} failed for {uri}: {result}")
 
     async def _read_observation(self, uri: str) -> dict[str, Array]:
         if self.lighthouse:

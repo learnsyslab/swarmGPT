@@ -334,12 +334,17 @@ class AppBackend:
         logger.info("Swarm connected...")
         try:
             swarm.goto(init_pos_dict)
-            # check if all drones have taken off
+            # Check active drones after the initial climb.
             taken_off = True
-            for i, d in enumerate(self.choreographer.drones.values()):
-                if not swarm.lighthouse and swarm.get_obs(d["uri"])["pos"][2] < 0.2:
+            for d in self.choreographer.drones.values():
+                uri = d["uri"]
+                if not swarm.is_active(uri):
+                    logger.warning(f"Drone {uri} is inactive after takeoff")
+                    continue
+                z = swarm.get_obs(uri)["pos"][2]
+                if z < 0.2:
                     taken_off = False
-                    logger.warning(f"Drone {d['uri']} has not taken off yet")
+                    logger.warning(f"Drone {uri} has not taken off yet: z={z:.2f}m")
             if taken_off:
                 self.music_manager.play()
                 swarm.execute_choreography(
