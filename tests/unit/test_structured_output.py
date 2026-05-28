@@ -150,7 +150,7 @@ def test_call_responses_structured_ollama_uses_native_chat(monkeypatch: pytest.M
     assert captured["options"]["temperature"] == RESPONSES_TEMPERATURE
 
 
-def test_structured_initial_prompt_uses_json_example_not_yaml_choreography():
+def test_structured_initial_prompt_uses_legacy_example_for_ollama():
     config_path = virtual_crazyswarm_config(n_drones=4)
     choreographer = Choreographer(
         config_file=config_path,
@@ -167,9 +167,9 @@ def test_structured_initial_prompt_uses_json_example_not_yaml_choreography():
     messages = choreographer.format_initial_prompt("test song", music_info)
 
     example = messages[2]["content"]
-    assert '"primitive": "PLAN"' in example
-    assert "```yaml" not in example
-    assert "choreography:" not in example
+    assert "choreography:" in example
+    assert "move_z([1, 2, 3], 30)" in example
+    assert '"primitive": "PLAN"' not in example
 
 
 def test_generate_choreography_ollama_raises_on_structured_errors(

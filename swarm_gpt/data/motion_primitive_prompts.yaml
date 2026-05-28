@@ -98,20 +98,6 @@ example: |
     END
   </example>
 
-example_structured: |
-  <example_json>
-  {
-    "song_mood": "Dreamy, contemplative Debussy; gentle fluid motion.",
-    "cord_analysis": "Cm, A#m, F, Gm mix - wistful, not dramatic.",
-    "choreography_plan": "Use a slow opening spiral, hold PLAN during multi-beat tails, then accent a novelty peak with a gentle rotate.",
-    "choreography": {
-      "1": [{"primitive": "spiral", "args": [2, 100]}],
-      "2": [{"primitive": "PLAN", "args": []}],
-      "3": [{"primitive": "rotate", "args": [60, "z"]}]
-    }
-  }
-  </example_json>
-
 output_format: |
   Return one ```yaml``` block:
 

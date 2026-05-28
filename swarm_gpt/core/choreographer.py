@@ -132,12 +132,7 @@ class Choreographer:
         user_prompt = self._format_initial_user_prompt(song, music_info)
         msgs.append({"role": "system", "content": self.prompts["system_initial"]})
         msgs.append({"role": "user", "content": user_prompt})
-        example_key = (
-            "example_structured"
-            if self._uses_structured_outputs() and "example_structured" in self.prompts
-            else "example"
-        )
-        msgs.append({"role": "system", "content": self.prompts[example_key]})
+        msgs.append({"role": "system", "content": self.prompts["example"]})
         output_format_key = (
             "output_format_structured"
             if self._uses_structured_outputs() and "output_format_structured" in self.prompts
