@@ -13,8 +13,6 @@ import einops  # pyright: ignore[reportMissingImports]
 import numpy as np
 import toml
 import yaml
-from ollama import chat as ollama_chat  # pyright: ignore[reportMissingImports]
-
 from swarm_gpt.core.motion_primitives import motion_primitives as motion_primitives_collection
 from swarm_gpt.core.motion_primitives import primitive_by_name
 from swarm_gpt.core.structured_output_schema import (
@@ -25,8 +23,10 @@ from swarm_gpt.exception import LLMFormatError, LLMPlanError, LLMResponseProcess
 from swarm_gpt.utils.llm_providers import (
     RESPONSES_MAX_OUTPUT_TOKENS,
     RESPONSES_TEMPERATURE,
+    cancellable_ollama_chat,
     openai_client_for_provider,
     prepare_responses_messages,
+    register_ollama_client,
 )
 
 if TYPE_CHECKING:
@@ -39,7 +39,8 @@ logger = logging.getLogger(__name__)
 
 # Set to True to see raw LLM outputs in terminal
 DEBUG_LLM_OUTPUT = True
-OLLAMA_CONTEXT_LENGTH = None  # Set None to use Ollama's VRAM-based default.
+# OLLAMA_CONTEXT_LENGTH = None  # Set None to use Ollama's VRAM-based default.
+OLLAMA_CONTEXT_LENGTH = None
 
 
 # Investigate and improve error message for the case when func = "", and we get key error, during sanitize llm output
@@ -112,6 +113,8 @@ class Choreographer:
             except RuntimeError as e:
                 raise LLMPlanError(str(e)) from e
             self._chat_client_provider = self.llm_provider
+            if self.llm_provider == "ollama":
+                register_ollama_client(self._chat_client)
         return self._chat_client
 
     def format_initial_prompt(self, song: str, music_info: dict) -> list[dict[str, str]]:
@@ -374,7 +377,7 @@ class Choreographer:
             },
         ]
         try:
-            response = ollama_chat(
+            response = cancellable_ollama_chat(
                 model=self._model_id,
                 messages=grounded_messages,
                 format=schema,

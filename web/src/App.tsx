@@ -71,6 +71,13 @@ export function App() {
 
   const providerInfo = llm?.providers.find((entry) => entry.id === provider);
   const modelOptions = providerInfo?.models ?? [];
+
+  useEffect(() => {
+    if (modelOptions.length > 0 && !modelOptions.includes(modelId)) {
+      setModelId(providerInfo?.defaultModel ?? modelOptions[0]);
+    }
+  }, [modelOptions, modelId, providerInfo]);
+
   const busy = stage === "thinking" || stage === "filtering" || stage === "deploying";
   const visibleEvents = useMemo(
     () => events.filter((event) => event.type !== "safety_progress"),
@@ -290,17 +297,21 @@ export function App() {
               </label>
               <label>
                 Model
-                <input
-                  list="model-options"
+                <select
                   value={modelId}
                   onChange={(event) => setModelId(event.target.value)}
-                  placeholder="Model name"
-                />
-                <datalist id="model-options">
-                  {modelOptions.map((model) => (
-                    <option key={model} value={model} />
-                  ))}
-                </datalist>
+                  disabled={modelOptions.length === 0}
+                >
+                  {modelOptions.length === 0 ? (
+                    <option value="">No models available</option>
+                  ) : (
+                    modelOptions.map((model) => (
+                      <option key={model} value={model}>
+                        {model}
+                      </option>
+                    ))
+                  )}
+                </select>
               </label>
               <button
                 className="secondary-action"

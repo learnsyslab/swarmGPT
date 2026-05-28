@@ -78,10 +78,10 @@ markers = ["unit", "integration"]
 
 [tool.pixi.workspace]
 channels = ["conda-forge"]
-platforms = ["linux-64", "osx-arm64"]
+platforms = ["linux-64"]
 
 [tool.pixi.activation]
-scripts = ["openai_api_key.sh"]
+scripts = ["openai_api_key.sh", "tools/frontend_install.sh"]
 
 # environments
 [tool.pixi.environments]
@@ -101,10 +101,9 @@ rust = ">=1.95.0,<1.96"
 packaging = "<26"  # Necessary for cflib2
 maturin = ">=1.13.3,<2"
 
+
 [tool.pixi.tasks]
-api = { cmd = "python swarm_gpt/launch.py", description = "Serve the SwarmGPT browser API and built frontend" }
-ollama-setup = { cmd = "bash tools/setup_ollama.sh", description = "Install Ollama, start it, and pull the default local model" }
-web-install = { cmd = "npm --prefix web install", description = "Install browser frontend dependencies" }
+api = { cmd = "python swarm_gpt/launch.py", description = "Serve the SwarmGPT browser API and built frontend", depends-on = ["web-build"] }
 web-dev = { cmd = "npm --prefix web run dev", description = "Serve the browser frontend with Vite" }
 web-build = { cmd = "npm --prefix web run build", description = "Build the browser frontend" }
 
@@ -127,6 +126,7 @@ rosdep = "*"
 colcon-common-extensions = "*"
 # Kilted specific tools
 ros-kilted-desktop = "*"
+ros2-distro-mutex = "0.12.*"
 
 [tool.pixi.feature.kilted.activation]
 scripts = ["tools/setup_mocap.sh"]

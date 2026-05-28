@@ -29,7 +29,7 @@ SwarmGPT uses [Pixi](https://pixi.sh) for dependency management and environment 
 
 ### Prerequisites
 
-- Linux x64 system
+- Linux x64 or macOS Apple Silicon (see `platforms` in `pyproject.toml`)
 - [Pixi package manager](https://pixi.sh) - see [installation instructions](https://pixi.sh/latest/installation/)
 
 ### Setting up SwarmGPT
@@ -45,6 +45,7 @@ Lastly, we rely on the VLC media player to play the music. In case you don't hav
 ```bash
 sudo apt install vlc
 ```
+On macOS, install [VLC](https://www.videolan.org/vlc/) separately if needed.
 Your setup is ready now. 
 
 <!-- ### Documentation Environment
@@ -64,41 +65,41 @@ pixi run -e docs docs-build
 
 Before running SwarmGPT, ensure you have:
 
-1. **OpenAI API Key**: Set your OpenAI API key as an environment variable:
-   ```bash
-   export OPENAI_API_KEY="your-api-key-here"
-   ```
-   For convinience, you can create a `openai_api_key.sh` script in the swarmGPT root directory containing the command above, which is automatically executed whenever you start you start your pixi environment.
+1. **LLM access** (pick one):
+   - **OpenAI (default)** — set your API key:
+     ```bash
+     export OPENAI_API_KEY="your-api-key-here"
+     ```
+     For convenience, create `openai_api_key.sh` in the repo root with that line; Pixi sources it on `pixi shell` (the file is gitignored).
+   - **Ollama (local)** — no OpenAI key required; install the CLI following the instructions [here](https://ollama.com/download) and run the server as in step 2 below.
 
-2. **Configuration**: Configure your drone swarm by editing the settings. SwarmGPT automatically locates the files at:
-   ```bash
-   swarmGPT/data/drones.toml # Contains the drone URIs and home positions
-   swarmGPT/data/settings.yaml # Contains the environment and safety filter settings
-   ```
+2. **Configuration** — edit swarm and safety settings at:
+   - `swarm_gpt/data/drones.toml` — drone URIs and home positions
+   - `swarm_gpt/data/settings.yaml` — environment and safety filter settings
 
 ### Launching the Interface
 
-1. **Activate the Pixi environment**:
+Typical first-time setup:
+
+1. **Pixi shell** (main terminal):
    ```bash
    pixi shell
    ```
+   This activates the environment and installs or refreshes browser UI dependencies.
 
-2. **Install and start Ollama**:
+2. **Ollama server** (only if using Ollama; in a separate terminal, this command blocks):
    ```bash
-   pixi run ollama-setup
+   ollama serve
    ```
-   This installs Ollama if needed, starts the local Ollama server, and pulls the default local model (`gemma4:latest`).
+   Pull a model in another terminal if needed: `ollama pull <model_name>`. We have had the best results with `gemma4:latest` ([model library](https://ollama.com/library)).
 
-3. **Install and build the browser UI**:
-   ```bash
-   pixi run web-install
-   pixi run web-build
-   ```
-
-4. **Launch SwarmGPT**:
+3. **API**:
    ```bash
    pixi run api
    ```
+   This builds the browser UI first, then serves the API and frontend.
+
+4. **Open** `http://127.0.0.1:8000` and choose **ChatGPT / OpenAI** or **Ollama (local)** in the UI.
 
    Optional parameters:
    ```bash
@@ -109,9 +110,7 @@ Before running SwarmGPT, ensure you have:
    python swarm_gpt/launch.py --use_motion_primitives=False
    ```
 
-5. **Access the web interface**: Open `http://127.0.0.1:8000` after building the UI.
-
-For frontend development, run the API and Vite dev server in separate terminals:
+For frontend development, run the API and Vite dev server in separate terminals (keep `ollama-serve` running if you use Ollama):
 ```bash
 pixi run api
 pixi run web-dev

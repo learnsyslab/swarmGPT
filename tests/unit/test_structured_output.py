@@ -136,14 +136,40 @@ def test_call_responses_structured_ollama_uses_native_chat(monkeypatch: pytest.M
         }
         return {"message": {"content": json.dumps(payload)}}
 
-    monkeypatch.setattr("swarm_gpt.core.choreographer.ollama_chat", fake_ollama_chat)
+    monkeypatch.setattr(
+        "swarm_gpt.core.choreographer.cancellable_ollama_chat", fake_ollama_chat
+    )
     parsed = choreographer._call_responses_structured([{"role": "user", "content": "hello"}], 1)
 
     assert parsed["choreography"]["1"][0]["primitive"] == "PLAN"
     assert captured["model"] == choreographer.model_id
     assert captured["format"]["properties"]["choreography"]["required"] == ["1"]
-    assert "JSON schema exactly" in captured["messages"][-1]["content"]
-    assert captured["options"] == {"temperature": RESPONSES_TEMPERATURE}
+    tail = captured["messages"][-1]["content"]
+    assert "Return valid JSON only. Match this JSON schema exactly:" in tail
+    assert '"required":["1"]' in tail
+    assert captured["options"]["temperature"] == RESPONSES_TEMPERATURE
+
+
+def test_structured_initial_prompt_uses_legacy_example_for_ollama():
+    config_path = virtual_crazyswarm_config(n_drones=4)
+    choreographer = Choreographer(
+        config_file=config_path,
+        llm_provider="ollama",
+        use_motion_primitives=True,
+    )
+    music_info = {
+        "beat_times": [0.5, 1.0],
+        "novelty": [0.1, 0.9],
+        "chords": ["C", "G"],
+        "dBFS": [-40, -30],
+    }
+
+    messages = choreographer.format_initial_prompt("test song", music_info)
+
+    example = messages[2]["content"]
+    assert "choreography:" in example
+    assert "move_z([1, 2, 3], 30)" in example
+    assert '"primitive": "PLAN"' not in example
 
 
 def test_generate_choreography_ollama_raises_on_structured_errors(

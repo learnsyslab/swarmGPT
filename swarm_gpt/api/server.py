@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import asyncio
+import atexit
 import logging
 import threading
 import uuid
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -28,6 +30,7 @@ from swarm_gpt.utils.llm_providers import (
     default_openai_model,
     ollama_installed_model_names,
 )
+from swarm_gpt.utils.llm_providers import shutdown_ollama_generation
 
 logger = logging.getLogger(__name__)
 
@@ -324,11 +327,20 @@ def _run_deploy_job(store: JobStore, job: Job) -> None:
         store.fail(job, exc)
 
 
+atexit.register(shutdown_ollama_generation)
+
+
+@asynccontextmanager
+async def _app_lifespan(_app: FastAPI):
+    yield
+    shutdown_ollama_generation()
+
+
 def create_app(config: ApiConfig | None = None) -> FastAPI:
     """Create the SwarmGPT browser API app."""
     config = config or ApiConfig()
     store = JobStore()
-    app = FastAPI(title="SwarmGPT Browser API")
+    app = FastAPI(title="SwarmGPT Browser API", lifespan=_app_lifespan)
 
     @app.get("/api/library")
     def library() -> dict[str, Any]:
