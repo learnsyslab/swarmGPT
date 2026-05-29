@@ -39,8 +39,8 @@ class DroneSwarm:
     def __init__(
         self,
         drones: dict[str, dict[str, Array]],
-        ctrl_freq: float = 50,
-        update_freq: float = 10,
+        ctrl_freq: float = 100,
+        update_freq: float = 50,
         col_freq: float = 10,
         lighthouse: bool = True,
     ):
@@ -120,23 +120,39 @@ class DroneSwarm:
 
         self._run(self._parallel_by_uri("Landing", self.uris, _land))
 
-    def goto(self, pos: dict[str, list], duration: float = 3.0):
-        """Execute a go to command for all drones by linearly interpolating references.
+    def goto(self, target: dict[str, list], duration: float = 3.0):
+        """Execute a goto command for all drones by linearly interpolating references.
 
         Args:
-            pos: Position+Yaw references in the form {'uri1': [pos], ...}.
+            target: Position+Yaw references in the form {'uri1': [target], ...}.
             duration: Duration of the connection in seconds.
         """
-        self._validate_required_uris("pos", pos)
-        for uri, target in pos.items():
-            if len(target) != 1:
-                raise ValueError(f"pos[{uri!r}] must contain exactly one target.")
+        self._validate_required_uris("pos", target)
+        for uri, setpoint in target.items():
+            if len(setpoint) != 4:
+                raise ValueError(f"pos[{uri!r}] must contain exactly four elements.")
 
         async def _goto(uri: str) -> None:
-            target = pos[uri]
-            await self._goto_one(uri, target[0], duration)
+            await self._goto_one(uri, target[uri], duration)
 
-        self._run(self._parallel_by_uri("Go to", self.uris, _goto))
+        self._run(self._parallel_by_uri("Goto", self.uris, _goto))
+
+    def setpoint(self, target: dict[str, list], duration: float = 3.0):
+        """Execute a setpoint command for all drones by linearly interpolating references.
+
+        Args:
+            target: Position+Yaw references in the form {'uri1': [target], ...}.
+            duration: Duration of the connection in seconds.
+        """
+        self._validate_required_uris("pos", target)
+        for uri, setpoint in target.items():
+            if len(setpoint) != 4:
+                raise ValueError(f"pos[{uri!r}] must contain exactly four elements.")
+
+        async def _setpoint(uri: str) -> None:
+            await self._setpoint_one(uri, target[uri], duration)
+
+        self._run(self._parallel_by_uri("Setpoint", self.uris, _setpoint))
 
     def execute_choreography(
         self,
@@ -469,14 +485,23 @@ class DroneSwarm:
             await self._send_external_pose(uri)
             await asyncio.sleep(1 / self.update_freq)
 
-    async def _goto_one(self, uri: str, pos: Array, duration: float) -> None:
+    async def _setpoint_one(self, uri: str, target: Array, duration: float) -> None:
         cf = self._cf(uri)
         await cf.param().set("commander.enHighLevel", 0)
-        obs = await self._read_observation(uri)
-        pos_start = np.array([*obs["pos"], np.degrees(obs["rpy"][2])])
-        pos_goal = np.asarray(pos, dtype=float)
-        ref = interp1d([0.0, duration], [pos_start, pos_goal], axis=0)
+        ref = interp1d(
+            [0.0, duration],
+            [np.asarray(target, dtype=float), np.asarray(target, dtype=float)],
+            axis=0,
+        )
         await self._stream_reference(uri, duration, lambda t: np.asarray(ref(t), dtype=float))
+
+    async def _goto_one(self, uri: str, target: Array, duration: float) -> None:
+        cf = self._cf(uri)
+        await cf.param().set("commander.enHighLevel", 1)
+        await cf.high_level_commander().go_to(
+            *target, duration, relative=False, linear=True, group_mask=None
+        )
+        await asyncio.sleep(duration - 0.05)
 
     async def _execute_one(
         self,

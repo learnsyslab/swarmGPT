@@ -336,9 +336,9 @@ class AppBackend:
                 )
             landing_pos = obs["pos"]
             # TODO fix hard coded yaw
-            init_pos_dict[uri] = [np.array([*init_pos, 0.0])]
-            final_pos_dict[uri] = [np.array([*landing_pos + np.array([0.0, 0.0, 0.4]), 0.0])]
-            landing_pos_dict[uri] = [np.array([*landing_pos - np.array([0.0, 0.0, 0.2]), 0.0])]
+            init_pos_dict[uri] = np.array([*init_pos, 0.0])
+            final_pos_dict[uri] = np.array([*landing_pos + np.array([0.0, 0.0, 0.8]), 0.0])
+            landing_pos_dict[uri] = np.array([*landing_pos - np.array([0.0, 0.0, 0.2]), 0.0])
             choreography_dict[uri] = self.splines[i]
             color_top[uri] = {0.0: colors_array[i]}
             color_bot[uri] = {0.0: colors_array[i]}
@@ -367,10 +367,18 @@ class AppBackend:
                     color_bot=color_bot,
                 )
             swarm.apply_colors(None, None)  # Turn off colors after choreography
-            swarm.goto(final_pos_dict, duration=3.0)  # Transition
-            swarm.goto(final_pos_dict, duration=2.0)  # Hovering
-            swarm.goto(landing_pos_dict, duration=0.8)  # Landing
+            swarm.goto(final_pos_dict, duration=1.0)  # Transition from ideal point to hover pos
+            swarm.setpoint(final_pos_dict, duration=10.0)  # Hovering
+            for i, d in enumerate(self.choreographer.drones.values()):
+                uri = d["uri"]
+                print(swarm.get_obs(uri)["pos"])
+                print(landing_pos_dict[uri])
+            swarm.goto(landing_pos_dict, duration=1.5)  # Landing
             # swarm.land(0.0, duration=1.0)
+            for i, d in enumerate(self.choreographer.drones.values()):
+                uri = d["uri"]
+                print(swarm.get_obs(uri)["pos"])
+                print(landing_pos_dict[uri])
         finally:
             swarm.close()
         self.music_manager.song = original_song

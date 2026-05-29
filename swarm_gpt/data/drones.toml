@@ -8,35 +8,35 @@ name = "cf32"
 uri = "radio://0/30/2M/E7E7E7E720"
 pos = [1.0, 0.5, 0.0]
 
-[cf2]
-name = "cf33"
-uri = "radio://0/30/2M/E7E7E7E721"
-pos = [0.3, -0.5, 0.0]
+# [cf2]
+# name = "cf33"
+# uri = "radio://0/30/2M/E7E7E7E721"
+# pos = [0.3, -0.5, 0.0]
 
-[cf3]
-name = "cf34"
-uri = "radio://0/30/2M/E7E7E7E722"
-pos = [0.3, 0.5, 0.0]
+# [cf3]
+# name = "cf34"
+# uri = "radio://0/30/2M/E7E7E7E722"
+# pos = [0.3, 0.5, 0.0]
 
-[cf4]
-name = "cf35"
-uri = "radio://0/30/2M/E7E7E7E723"
-pos = [-0.3, -0.5, 0.0]
+# [cf4]
+# name = "cf35"
+# uri = "radio://0/30/2M/E7E7E7E723"
+# pos = [-0.3, -0.5, 0.0]
 
-[cf5]
-name = "cf41"
-uri = "radio://0/40/2M/E7E7E7E729"
-pos = [-0.3, 0.5, 0.0]
+# [cf5]
+# name = "cf41"
+# uri = "radio://0/40/2M/E7E7E7E729"
+# pos = [-0.3, 0.5, 0.0]
 
-[cf6]
-name = "cf42"
-uri = "radio://0/40/2M/E7E7E7E72A"
-pos = [-1.0, -0.5, 0.0]
+# [cf6]
+# name = "cf42"
+# uri = "radio://0/40/2M/E7E7E7E72A"
+# pos = [-1.0, -0.5, 0.0]
 
-[cf7]
-name = "cf43"
-uri = "radio://0/40/2M/E7E7E7E72B"
-pos = [-1.0, 0.5, 0.0]
+# [cf7]
+# name = "cf43"
+# uri = "radio://0/40/2M/E7E7E7E72B"
+# pos = [-1.0, 0.5, 0.0]
 
 # [cf8]
 # name = "cf44"
