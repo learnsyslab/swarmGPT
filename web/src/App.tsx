@@ -142,7 +142,7 @@ export function App() {
         setStage("ready");
       }
       if (event.type === "failed") {
-        setStage("failed");
+        setStage((current) => (current === "deploying" ? "ready" : "failed"));
         setError(String(event.payload.message ?? "Job failed"));
       }
     };
@@ -196,7 +196,12 @@ export function App() {
     }
     setError(null);
     setStage("deploying");
-    await deployJob(jobId);
+    try {
+      await deployJob(jobId);
+    } catch (err) {
+      setStage("ready");
+      throw err;
+    }
   };
 
   const saveSafePreset = async () => {

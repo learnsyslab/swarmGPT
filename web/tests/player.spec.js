@@ -75,6 +75,13 @@ async function configurePage(page) {
       { id: 5, type: "ready", createdAt: new Date().toISOString(), payload: { duration: 2 } }
     ];
 
+    const sockets = [];
+    window.__emitJobEvent = (event) => {
+      for (const socket of sockets) {
+        socket.emitJson(event);
+      }
+    };
+
     class FakeWebSocket {
       static CONNECTING = 0;
       static OPEN = 1;
@@ -85,6 +92,7 @@ async function configurePage(page) {
         this.url = url;
         this.readyState = FakeWebSocket.CONNECTING;
         this.listeners = new Map();
+        sockets.push(this);
         setTimeout(() => {
           this.readyState = FakeWebSocket.OPEN;
           this.#emit("open", {});
@@ -107,10 +115,18 @@ async function configurePage(page) {
 
       close() {
         this.readyState = FakeWebSocket.CLOSED;
+        const index = sockets.indexOf(this);
+        if (index >= 0) {
+          sockets.splice(index, 1);
+        }
         this.#emit("close", {});
       }
 
       send() {}
+
+      emitJson(event) {
+        this.#emit("message", { data: JSON.stringify(event) });
+      }
 
       #emit(type, event) {
         const property = this[`on${type}`];
@@ -256,4 +272,46 @@ test("desktop browser replay canvas", async ({ page }) => {
 test("mobile browser replay canvas", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await exercise(page);
+});
+
+test("deploy failure returns to ready controls", async ({ page }) => {
+  await page.setViewportSize({ width: 1024, height: 768 });
+  await configurePage(page);
+  await page.route("**/api/jobs/job/deploy", async (route) => {
+    await route.fulfill({
+      status: 202,
+      contentType: "application/json",
+      body: JSON.stringify({ jobId: "job" })
+    });
+    await page.evaluate(() => {
+      setTimeout(() => {
+        window.__emitJobEvent({
+          id: 6,
+          type: "deploy_started",
+          createdAt: new Date().toISOString(),
+          payload: {}
+        });
+      }, 10);
+      setTimeout(() => {
+        window.__emitJobEvent({
+          id: 7,
+          type: "failed",
+          createdAt: new Date().toISOString(),
+          payload: { message: "Drone link lost during deploy" }
+        });
+      }, 30);
+    });
+  });
+
+  await page.goto("http://127.0.0.1:5173/", { waitUntil: "networkidle" });
+  await page.getByRole("heading", { name: "Select a song" }).waitFor();
+  await page.locator(".song-card").filter({ hasText: "Harness" }).first().getByRole("button", { name: "Select" }).click();
+  await page.getByRole("button", { name: "Deploy" }).waitFor();
+  await page.getByRole("button", { name: "Deploy" }).click();
+
+  await expect(page.getByText("Drone link lost during deploy")).toBeVisible();
+  await expect(page.locator(".status-pill")).toHaveText("ready");
+  await expect(page.getByRole("button", { name: "Play in browser" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Refine" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Deploy" })).toBeVisible();
 });
