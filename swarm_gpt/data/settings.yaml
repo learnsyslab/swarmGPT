@@ -1,5 +1,5 @@
 starting_height: 1.0  # Starting height for all drones
-lighthouse: true  # Whether to use lighthouse or mocap for localization
+lighthouse: false  # Whether to use lighthouse or mocap for localization
 
 # Simulation
 sim_freq: 500 # Frequency for the crazyflow simulation

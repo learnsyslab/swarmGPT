@@ -79,7 +79,7 @@ Before running SwarmGPT, ensure you have:
 
 ### Launching the Interface
 
-Typical first-time setup:
+Typical first-time setup **for simulation only**:
 
 1. **Pixi shell** (main terminal):
    ```bash
@@ -100,15 +100,6 @@ Typical first-time setup:
    This builds the browser UI first, then serves the API and frontend.
 
 4. **Open** `http://127.0.0.1:8000` and choose **ChatGPT / OpenAI** or **Ollama (local)** in the UI.
-
-   Optional parameters:
-   ```bash
-   # Use different LLM model
-   python swarm_gpt/launch.py --model_id="gpt-4o-mini"
-   
-   # Disable motion primitives (use raw waypoints)
-   python swarm_gpt/launch.py --use_motion_primitives=False
-   ```
 
 For frontend development, run the API and Vite dev server in separate terminals (keep `ollama-serve` running if you use Ollama):
 ```bash
@@ -138,13 +129,14 @@ Once you're happy with your generated choreography, you can proceed to deploy it
 
 ## Deployment
 
-Use the deploy environment (`pixi shell -e deploy`) to run the following code. You need to start two terminals.
-
-1. **Start the motion_capture_tracking lib**:
+1. **Start the motion_capture_tracking lib** in one terminal, if you use motion capture, in the case of lighthouse, it will work without this step:
    ```bash
-   ros2 launch motion_capture_tracking launch.py
+   pixi run -e deploy ros2 launch motion_capture_tracking launch.py
    ```
-2. **Launch SwarmGPT** as described in the [Launching the Interface](#launching-the-interface) section.
+2. **Launch SwarmGPT** in the deploy environment in a second terminal
+   ```bash
+   pixi run -e deploy api
+   ```
 3. **Generate and preview choreography** using the web interface.
 4. **Deploy to drones**: Once satisfied with the choreography, click the "Let the Crazyflies dance" button in the web interface to execute the performance on your physical drone swarm.
 

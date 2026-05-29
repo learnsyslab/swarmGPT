@@ -24,11 +24,7 @@ def _number_schema() -> dict[str, Any]:
 
 
 def _drone_ids_schema(num_drones: int) -> dict[str, Any]:
-    return {
-        "type": "array",
-        "minItems": 1,
-        "items": _int_schema(minimum=1, maximum=num_drones),
-    }
+    return {"type": "array", "minItems": 1, "items": _int_schema(minimum=1, maximum=num_drones)}
 
 
 def _array_schema(item_schema: dict[str, Any]) -> dict[str, Any]:
@@ -239,7 +235,9 @@ def structured_payload_to_choreography(payload: dict[str, Any]) -> dict[int, str
         try:
             beat = int(beat_text)
         except (TypeError, ValueError) as e:
-            raise LLMFormatError(f"Structured output beat key {beat_text!r} is not an integer") from e
+            raise LLMFormatError(
+                f"Structured output beat key {beat_text!r} is not an integer"
+            ) from e
         if not isinstance(actions, list) or len(actions) == 0:
             raise LLMFormatError(f"Structured output beat {beat} must include non-empty 'actions'")
         converted[beat] = "; ".join(action_to_motion_primitive(action) for action in actions)
