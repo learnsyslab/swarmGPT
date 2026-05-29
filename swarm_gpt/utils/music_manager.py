@@ -90,6 +90,19 @@ class MusicManager:
         assert self.song, "Song has not been set yet!"
         return MP3(self.music_dir / (self.song + ".mp3")).info.length  # in seconds
 
+    def verify_libvlc(self) -> bool:
+        """Return True if the native VLC library can be initialized.
+
+        ``import vlc`` only checks the ``python-vlc`` package; libvlc must be installed
+        separately (e.g. ``sudo apt install vlc`` on Linux, VLC.app on macOS).
+        """
+        try:
+            self._get_vlc_instance()
+        except (ImportError, OSError, RuntimeError) as e:
+            logger.error("VLC is not available: %s", e)
+            return False
+        return True
+
     def play(self, *, wait: bool = False, timeout: float = 2.0) -> bool:
         """Play the song with VLC.
 

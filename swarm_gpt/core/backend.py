@@ -311,6 +311,12 @@ class AppBackend:
         except AssertionError:
             ...
 
+        if not self.music_manager.verify_libvlc():
+            logger.error(
+                "VLC/libvlc is not available. Install VLC (see README) before deploying."
+            )
+            return False
+
         swarm = DroneSwarm(self.choreographer.drones, lighthouse=self.settings["lighthouse"])
         logger.info("Swarm connected...")
 
@@ -359,13 +365,17 @@ class AppBackend:
                     taken_off = False
                     logger.warning(f"Drone {uri} has not taken off yet: z={z:.2f}m")
             if taken_off:
-                self.music_manager.play()
-                swarm.execute_choreography(
-                    choreography_dict,
-                    self.waypoints["time"][0, -1],
-                    color_top=color_top,
-                    color_bot=color_bot,
-                )
+                if not self.music_manager.play(wait=True):
+                    logger.error(
+                        "VLC could not start playback; skipping choreography (drones will land)."
+                    )
+                else:
+                    swarm.execute_choreography(
+                        choreography_dict,
+                        self.waypoints["time"][0, -1],
+                        color_top=color_top,
+                        color_bot=color_bot,
+                    )
             swarm.apply_colors(None, None)  # Turn off colors after choreography
             swarm.goto(final_pos_dict, duration=1.0)  # Transition from ideal point to hover pos
             swarm.setpoint(final_pos_dict, duration=10.0)  # Hovering
