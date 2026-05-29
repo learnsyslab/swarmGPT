@@ -28,7 +28,9 @@ def test_build_motion_primitive_response_schema_enforces_exact_num_beats():
     assert choreography["type"] == "object"
     assert choreography["required"] == ["1", "2", "3"]
     assert set(choreography["properties"]) == {"1", "2", "3"}
+    assert choreography["properties"]["1"] == {"$ref": "#/$defs/action_list"}
     assert choreography["additionalProperties"] is False
+    assert schema["$defs"]["action_list"]["items"] == {"$ref": "#/$defs/action"}
     assert not _contains_one_of(schema)
 
 
@@ -42,11 +44,16 @@ def test_structured_payload_to_choreography_preserves_plan_and_action_order():
         "cord_analysis": "minor",
         "choreography_plan": "simple",
         "choreography": {
-            "1": [{"primitive": "form_circle", "args": [[1, 2], 100]}],
-            "2": [{"primitive": "PLAN", "args": []}],
+            "1": [
+                {
+                    "primitive": "form_circle",
+                    "params": {"drone_ids": [1, 2], "radius_cm": 100},
+                },
+            ],
+            "2": [{"primitive": "PLAN", "params": {}}],
             "3": [
-                {"primitive": "rotate", "args": [90, "z"]},
-                {"primitive": "move_z", "args": [[1], 10]},
+                {"primitive": "rotate", "params": {"angle_deg": 90, "axis": "z"}},
+                {"primitive": "move_z", "params": {"drone_ids": [1], "delta_cm": 10}},
             ],
         },
     }
@@ -58,6 +65,36 @@ def test_structured_payload_to_choreography_preserves_plan_and_action_order():
         2: "PLAN",
         3: "rotate(90, 'z'); move_z([1], 10)",
     }
+
+
+def test_structured_payload_to_choreography_rejects_unexpected_named_params():
+    config_path = virtual_crazyswarm_config(n_drones=4)
+    choreographer = Choreographer(
+        config_file=config_path,
+        llm_provider="openai",
+        use_motion_primitives=True,
+    )
+    payload = {
+        "song_mood": "calm",
+        "cord_analysis": "minor",
+        "choreography_plan": "simple",
+        "choreography": {
+            "1": [
+                {
+                    "primitive": "form_cone",
+                    "params": {
+                        "drone_ids": [1, 2, 3],
+                        "delta_height_cm": 60,
+                        "spacing_cm": 60,
+                        "is_inverted": 0,
+                    },
+                },
+            ],
+        },
+    }
+
+    with pytest.raises(LLMFormatError, match="unexpected \\['drone_ids'\\]"):
+        choreographer._structured_payload_to_choreography(payload)
 
 
 def test_call_responses_structured_includes_json_schema_format():
@@ -74,7 +111,7 @@ def test_call_responses_structured_includes_json_schema_format():
                 "song_mood": "energetic",
                 "cord_analysis": "major",
                 "choreography_plan": "test",
-                "choreography": {"1": [{"primitive": "PLAN", "args": []}]},
+                "choreography": {"1": [{"primitive": "PLAN", "params": {}}]},
             }
             return SimpleNamespace(error=None, output_text=json.dumps(payload))
 
@@ -91,6 +128,19 @@ def test_call_responses_structured_includes_json_schema_format():
     assert captured["text"]["format"]["name"] == "swarmgpt_choreography"
     assert captured["text"]["format"]["strict"] is True
     assert captured["text"]["format"]["schema"]["properties"]["choreography"]["required"] == ["1"]
+    schema = captured["text"]["format"]["schema"]
+    assert schema["properties"]["choreography"]["properties"]["1"] == {
+        "$ref": "#/$defs/action_list"
+    }
+    action_schema = schema["$defs"]["action"]
+    variants = action_schema["anyOf"]
+    assert any(
+        variant["properties"]["primitive"]["enum"] == ["spiral_speed"]
+        and variant["properties"]["params"]["required"]
+        == ["steps", "height_cm", "degrees", "radius_increase"]
+        for variant in variants
+    )
+    assert all("args" not in json.dumps(variant) for variant in variants)
 
 
 def test_schema_contains_no_openai_unsupported_keywords():
@@ -99,6 +149,7 @@ def test_schema_contains_no_openai_unsupported_keywords():
     assert "oneOf" not in schema_text
     assert "uniqueItems" not in schema_text
     assert '"items": false' not in schema_text.lower()
+    assert '"args"' not in schema_text
 
 
 def test_ollama_motion_primitives_uses_structured_outputs():
@@ -122,7 +173,7 @@ def test_call_responses_structured_ollama_uses_native_chat(monkeypatch: pytest.M
             "song_mood": "energetic",
             "cord_analysis": "major",
             "choreography_plan": "test",
-            "choreography": {"1": [{"primitive": "PLAN", "args": []}]},
+            "choreography": {"1": [{"primitive": "PLAN", "params": {}}]},
         }
         return {"message": {"content": json.dumps(payload)}}
 
@@ -135,8 +186,9 @@ def test_call_responses_structured_ollama_uses_native_chat(monkeypatch: pytest.M
     assert captured["model"] == choreographer.model_id
     assert captured["format"]["properties"]["choreography"]["required"] == ["1"]
     tail = captured["messages"][-1]["content"]
-    assert "Return valid JSON only. Match this JSON schema exactly:" in tail
-    assert '"required":["1"]' in tail
+    assert "Return valid JSON only. Match the provided response format exactly." in tail
+    assert "never positional args arrays" in tail
+    assert '"required":["1"]' not in tail
     assert captured["options"]["temperature"] == RESPONSES_TEMPERATURE
 
 
@@ -193,7 +245,7 @@ def test_generate_choreography_ollama_raises_when_structured_payload_incomplete(
     monkeypatch.setattr(
         choreographer,
         "_call_responses_structured",
-        lambda *_args, **_kwargs: {"choreography": {"1": [{"primitive": "PLAN", "args": []}]}},
+        lambda *_args, **_kwargs: {"choreography": {"1": [{"primitive": "PLAN", "params": {}}]}},
     )
     with pytest.raises(LLMFormatError, match="missing required keys"):
         choreographer.generate_choreography(
