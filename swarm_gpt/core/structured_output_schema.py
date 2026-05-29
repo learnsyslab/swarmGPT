@@ -108,11 +108,6 @@ def build_motion_primitive_response_schema(*, num_beats: int, num_drones: int) -
         raise ValueError("num_beats must be >= 1")
     if num_drones < 1:
         raise ValueError("num_drones must be >= 1")
-    action_schema = {
-        "type": "array",
-        "minItems": 1,
-        "items": _action_schema(num_drones),
-    }
     beat_keys = [str(i) for i in range(1, num_beats + 1)]
     return {
         "type": "object",
@@ -124,11 +119,21 @@ def build_motion_primitive_response_schema(*, num_beats: int, num_drones: int) -
             "choreography": {
                 "type": "object",
                 "additionalProperties": False,
-                "properties": {beat_key: action_schema for beat_key in beat_keys},
+                "properties": {
+                    beat_key: {"$ref": "#/$defs/action_list"} for beat_key in beat_keys
+                },
                 "required": beat_keys,
             },
         },
         "required": ["song_mood", "cord_analysis", "choreography_plan", "choreography"],
+        "$defs": {
+            "action": _action_schema(num_drones),
+            "action_list": {
+                "type": "array",
+                "minItems": 1,
+                "items": {"$ref": "#/$defs/action"},
+            },
+        },
     }
 
 

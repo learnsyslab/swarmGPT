@@ -28,7 +28,9 @@ def test_build_motion_primitive_response_schema_enforces_exact_num_beats():
     assert choreography["type"] == "object"
     assert choreography["required"] == ["1", "2", "3"]
     assert set(choreography["properties"]) == {"1", "2", "3"}
+    assert choreography["properties"]["1"] == {"$ref": "#/$defs/action_list"}
     assert choreography["additionalProperties"] is False
+    assert schema["$defs"]["action_list"]["items"] == {"$ref": "#/$defs/action"}
     assert not _contains_one_of(schema)
 
 
@@ -130,9 +132,11 @@ def test_call_responses_structured_includes_json_schema_format():
     assert captured["text"]["format"]["name"] == "swarmgpt_choreography"
     assert captured["text"]["format"]["strict"] is True
     assert captured["text"]["format"]["schema"]["properties"]["choreography"]["required"] == ["1"]
-    action_schema = captured["text"]["format"]["schema"]["properties"]["choreography"]["properties"][
-        "1"
-    ]["items"]
+    schema = captured["text"]["format"]["schema"]
+    assert schema["properties"]["choreography"]["properties"]["1"] == {
+        "$ref": "#/$defs/action_list"
+    }
+    action_schema = schema["$defs"]["action"]
     variants = action_schema["anyOf"]
     assert any(
         variant["properties"]["primitive"]["enum"] == ["spiral_speed"]
