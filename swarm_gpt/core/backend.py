@@ -340,7 +340,7 @@ class AppBackend:
                 logger.warning(
                     f"Drone {uri} is too far from the expected initial position. pos={obs['pos']}, exp={d['pos']}"
                 )
-            landing_pos = obs["pos"]
+            landing_pos = obs["pos"] if self.settings["land_on_docks"] else d["pos"]
             # TODO fix hard coded yaw
             init_pos_dict[uri] = np.array([*init_pos, 0.0])
             final_pos_dict[uri] = np.array([*landing_pos + np.array([0.0, 0.0, 0.8]), 0.0])
