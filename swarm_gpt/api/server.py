@@ -321,7 +321,10 @@ def _run_deploy_job(store: JobStore, job: Job) -> None:
         store.emit(job, "deploy_started", {}, status="deploying")
         deployed = job.backend.deploy()
         if deployed is False:
-            raise RuntimeError("ROS2 is not installed. Switch to the deploy environment.")
+            raise RuntimeError(
+                "Deploy prerequisites missing (ROS2 deploy environment and/or VLC). "
+                "See README Deployment section."
+            )
         store.emit(job, "deploy_complete", {}, status="ready")
     except BaseException as exc:
         store.fail(job, exc)
