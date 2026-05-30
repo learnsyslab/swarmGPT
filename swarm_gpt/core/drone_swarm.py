@@ -428,7 +428,7 @@ class DroneSwarm:
         await param.set("supervisor.tmblChckEn", 1)
         # Choose controller: 1: PID; 2: Mellinger.
         await param.set("stabilizer.controller", 2)
-        await param.set("led.bitmask", 128)  # turn off all LEDs
+        await param.set("led.bitmask", 128)  # turn off all indicator LEDs
         await asyncio.sleep(0.1)
 
         if not self.lighthouse:
@@ -479,6 +479,14 @@ class DroneSwarm:
         await self._update_external_pose_during(uri, duration)
         await high_level_commander.stop(None)
 
+    async def _goto_one(self, uri: str, target: Array, duration: float) -> None:
+        cf = self._cf(uri)
+        await cf.param().set("commander.enHighLevel", 1)
+        await cf.high_level_commander().go_to(
+            *target, duration, relative=False, linear=True, group_mask=None
+        )
+        await self._update_external_pose_during(uri, duration)
+
     async def _update_external_pose_during(self, uri: str, duration: float) -> None:
         end_time = asyncio.get_running_loop().time() + duration
         while asyncio.get_running_loop().time() < end_time:
@@ -494,14 +502,6 @@ class DroneSwarm:
             axis=0,
         )
         await self._stream_reference(uri, duration, lambda t: np.asarray(ref(t), dtype=float))
-
-    async def _goto_one(self, uri: str, target: Array, duration: float) -> None:
-        cf = self._cf(uri)
-        await cf.param().set("commander.enHighLevel", 1)
-        await cf.high_level_commander().go_to(
-            *target, duration, relative=False, linear=True, group_mask=None
-        )
-        await asyncio.sleep(duration - 0.05)
 
     async def _execute_one(
         self,
@@ -560,7 +560,7 @@ class DroneSwarm:
         await self._cf(uri).localization().emergency().send_emergency_stop()
 
     async def _shutdown_leds_one(self, uri: str) -> None:
-        await self._cf(uri).param().set("led.bitmask", 0)  # turn on all LEDs to indicate shutdown
+        await self._cf(uri).param().set("led.bitmask", 0)  # turn on all indicator LEDs
         await self._apply_drone_color(uri, np.zeros(4), "both")
 
     async def _close(self) -> None:
