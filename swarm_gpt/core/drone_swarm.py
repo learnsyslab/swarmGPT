@@ -108,7 +108,14 @@ class DroneSwarm:
         """Take off the drones to a given height over a given duration."""
 
         async def _takeoff(uri: str) -> None:
-            await self._takeoff_one(uri, height, duration)
+            cf = self._cf(uri)
+            await self._send_external_pose(uri)
+            commander = cf.commander()
+            await commander.send_stop_setpoint()
+            await commander.send_notify_setpoint_stop(0)
+            await cf.param().set("commander.enHighLevel", 1)
+            await cf.high_level_commander().take_off(height, None, duration, None)
+            await self._update_external_pose_during(uri, duration)
 
         self._run(self._parallel_by_uri("Taking off", self.uris, _takeoff))
 
@@ -116,16 +123,24 @@ class DroneSwarm:
         """Land the drones at a given height over a given duration."""
 
         async def _land(uri: str) -> None:
-            await self._land_one(uri, height, duration)
+            cf = self._cf(uri)
+            commander = cf.commander()
+            await commander.send_stop_setpoint()
+            await commander.send_notify_setpoint_stop(0)
+            await cf.param().set("commander.enHighLevel", 1)
+            high_level_commander = cf.high_level_commander()
+            await high_level_commander.land(height, None, duration, None)
+            await self._update_external_pose_during(uri, duration)
+            await high_level_commander.stop(None)
 
         self._run(self._parallel_by_uri("Landing", self.uris, _land))
 
     def goto(self, target: dict[str, list], duration: float = 3.0):
-        """Execute a goto command for all drones by linearly interpolating references.
+        """Execute a high-level goto command for all drones.
 
         Args:
             target: Position+Yaw references in the form {'uri1': [target], ...}.
-            duration: Duration of the connection in seconds.
+            duration: Duration of the motion in seconds.
         """
         self._validate_required_uris("pos", target)
         for uri, setpoint in target.items():
@@ -133,16 +148,21 @@ class DroneSwarm:
                 raise ValueError(f"pos[{uri!r}] must contain exactly four elements.")
 
         async def _goto(uri: str) -> None:
-            await self._goto_one(uri, target[uri], duration)
+            cf = self._cf(uri)
+            await cf.param().set("commander.enHighLevel", 1)
+            await cf.high_level_commander().go_to(
+                *target[uri], duration, relative=False, linear=True, group_mask=None
+            )
+            await self._update_external_pose_during(uri, duration)
 
         self._run(self._parallel_by_uri("Goto", self.uris, _goto))
 
     def setpoint(self, target: dict[str, list], duration: float = 3.0):
-        """Execute a setpoint command for all drones by linearly interpolating references.
+        """Stream a constant position+yaw setpoint to all drones.
 
         Args:
             target: Position+Yaw references in the form {'uri1': [target], ...}.
-            duration: Duration of the connection in seconds.
+            duration: Duration of the setpoint stream in seconds.
         """
         self._validate_required_uris("pos", target)
         for uri, setpoint in target.items():
@@ -150,7 +170,14 @@ class DroneSwarm:
                 raise ValueError(f"pos[{uri!r}] must contain exactly four elements.")
 
         async def _setpoint(uri: str) -> None:
-            await self._setpoint_one(uri, target[uri], duration)
+            cf = self._cf(uri)
+            await cf.param().set("commander.enHighLevel", 0)
+            ref = interp1d(
+                [0.0, duration],
+                [np.asarray(target[uri], dtype=float), np.asarray(target[uri], dtype=float)],
+                axis=0,
+            )
+            await self._stream_reference(uri, duration, lambda t: np.asarray(ref(t), dtype=float))
 
         self._run(self._parallel_by_uri("Setpoint", self.uris, _setpoint))
 
@@ -177,10 +204,12 @@ class DroneSwarm:
         self._validate_known_uris("color_bot", color_bot or {})
 
         async def _execute(uri: str) -> None:
-            await self._execute_one(
+            cf = self._cf(uri)
+            await cf.param().set("commander.enHighLevel", 0)
+            await self._stream_reference(
                 uri,
-                choreography[uri],
                 t_end,
+                lambda t: np.asarray([*choreography[uri](t), 0.0], dtype=float),
                 (color_top or {}).get(uri, {}),
                 (color_bot or {}).get(uri, {}),
             )
@@ -218,28 +247,76 @@ class DroneSwarm:
         """
 
         async def _set_param(uri: str) -> None:
-            await self._set_param_one(uri, param, value)
+            await self._cf(uri).param().set(param, value)
 
         self._run(self._parallel_by_uri(f"Setting parameter {param}", self.uris, _set_param))
 
-    def emergency_stop(self, id: int | None = None):
-        """Send an emergency stop signal to one (id) or all drones (default)."""
-        if id is not None:
-            raise NotImplementedError("Sending emergency stop to one drone not implemented.")
-
-        self._run(self._parallel_by_uri("Emergency stop", self.uris, self._emergency_stop_one))
+    def emergency_stop(self, uri: str | None = None):
+        """Send an emergency stop signal to one URI or all drones (default)."""
+        if uri is None:
+            uris = self.uris
+        else:
+            self._validate_known_uris("uri", {uri: None})
+            uris = [uri]
+        self._run(self._parallel_by_uri("Emergency stop", uris, self._emergency_stop))
 
     def reset(self):
         """Reset all active drones."""
-        self._run(self._parallel_by_uri("Resetting", self.uris, self._reset_one))
+
+        async def _reset(uri: str) -> None:
+            cf = self._cf(uri)
+            param = cf.param()
+            # Estimator setting;  1: complementary, 2: kalman
+            await param.set("stabilizer.estimator", 2)
+            # Enable/disable tumble control. Required 0 for aggressive maneuvers.
+            await param.set("supervisor.tmblChckEn", 1)
+            # Choose controller: 1: PID; 2: Mellinger.
+            await param.set("stabilizer.controller", 2)
+            await param.set("led.bitmask", 128)  # turn off all indicator LEDs
+            await asyncio.sleep(0.1)
+
+            if not self.lighthouse:
+                obs = await self._read_observation(uri)
+                await param.set("kalman.initialX", float(obs["pos"][0]))
+                await param.set("kalman.initialY", float(obs["pos"][1]))
+                await param.set("kalman.initialZ", float(obs["pos"][2]))
+                await param.set("kalman.initialYaw", float(obs["rpy"][2]))
+
+            await param.set("kalman.resetEstimation", 1)
+            await asyncio.sleep(0.1)
+            await param.set("kalman.resetEstimation", 0)
+            await cf.platform().send_arming_request(do_arm=True)
+            await asyncio.sleep(0.8)
+
+        self._run(self._parallel_by_uri("Resetting", self.uris, _reset))
 
     def close(self):
         """Close the swarm and ROS connection."""
         if self._closed:
             return
         self._closed = True
+
+        async def _shutdown_leds(uri: str) -> None:
+            await self._cf(uri).param().set("led.bitmask", 0)  # turn on all indicator LEDs
+            await self._apply_drone_color(uri, np.zeros(4), "both")
+
+        async def _close() -> None:
+            active_uris = [uri for uri in self.uris if uri in self.active_uris]
+            if active_uris:
+                try:
+                    await self._parallel_by_uri(
+                        "Emergency stop", active_uris, self._emergency_stop
+                    )
+                    await asyncio.sleep(0.1)
+                    await self._parallel_by_uri("Shutdown LEDs", active_uris, _shutdown_leds)
+                    await asyncio.sleep(0.2)
+                except RuntimeError as exc:
+                    logger.warning(f"Shutdown failed: {exc}")
+
+            await self._disconnect()
+
         try:
-            self._run(self._close())
+            self._run(_close())
         finally:
             self._loop.close()
             if self.ros_connector is not None:
@@ -276,7 +353,15 @@ class DroneSwarm:
             raise ValueError(f"{name} contains unknown drone URIs: {sorted(unknown)}")
 
     async def _connect(self) -> None:
-        await self._power_cycle()
+        async def _power_cycle(uri: str) -> None:
+            try:
+                await Crazyflie.power_off_stm32_domain(self.context, uri)
+                await asyncio.sleep(0.1)
+                await Crazyflie.power_on_stm32_domain(self.context, uri)
+            except CrazyflieError as exc:
+                logger.warning(f"Power cycling {uri} failed: {exc}")
+
+        await asyncio.gather(*[_power_cycle(uri) for uri in self.uris])
         await asyncio.sleep(_POWER_CYCLE_BOOT_WAIT)
 
         results = await asyncio.gather(
@@ -321,17 +406,6 @@ class DroneSwarm:
                 f"{_LIGHTHOUSE_DECK_PARAM}=1 for every drone: {'; '.join(failures)}"
             )
 
-    async def _power_cycle(self) -> None:
-        async def _cycle(uri: str) -> None:
-            try:
-                await Crazyflie.power_off_stm32_domain(self.context, uri)
-                await asyncio.sleep(0.1)
-                await Crazyflie.power_on_stm32_domain(self.context, uri)
-            except CrazyflieError as exc:
-                logger.warning(f"Power cycling {uri} failed: {exc}")
-
-        await asyncio.gather(*[_cycle(uri) for uri in self.uris])
-
     async def _parallel_by_uri(
         self, action_name: str, uris: Iterable[str], action: Callable[[str], Awaitable[None]]
     ) -> None:
@@ -349,6 +423,9 @@ class DroneSwarm:
                 logger.error(f"{uri} disconnected or unreachable. {action_name} failed: {result}")
             else:
                 logger.error(f"{action_name} failed for {uri}: {result}")
+
+    async def _emergency_stop(self, uri: str) -> None:
+        await self._cf(uri).localization().emergency().send_emergency_stop()
 
     async def _read_observation(self, uri: str) -> dict[str, Array]:
         if self.lighthouse:
@@ -416,34 +493,6 @@ class DroneSwarm:
         if deck == "bot" or deck == "both":
             await param.set("colorLedBot.wrgb8888", color)
 
-    async def _set_param_one(self, uri: str, param_name: str, value: float) -> None:
-        await self._cf(uri).param().set(param_name, value)
-
-    async def _reset_one(self, uri: str) -> None:
-        cf = self._cf(uri)
-        param = cf.param()
-        # Estimator setting;  1: complementary, 2: kalman
-        await param.set("stabilizer.estimator", 2)
-        # Enable/disable tumble control. Required 0 for aggressive maneuvers.
-        await param.set("supervisor.tmblChckEn", 1)
-        # Choose controller: 1: PID; 2: Mellinger.
-        await param.set("stabilizer.controller", 2)
-        await param.set("led.bitmask", 128)  # turn off all indicator LEDs
-        await asyncio.sleep(0.1)
-
-        if not self.lighthouse:
-            obs = await self._read_observation(uri)
-            await param.set("kalman.initialX", float(obs["pos"][0]))
-            await param.set("kalman.initialY", float(obs["pos"][1]))
-            await param.set("kalman.initialZ", float(obs["pos"][2]))
-            await param.set("kalman.initialYaw", float(obs["rpy"][2]))
-
-        await param.set("kalman.resetEstimation", 1)
-        await asyncio.sleep(0.1)
-        await param.set("kalman.resetEstimation", 0)
-        await cf.platform().send_arming_request(do_arm=True)
-        await asyncio.sleep(0.8)
-
     async def _send_external_pose(self, uri: str) -> None:
         if self.lighthouse:
             return
@@ -458,68 +507,11 @@ class DroneSwarm:
             )
         )
 
-    async def _takeoff_one(self, uri: str, height: float, duration: float) -> None:
-        cf = self._cf(uri)
-        await self._send_external_pose(uri)
-        commander = cf.commander()
-        await commander.send_stop_setpoint()
-        await commander.send_notify_setpoint_stop(0)
-        await cf.param().set("commander.enHighLevel", 1)
-        await cf.high_level_commander().take_off(height, None, duration, None)
-        await self._update_external_pose_during(uri, duration)
-
-    async def _land_one(self, uri: str, height: float, duration: float) -> None:
-        cf = self._cf(uri)
-        commander = cf.commander()
-        await commander.send_stop_setpoint()
-        await commander.send_notify_setpoint_stop(0)
-        await cf.param().set("commander.enHighLevel", 1)
-        high_level_commander = cf.high_level_commander()
-        await high_level_commander.land(height, None, duration, None)
-        await self._update_external_pose_during(uri, duration)
-        await high_level_commander.stop(None)
-
-    async def _goto_one(self, uri: str, target: Array, duration: float) -> None:
-        cf = self._cf(uri)
-        await cf.param().set("commander.enHighLevel", 1)
-        await cf.high_level_commander().go_to(
-            *target, duration, relative=False, linear=True, group_mask=None
-        )
-        await self._update_external_pose_during(uri, duration)
-
     async def _update_external_pose_during(self, uri: str, duration: float) -> None:
         end_time = asyncio.get_running_loop().time() + duration
         while asyncio.get_running_loop().time() < end_time:
             await self._send_external_pose(uri)
             await asyncio.sleep(1 / self.update_freq)
-
-    async def _setpoint_one(self, uri: str, target: Array, duration: float) -> None:
-        cf = self._cf(uri)
-        await cf.param().set("commander.enHighLevel", 0)
-        ref = interp1d(
-            [0.0, duration],
-            [np.asarray(target, dtype=float), np.asarray(target, dtype=float)],
-            axis=0,
-        )
-        await self._stream_reference(uri, duration, lambda t: np.asarray(ref(t), dtype=float))
-
-    async def _execute_one(
-        self,
-        uri: str,
-        choreography: BSpline,
-        t_end: float,
-        color_top: dict[float, Array],
-        color_bot: dict[float, Array],
-    ) -> None:
-        cf = self._cf(uri)
-        await cf.param().set("commander.enHighLevel", 0)
-        await self._stream_reference(
-            uri,
-            t_end,
-            lambda t: np.asarray([*choreography(t), 0.0], dtype=float),
-            color_top,
-            color_bot,
-        )
 
     async def _stream_reference(
         self,
@@ -536,8 +528,10 @@ class DroneSwarm:
         i_next_top = 0
         i_next_bot = 0
         period = 1 / self.ctrl_freq
+        color_period = 1 / self.col_freq
         start_time = asyncio.get_running_loop().time()
         next_tick = start_time
+        t_col = -np.inf
 
         while (t_cur := asyncio.get_running_loop().time() - start_time) < duration:
             if not self.lighthouse and t_cur - t_est >= 1 / self.update_freq:
@@ -546,35 +540,17 @@ class DroneSwarm:
 
             await commander.send_setpoint_position(*reference(t_cur))
 
-            while i_next_top < len(top_cues) and t_cur >= top_cues[i_next_top][0]:
-                await self._apply_drone_color(uri, top_cues[i_next_top][1], "top")
-                i_next_top += 1
-            while i_next_bot < len(bot_cues) and t_cur >= bot_cues[i_next_bot][0]:
-                await self._apply_drone_color(uri, bot_cues[i_next_bot][1], "bot")
-                i_next_bot += 1
+            if t_cur - t_col >= color_period:
+                if i_next_top < len(top_cues) and t_cur >= top_cues[i_next_top][0]:
+                    await self._apply_drone_color(uri, top_cues[i_next_top][1], "top")
+                    i_next_top += 1
+                if i_next_bot < len(bot_cues) and t_cur >= bot_cues[i_next_bot][0]:
+                    await self._apply_drone_color(uri, bot_cues[i_next_bot][1], "bot")
+                    i_next_bot += 1
+                t_col = t_cur
 
             next_tick += period
             await asyncio.sleep(max(0.0, next_tick - asyncio.get_running_loop().time()))
-
-    async def _emergency_stop_one(self, uri: str) -> None:
-        await self._cf(uri).localization().emergency().send_emergency_stop()
-
-    async def _shutdown_leds_one(self, uri: str) -> None:
-        await self._cf(uri).param().set("led.bitmask", 0)  # turn on all indicator LEDs
-        await self._apply_drone_color(uri, np.zeros(4), "both")
-
-    async def _close(self) -> None:
-        active_uris = [uri for uri in self.uris if uri in self.active_uris]
-        if active_uris:
-            try:
-                await self._parallel_by_uri("Emergency stop", active_uris, self._emergency_stop_one)
-                await asyncio.sleep(0.1)
-                await self._parallel_by_uri("Shutdown LEDs", active_uris, self._shutdown_leds_one)
-                await asyncio.sleep(0.2)
-            except RuntimeError as exc:
-                logger.warning(f"Shutdown failed: {exc}")
-
-        await self._disconnect()
 
     async def _disconnect(self) -> None:
         disconnect_results = await asyncio.gather(
