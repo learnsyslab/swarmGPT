@@ -31,6 +31,7 @@ logger.setLevel(logging.INFO)
 _DISCONNECT_ERRORS = (DisconnectedError, LinkError, TimeoutError)
 _LIGHTHOUSE_DECK_PARAM = "deck.bcLighthouse4"
 _POWER_CYCLE_BOOT_WAIT = 3.0
+_CommanderLevel = Literal["low", "high"]
 
 
 class DroneSwarm:
@@ -62,6 +63,7 @@ class DroneSwarm:
         self.uris = [d["uri"] for d in self.drones.values()]
         self.cfs: dict[str, Crazyflie] = {}
         self.active_uris: set[str] = set()
+        self._commander_levels: dict[str, _CommanderLevel | None] = dict.fromkeys(self.uris, None)
         self.context = LinkContext()
         self.toc_cache = FileTocCache("./cache")
         self.ros_connector: ROSConnector | None = None
@@ -110,11 +112,7 @@ class DroneSwarm:
         async def _takeoff(uri: str) -> None:
             cf = self._cf(uri)
             await self._send_external_pose(uri)
-            commander = cf.commander()
-            # await commander.send_stop_setpoint()
-            await commander.send_notify_setpoint_stop(0)
-            await asyncio.sleep(0.05)
-            await cf.param().set("commander.enHighLevel", 1)
+            await self._change_commander_level(uri, "high")
             await cf.high_level_commander().take_off(height, None, duration, None)
             await self._update_external_pose_during(uri, duration)
 
@@ -125,11 +123,7 @@ class DroneSwarm:
 
         async def _land(uri: str) -> None:
             cf = self._cf(uri)
-            commander = cf.commander()
-            # await commander.send_stop_setpoint()
-            await commander.send_notify_setpoint_stop(0)
-            await asyncio.sleep(0.05)
-            await cf.param().set("commander.enHighLevel", 1)
+            await self._change_commander_level(uri, "high")
             high_level_commander = cf.high_level_commander()
             await high_level_commander.land(height, None, duration, None)
             await self._update_external_pose_during(uri, duration)
@@ -153,11 +147,7 @@ class DroneSwarm:
             cf = self._cf(uri)
             if not self.lighthouse:
                 await self._send_external_pose(uri)
-            commander = cf.commander()
-            # await commander.send_stop_setpoint()
-            await commander.send_notify_setpoint_stop(0)
-            await asyncio.sleep(0.05)
-            await cf.param().set("commander.enHighLevel", 1)
+            await self._change_commander_level(uri, "high")
             await cf.high_level_commander().go_to(
                 *target[uri], duration, relative=False, linear=True, group_mask=None
             )
@@ -178,8 +168,7 @@ class DroneSwarm:
                 raise ValueError(f"pos[{uri!r}] must contain exactly four elements.")
 
         async def _setpoint(uri: str) -> None:
-            cf = self._cf(uri)
-            await cf.param().set("commander.enHighLevel", 0)
+            await self._change_commander_level(uri, "low")
             ref = interp1d(
                 [0.0, duration],
                 [np.asarray(target[uri], dtype=float), np.asarray(target[uri], dtype=float)],
@@ -212,8 +201,7 @@ class DroneSwarm:
         self._validate_known_uris("color_bot", color_bot or {})
 
         async def _execute(uri: str) -> None:
-            cf = self._cf(uri)
-            await cf.param().set("commander.enHighLevel", 0)
+            await self._change_commander_level(uri, "low")
             await self._stream_reference(
                 uri,
                 t_end,
@@ -294,6 +282,7 @@ class DroneSwarm:
             await asyncio.sleep(0.1)
             await param.set("kalman.resetEstimation", 0)
             await cf.platform().send_arming_request(do_arm=True)
+            await self._change_commander_level(uri, "high")
             await asyncio.sleep(0.8)
 
         self._run(self._parallel_by_uri("Resetting", self.uris, _reset))
@@ -312,9 +301,7 @@ class DroneSwarm:
             active_uris = [uri for uri in self.uris if uri in self.active_uris]
             if active_uris:
                 try:
-                    await self._parallel_by_uri(
-                        "Emergency stop", active_uris, self._emergency_stop
-                    )
+                    await self._parallel_by_uri("Emergency stop", active_uris, self._emergency_stop)
                     await asyncio.sleep(0.1)
                     await self._parallel_by_uri("Shutdown LEDs", active_uris, _shutdown_leds)
                     await asyncio.sleep(0.2)
@@ -428,12 +415,26 @@ class DroneSwarm:
                 continue
             if isinstance(result, _DISCONNECT_ERRORS):
                 self.active_uris.discard(uri)
+                self._commander_levels[uri] = None
                 logger.error(f"{uri} disconnected or unreachable. {action_name} failed: {result}")
             else:
                 logger.error(f"{action_name} failed for {uri}: {result}")
 
     async def _emergency_stop(self, uri: str) -> None:
         await self._cf(uri).localization().emergency().send_emergency_stop()
+
+    async def _change_commander_level(self, uri: str, level: _CommanderLevel) -> None:
+        """Switch commander level only when local state expects a different mode."""
+        if self._commander_levels.get(uri) == level:
+            return
+
+        cf = self._cf(uri)
+        if level == "high":
+            await cf.commander().send_notify_setpoint_stop(0)
+            # await asyncio.sleep(0.05)  # Might be necessary when firmware crashes during level switch
+
+        await cf.param().set("commander.enHighLevel", int(level == "high"))
+        self._commander_levels[uri] = level
 
     async def _read_observation(self, uri: str) -> dict[str, Array]:
         if self.lighthouse:
