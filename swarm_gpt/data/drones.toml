@@ -6,19 +6,19 @@ pos = [0.0, 0.0, 0.0]
 [cf1]
 name = "cf32"
 uri = "radio://0/73/2M/ABAD1DEA13"
-pos = [0.94, 0.54, 0.0]
+pos = [0.7, 0.35, 0.0]
 
 [cf2]
 name = "cf33"
 uri = "radio://0/73/2M/ABAD1DEA12"
-pos = [0.9, -0.3, 0.0]
+pos = [0.7, -0.35, 0.0]
 
 [cf3]
 name = "cf34"
 uri = "radio://0/73/2M/ABAD1DEA14"
-pos = [-0.87, 0.55, 0.0]
+pos = [-0.7, 0.35, 0.0]
 
 [cf4]
 name = "cf35"
 uri = "radio://0/73/2M/ABAD1DEA15"
-pos = [-0.83, -0.5, 0.0]
+pos = [-0.7, -0.35, 0.0]
