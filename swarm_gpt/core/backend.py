@@ -356,15 +356,23 @@ class AppBackend:
         try:
             if not correct_positions:
                 raise RuntimeError("Some drone(s) are not in the expected initial positions.")
-            swarm.goto(init_pos_dict)
+            swarm.goto(init_pos_dict)  # takeoff
             # Check active drones after the initial climb.
             taken_off = True
             for d in self.choreographer.drones.values():
                 uri = d["uri"]
                 if not swarm.is_active(uri):
                     logger.warning(f"Drone {uri} is inactive after takeoff")
+                    taken_off = False
                     continue
-                z = swarm.get_obs(uri)["pos"][2]
+                try:
+                    z = swarm.get_obs(uri)["pos"][2]
+                # Demo fix: If the drone is disconnected, we cannot get its position. We assume it has not taken off.
+                # TODO: Replace the general exception catch with the specific cflib2 exception.
+                except Exception as e:
+                    logger.warning(f"Could not get position for drone {uri} after takeoff: {e}")
+                    taken_off = False
+                    continue
                 if z < 0.2:
                     taken_off = False
                     logger.warning(f"Drone {uri} has not taken off yet: z={z:.2f}m")
@@ -381,8 +389,8 @@ class AppBackend:
                         color_bot=color_bot,
                     )
             swarm.goto(final_pos_dict, duration=2.0)  # Transition from ideal point to hover pos
-            if self.settings["land_on_docks"]:
-                swarm.goto(final_pos_dict, duration=5.0)  # Hovering
+            # if self.settings["land_on_docks"]: # Commented out for demo
+            #     swarm.goto(final_pos_dict, duration=5.0)  # Hovering
             swarm.goto(landing_pos_dict, duration=1.5)  # Landing
         finally:
             swarm.close()

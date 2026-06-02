@@ -111,8 +111,9 @@ class DroneSwarm:
             cf = self._cf(uri)
             await self._send_external_pose(uri)
             commander = cf.commander()
-            await commander.send_stop_setpoint()
+            # await commander.send_stop_setpoint()
             await commander.send_notify_setpoint_stop(0)
+            await asyncio.sleep(0.05)
             await cf.param().set("commander.enHighLevel", 1)
             await cf.high_level_commander().take_off(height, None, duration, None)
             await self._update_external_pose_during(uri, duration)
@@ -125,8 +126,9 @@ class DroneSwarm:
         async def _land(uri: str) -> None:
             cf = self._cf(uri)
             commander = cf.commander()
-            await commander.send_stop_setpoint()
+            # await commander.send_stop_setpoint()
             await commander.send_notify_setpoint_stop(0)
+            await asyncio.sleep(0.05)
             await cf.param().set("commander.enHighLevel", 1)
             high_level_commander = cf.high_level_commander()
             await high_level_commander.land(height, None, duration, None)
@@ -152,8 +154,9 @@ class DroneSwarm:
             if not self.lighthouse:
                 await self._send_external_pose(uri)
             commander = cf.commander()
-            await commander.send_stop_setpoint()
+            # await commander.send_stop_setpoint()
             await commander.send_notify_setpoint_stop(0)
+            await asyncio.sleep(0.05)
             await cf.param().set("commander.enHighLevel", 1)
             await cf.high_level_commander().go_to(
                 *target[uri], duration, relative=False, linear=True, group_mask=None
