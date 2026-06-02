@@ -79,6 +79,9 @@ markers = ["unit", "integration"]
 channels = ["conda-forge"]
 platforms = ["linux-64"]
 
+[tool.pixi.system-requirements]
+cuda = "12"
+
 [tool.pixi.activation]
 scripts = ["openai_api_key.sh", "tools/frontend_install.sh"]
 
@@ -88,6 +91,9 @@ default = { features = ["sim"], solve-group = "default" }
 deploy = { features = ["sim", "kilted", "deploy"] }
 docs = { features = ["docs"] }
 tests = { features = ["tests", "sim", "kilted", "deploy"] }
+# Music analysis env — isolated from sim/ROS so allin1's deps don't conflict
+# with ros-kilted's fmt/spdlog pins. Run analyzer with: pixi run -e music <cmd>
+music = { features = ["music"] }
 
 [tool.pixi.dependencies]
 # Environment packages
@@ -104,6 +110,11 @@ maturin = ">=1.13.3,<2"
 api = { cmd = "python swarm_gpt/launch.py", description = "Serve the SwarmGPT browser API and built frontend", depends-on = ["web-build"] }
 web-dev = { cmd = "npm --prefix web run dev", description = "Serve the browser frontend with Vite" }
 web-build = { cmd = "npm --prefix web run build", description = "Build the browser frontend" }
+
+[tool.pixi.feature.music.tasks]
+# Re-run after any `pixi install -e music` that upgrades allin1.
+music-patch = { cmd = "python tools/patch_allin1_natten.py", description = "Patch allin1 for NATTEN >=0.17 API rename" }
+analyze = { cmd = "python tools/test_allin1.py", depends-on = ["music-patch"], description = "Smoke-test allin1 on one song" }
 
 [tool.pixi.pypi-dependencies]
 swarmgpt = { path = ".", editable = true }
@@ -159,6 +170,36 @@ mkdocs-section-index = "*"
 [tool.pixi.feature.docs.tasks]
 docs-serve = { cmd = "mkdocs serve", description = "Serve docs locally" }
 docs-build = { cmd = "mkdocs build", description = "Build docs" }
+
+# feature[music] — all-in-one music structure analyzer.
+# Isolated from sim/ROS to sidestep fmt/spdlog/cuda-version conflicts with
+# ros-kilted. Analyzer is run offline once per song: pixi run -e music python
+# tools/test_allin1.py "<song name>". Resulting JSONs are committed to git.
+[tool.pixi.feature.music.dependencies]
+ffmpeg = "*"
+# madmom builds from git source; needs Cython + a C++ compiler.
+gxx = "*"
+cython = "*"
+setuptools = "*"
+numpy = "*"
+
+[tool.pixi.feature.music.pypi-options]
+# madmom builds from git source; needs the conda env's Cython/numpy.
+no-build-isolation = ["madmom"]
+
+[tool.pixi.feature.music.pypi-dependencies]
+# PyTorch: direct wheel URL — cu126 variant, exact match for NATTEN below.
+# conda-forge pytorch-gpu was dropped because it ships no C++ headers (blocks
+# NATTEN from-source builds) and its CUDA variant is resolver-dependent.
+# allin1 uses the pre-0.20 NATTEN API (natten1dav/natten2dav); the last NATTEN
+# release with that API is 0.17.5, which has wheels for torch 2.6.0+cu126.
+torch = { url = "https://download.pytorch.org/whl/cu126/torch-2.6.0%2Bcu126-cp312-cp312-manylinux_2_28_x86_64.whl" }
+# torchaudio must match torch's CUDA variant; demucs (allin1 dep) requires it.
+torchaudio = { url = "https://download.pytorch.org/whl/cu126/torchaudio-2.6.0%2Bcu126-cp312-cp312-linux_x86_64.whl" }
+allin1 = "*"
+madmom = { git = "https://github.com/CPJKU/madmom.git" }
+# NATTEN 0.17.5: last version with the natten1dav/natten2dav API that allin1 needs.
+natten = { url = "https://github.com/SHI-Labs/NATTEN/releases/download/v0.17.5/natten-0.17.5%2Btorch260cu126-cp312-cp312-linux_x86_64.whl" }
 
 ########################
 # ruff Settings

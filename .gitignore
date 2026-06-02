@@ -30,6 +30,7 @@ openai_api_key.sh
 
 .cursor
 docs/ui-previews
+docs/specs/
 test-results
 playwright-report
 web/dist
@@ -38,3 +39,5 @@ web/tsconfig.tsbuildinfo
 
 /log/
 /install/
+
+CLAUDE.md
