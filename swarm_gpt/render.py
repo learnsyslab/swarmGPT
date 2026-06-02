@@ -6,7 +6,10 @@ import json
 import logging
 import math
 import os
+import shutil
+import subprocess
 import sys
+import tempfile
 from collections import deque
 from fractions import Fraction
 from pathlib import Path
@@ -41,17 +44,17 @@ MUSIC_DIR = ROOT / "music"
 SCENE_XML = ROOT / "swarm_gpt/data/scene.xml"
 
 # Pick a preset that matches the drone count in swarm_gpt/data/drones.toml.
-PRESET_PATH = ROOT / "swarm_gpt/data/presets/Vivaldi Summer | 20 | 20260430_062211"
-OUTPUT_PATH = ROOT / "renders/vivaldi_summer_flythrough.mp4"
+PRESET_PATH = ROOT / "swarm_gpt/data/presets/The Blue Danube - Op. 314 | 20 | 20260601_004157"
+OUTPUT_PATH = ROOT / "renders/the_blue_danube.mp4"
 
 RENDER_MODE = "rgb_array"
 CAMERA_BODY_NAME = "render_camera_rig"
 CAMERA_NAME = "cinema_cam"
 
-CAMERA_MOVE_START_TIME = 2.0
-CAMERA_MOVE_END_TIME = 10.0
+CAMERA_MOVE_START_TIME = 0.0
+CAMERA_MOVE_END_TIME = 30.0
 CAMERA_START_POS = np.array([6.0, 0.0, 6.0], dtype=float)
-CAMERA_END_POS = np.array([0.0, -2.98, 2.91], dtype=float)
+CAMERA_END_POS = np.array([0.0, -6.00, 3.00], dtype=float)
 CAMERA_LOOKAT = np.array([0.0, 0.0, 1.1], dtype=float)
 CAMERA_UP = np.array([0.0, 0.0, 1.0], dtype=float)
 
@@ -61,6 +64,71 @@ FPS = 60
 TRAIL_LENGTH = 120
 
 logger = logging.getLogger(__name__)
+
+
+def preset_audio_path(preset_meta: dict[str, object]) -> Path:
+    """Resolve the audio file declared by a preset's metadata."""
+    song = preset_meta.get("song")
+    if not isinstance(song, str) or not song:
+        raise ValueError("Preset metadata must contain a non-empty 'song' field")
+
+    audio_path = MUSIC_DIR / f"{song}.mp3"
+    if not audio_path.is_file():
+        raise FileNotFoundError(f"Audio file not found for song {song!r}: {audio_path}")
+    return audio_path
+
+
+def mux_audio(video_path: Path, audio_path: Path, duration: float) -> Path:
+    """Mux a song into an existing video, replacing the original file on success."""
+    ffmpeg = shutil.which("ffmpeg")
+    if ffmpeg is None:
+        raise RuntimeError("ffmpeg is required to add audio to rendered videos")
+    if duration <= 0.0:
+        raise ValueError("duration must be positive")
+
+    temp_file = tempfile.NamedTemporaryFile(
+        prefix=f".{video_path.stem}.muxed.",
+        suffix=video_path.suffix,
+        dir=video_path.parent,
+        delete=False,
+    )
+    muxed_path = Path(temp_file.name)
+    temp_file.close()
+
+    command = [
+        ffmpeg,
+        "-y",
+        "-i",
+        str(video_path),
+        "-i",
+        str(audio_path),
+        "-map",
+        "0:v:0",
+        "-map",
+        "1:a:0",
+        "-c:v",
+        "copy",
+        "-c:a",
+        "aac",
+        "-b:a",
+        "192k",
+        "-t",
+        f"{duration:.6f}",
+        "-movflags",
+        "+faststart",
+        str(muxed_path),
+    ]
+    try:
+        process = subprocess.run(command, capture_output=True, text=True, check=False)
+        if process.returncode != 0:
+            stderr = process.stderr.strip()
+            raise RuntimeError(f"ffmpeg failed to mux audio into {video_path}: {stderr}")
+        muxed_path.replace(video_path)
+    finally:
+        if muxed_path.exists():
+            muxed_path.unlink()
+
+    return video_path
 
 
 class FrameSink:
@@ -219,6 +287,7 @@ def render_preset(
     width: int = WIDTH,
     height: int = HEIGHT,
     fps: int = FPS,
+    include_audio: bool = True,
 ) -> Path:
     """Render a saved preset to a video file or frame directory."""
     preset_path = Path(preset_path)
@@ -228,6 +297,7 @@ def render_preset(
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     preset_meta = json.loads((preset_path / "meta.json").read_text())
+    audio_path = preset_audio_path(preset_meta) if include_audio else None
     backend = AppBackend(
         music_dir=MUSIC_DIR,
         strict_processing=True,
@@ -338,6 +408,9 @@ def render_preset(
         frame_sink.close()
         sim.close()
 
+    if audio_path is not None:
+        mux_audio(frame_sink.result_path, audio_path, duration=total_frames / fps)
+
     logger.info("Saved render to %s", frame_sink.result_path)
     return frame_sink.result_path
 
@@ -349,6 +422,7 @@ def main(
     width: int = WIDTH,
     height: int = HEIGHT,
     fps: int = FPS,
+    include_audio: bool = True,
 ) -> Path:
     """Entrypoint for local rendering."""
     return render_preset(
@@ -358,6 +432,7 @@ def main(
         width=width,
         height=height,
         fps=fps,
+        include_audio=include_audio,
     )
 
 
