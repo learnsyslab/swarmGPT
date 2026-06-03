@@ -116,7 +116,7 @@ class DroneSwarm:
             await cf.high_level_commander().take_off(height, None, duration, None)
             await self._update_external_pose_during(uri, duration)
 
-        self._run(self._parallel_by_uri("Taking off", self.uris, _takeoff))
+        self._run(self._parallel_by_uri("Taking off", self.uris, _takeoff))  # TODO add timeout
 
     def land(self, height: float = 0.0, duration: float = 3.0):
         """Land the drones at a given height over a given duration."""
@@ -129,7 +129,7 @@ class DroneSwarm:
             await self._update_external_pose_during(uri, duration)
             await high_level_commander.stop(None)
 
-        self._run(self._parallel_by_uri("Landing", self.uris, _land))
+        self._run(self._parallel_by_uri("Landing", self.uris, _land)) # TODO add timeout
 
     def goto(self, target: dict[str, list], duration: float = 3.0):
         """Execute a high-level goto command for all drones.
@@ -153,7 +153,7 @@ class DroneSwarm:
             )
             await self._update_external_pose_during(uri, duration)
 
-        self._run(self._parallel_by_uri("Goto", self.uris, _goto))
+        self._run(self._parallel_by_uri("Goto", self.uris, _goto, timeout=duration + 1.0))
 
     def setpoint(self, target: dict[str, list], duration: float = 3.0):
         """Stream a constant position+yaw setpoint to all drones.
@@ -176,7 +176,7 @@ class DroneSwarm:
             )
             await self._stream_reference(uri, duration, lambda t: np.asarray(ref(t), dtype=float))
 
-        self._run(self._parallel_by_uri("Setpoint", self.uris, _setpoint))
+        self._run(self._parallel_by_uri("Setpoint", self.uris, _setpoint))  # TODO add timeout
 
     def execute_choreography(
         self,
@@ -210,7 +210,7 @@ class DroneSwarm:
                 (color_bot or {}).get(uri, {}),
             )
 
-        self._run(self._parallel_by_uri("Choreography execution", self.uris, _execute))
+        self._run(self._parallel_by_uri("Choreography execution", self.uris, _execute))  # TODO add timeout
 
     def apply_colors(self, color_top: dict[str, Array] | None, color_bot: dict[str, Array] | None):
         """Apply colors to the drones.
@@ -232,7 +232,7 @@ class DroneSwarm:
             if uri in color_bot:
                 await self._apply_drone_color(uri, color_bot[uri], "bot")
 
-        self._run(self._parallel_by_uri("Applying colors", self.uris, _apply_colors))
+        self._run(self._parallel_by_uri("Applying colors", self.uris, _apply_colors))  # TODO add timeout
 
     def set_param(self, param: str, value: float):
         """Set a Crazyflie parameter on all active drones.
@@ -254,7 +254,7 @@ class DroneSwarm:
         else:
             self._validate_known_uris("uri", {uri: None})
             uris = [uri]
-        self._run(self._parallel_by_uri("Emergency stop", uris, self._emergency_stop))
+        self._run(self._parallel_by_uri("Emergency stop", uris, self._emergency_stop))  # TODO add timeout
 
     def reset(self):
         """Reset all active drones."""
@@ -402,13 +402,14 @@ class DroneSwarm:
             )
 
     async def _parallel_by_uri(
-        self, action_name: str, uris: Iterable[str], action: Callable[[str], Awaitable[None]]
+        self, action_name: str, uris: Iterable[str], action: Callable[[str], Awaitable[None]], timeout: float | None = None
     ) -> None:
         target_uris = [uri for uri in uris if uri in self.active_uris and uri in self.cfs]
 
-        results = await asyncio.gather(
-            *[action(uri) for uri in target_uris], return_exceptions=True
-        )
+        async with asyncio.timeout(timeout):
+            results = await asyncio.gather(
+                *[action(uri) for uri in target_uris], return_exceptions=True
+            )
 
         for uri, result in zip(target_uris, results, strict=True):
             if not isinstance(result, BaseException):

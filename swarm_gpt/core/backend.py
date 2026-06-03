@@ -366,16 +366,18 @@ class AppBackend:
                     taken_off = False
                     continue
                 try:
-                    z = swarm.get_obs(uri)["pos"][2]
+                    obs = swarm.get_obs(uri)
+                    z = obs["pos"][2]
+                    qw = np.abs(obs["quat"][-1])
                 # Demo fix: If the drone is disconnected, we cannot get its position. We assume it has not taken off.
                 # TODO: Replace the general exception catch with the specific cflib2 exception.
                 except Exception as e:
                     logger.warning(f"Could not get position for drone {uri} after takeoff: {e}")
                     taken_off = False
                     continue
-                if z < 0.2:
+                if z < 0.2 or qw < 0.8:
                     taken_off = False
-                    logger.warning(f"Drone {uri} has not taken off yet: z={z:.2f}m")
+                    logger.warning(f"Drone {uri} has not taken off yet: z={z:.2f}m, qw={qw:.2f}")
             if taken_off:
                 if not self.music_manager.play(wait=True):
                     logger.error(
