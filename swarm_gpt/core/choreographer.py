@@ -17,7 +17,10 @@ import yaml
 from swarm_gpt.core.motion_primitives import motion_primitives as motion_primitives_collection
 from swarm_gpt.core.motion_primitives import primitive_by_name
 from swarm_gpt.core.structured_output_schema import (
+    KEY_PATTERN,
     build_motion_primitive_response_schema,
+    decode_key,
+    encode_key,
     structured_payload_to_choreography,
 )
 from swarm_gpt.exception import LLMFormatError, LLMPlanError, LLMResponseProcessingError
@@ -35,6 +38,7 @@ if TYPE_CHECKING:
     from openai import OpenAI
 
     from swarm_gpt.utils.llm_providers import LLMProvider
+    from swarm_gpt.utils.music_analyzer import SongStructure
 
 logger = logging.getLogger(__name__)
 
@@ -118,19 +122,19 @@ class Choreographer:
                 register_ollama_client(self._chat_client)
         return self._chat_client
 
-    def format_initial_prompt(self, song: str, music_info: dict) -> list[dict[str, str]]:
+    def format_initial_prompt(self, song: str, structure: SongStructure) -> list[dict[str, str]]:
         """Format the initial prompt for the LLM.
 
         Args:
             song: The name of the song.
-            music_info: The beat times, amplitude and frequency of the song.
+            structure: Hierarchical music structure (segments / bars / beats).
 
         Returns:
-            The formatted initial prompt.
+            The formatted initial prompt as a list of role/content message dicts.
         """
         logger.debug("Formatting initial prompt")
         msgs = []
-        user_prompt = self._format_initial_user_prompt(song, music_info)
+        user_prompt = self._format_initial_user_prompt(song, structure)
         msgs.append({"role": "system", "content": self.prompts["system_initial"]})
         msgs.append({"role": "user", "content": user_prompt})
         msgs.append({"role": "system", "content": self.prompts["example"]})
@@ -160,17 +164,25 @@ class Choreographer:
         return self.use_motion_primitives
 
     def generate_choreography(
-        self, prompt: list[dict[str, str]], num_beats: int | None = None
+        self, prompt: list[dict[str, str]], structure: SongStructure | None = None
     ) -> str:
-        """Generate the initial choreography for the LLM."""
+        """Generate the initial choreography for the LLM.
+
+        Args:
+            prompt: The message list returned by :meth:`format_initial_prompt`.
+            structure: Hierarchical song structure; required when using structured outputs.
+
+        Returns:
+            The assistant's response text (YAML-shaped for legacy parsing).
+        """
         logger.debug(
             "Generating choreography with provider=%s model=%s", self.llm_provider, self._model_id
         )
         self.messages.extend(prompt)
         if self._uses_structured_outputs():
-            if num_beats is None:
-                raise ValueError("num_beats is required for structured output generation")
-            payload = self._call_responses_structured(self.messages, num_beats=num_beats)
+            if structure is None:
+                raise ValueError("structure is required for structured output generation")
+            payload = self._call_responses_structured(self.messages, structure=structure)
             response = self._structured_payload_to_text(payload)
         else:
             response = self._call_responses(self.messages)
@@ -204,52 +216,32 @@ class Choreographer:
         self.num_drones = len(self.agents.values())
         assert self.num_drones > 0, "No drones detected in config file"
 
-    def _format_initial_user_prompt(self, song: str, music_info: dict) -> str:
+    def _format_initial_user_prompt(self, song: str, structure: SongStructure) -> str:
         """Format the initial user prompt for the LLM.
 
         Args:
             song: The name of the song.
-            music_info: The beat times, amplitude and frequency of the song.
+            structure: Hierarchical song structure used to render segments/keys.
         """
-        # Convert to cm for LLM compatibility
+        # Convert starting positions to cm for the LLM (integer tokens).
         starting_pos = [(pos * 100).astype(int).tolist() for pos in self.starting_pos.values()]
-        beat_times = {i + 1: round(10 * x) for i, x in enumerate(music_info["beat_times"])}
-        novelty = {i + 1: int(x * 100) for i, x in enumerate(music_info["novelty"])}
-        chords = {i + 1: v for i, v in enumerate(music_info["chords"])}
-        dt = np.diff(music_info["beat_times"])
-        dt[1:] = dt[:-1]  # Shift to the right to align with the beat times
-        dt[0] = music_info["beat_times"][0]  # Set the first value to the first beat time
-        beat_intervals = {i + 1: round(10 * x) for i, x in enumerate(dt)}
-        # We calculate a maximum distance each drone is allowed to travel at the given beat to limit
-        # excessive movements
-        max_vel = self.settings["axswarm"]["vel_max"]
-        # Divide by sqrt(3) to get the maximum distance in 3D space for one axis assuming all axes
-        # change in the worst case
-        max_distances = dict()
-        for i in range(len(music_info["beat_times"])):
-            dt = music_info["beat_times"][i] - (music_info["beat_times"][i - 1] if i > 0 else 0)
-            max_distances[i + 1] = int(max_vel * dt / np.sqrt(3) * 100)
-        dbfs = {i + 1: int(x) for i, x in enumerate(music_info["dBFS"])}
+        segments_table = _render_segments_table(structure)
+        required_keys_csv = ", ".join(encode_key(*k) for k in structure.required_keys())
+        n_total_beats = len(structure.all_keys())
         if self.use_motion_primitives:
-            # Load the YAML file
             latex_file = Path(__file__).resolve().parents[1] / "data/latex_eqn.yaml"
             with open(latex_file, "r") as file:
                 data = yaml.safe_load(file)
-
         prompt_kwargs = {
             "song": song,
+            "bpm": structure.bpm,
             "num_drones": self.num_drones,
-            "beat_times": beat_times,
-            "num_beats": len(music_info["beat_times"]),
             "starting_pos": starting_pos,
-            "num_waypoints": len(music_info["beat_times"]),
-            "beat_novelty": novelty,
-            "chords": chords,
-            "max_distances": max_distances,
-            "beat_intervals": beat_intervals,
-            "dbfs": dbfs,
-            "lim_lower": self.lim_lower * 100,
-            "lim_upper": self.lim_upper * 100,
+            "segments_table": segments_table,
+            "required_keys_csv": required_keys_csv,
+            "n_total_beats": n_total_beats,
+            "lim_lower": (self.lim_lower * 100).astype(int).tolist(),
+            "lim_upper": (self.lim_upper * 100).astype(int).tolist(),
             "wave_eqn": data["wave"] if self.use_motion_primitives else None,
         }
         return self.prompts["user_initial"].format(**prompt_kwargs)
@@ -312,14 +304,18 @@ class Choreographer:
             drones, times = drones.tolist(), times.tolist()
             raise LLMPlanError(f"Drones {set(drones)} get too close at waypoints {set(times)}")
 
-    def _call_responses_structured(self, messages: list[dict[str, str]], num_beats: int) -> dict:
+    def _call_responses_structured(
+        self, messages: list[dict[str, str]], structure: SongStructure
+    ) -> dict:
         """Call Responses API with strict json_schema and parse JSON output."""
         if self.llm_provider == "ollama":
-            return self._call_ollama_structured(messages, num_beats)
+            return self._call_ollama_structured(messages, structure)
 
         client = self._chat_client_for_call()
         schema = build_motion_primitive_response_schema(
-            num_beats=num_beats, num_drones=self.num_drones
+            all_keys=structure.all_keys(),
+            required_keys=structure.required_keys(),
+            num_drones=self.num_drones,
         )
         input_messages, instructions = prepare_responses_messages(messages)
         try:
@@ -360,10 +356,14 @@ class Choreographer:
         except json.JSONDecodeError as e:
             raise LLMFormatError(f"Structured output was not valid JSON: {e}") from e
 
-    def _call_ollama_structured(self, messages: list[dict[str, str]], num_beats: int) -> dict:
+    def _call_ollama_structured(
+        self, messages: list[dict[str, str]], structure: SongStructure
+    ) -> dict:
         """Call Ollama's native chat structured output path."""
         schema = build_motion_primitive_response_schema(
-            num_beats=num_beats, num_drones=self.num_drones
+            all_keys=structure.all_keys(),
+            required_keys=structure.required_keys(),
+            num_drones=self.num_drones,
         )
         grounded_messages = [
             *messages,
@@ -425,13 +425,13 @@ class Choreographer:
             return json.dumps(content)
         return ""
 
-    def _structured_payload_to_choreography(self, payload: dict) -> dict[int, str]:
-        """Convert structured payload to the existing beat -> primitive string format."""
+    def _structured_payload_to_choreography(self, payload: dict) -> dict[tuple[int, int, int], str]:
+        """Convert structured payload to a (seq, bar, beat) -> action-string dict."""
         return structured_payload_to_choreography(payload)
 
     def _structured_payload_to_text(self, payload: dict) -> str:
         """Convert structured payload to legacy YAML-like text for downstream parsing/history."""
-        required_fields = ["song_mood", "cord_analysis", "choreography_plan", "choreography"]
+        required_fields = ["song_mood", "choreography_plan", "choreography"]
         missing = [field for field in required_fields if field not in payload]
         if missing:
             raise LLMFormatError(
@@ -440,26 +440,25 @@ class Choreographer:
         choreography = self._structured_payload_to_choreography(payload)
         lines = [
             f"song_mood: {json.dumps(payload['song_mood'])}",
-            f"cord_analysis: {json.dumps(payload['cord_analysis'])}",
             f"choreography_plan: {json.dumps(payload['choreography_plan'])}",
             "choreography:",
         ]
-        for beat in sorted(choreography):
-            lines.append(f"  {beat}: {choreography[beat]}")
+        # Sort by (seq, bar, beat) tuple for deterministic, time-ordered output.
+        for addr in sorted(choreography):
+            lines.append(f"  {encode_key(*addr)}: {choreography[addr]}")
         lines.append("  END")
         return "\n".join(lines)
 
     def response2waypoints(
-        self, text: str, music_info: dict, strict: bool = True, t_rth: float = 3.0
+        self, text: str, structure: SongStructure, strict: bool = True, t_rth: float = 3.0
     ) -> dict[str, NDArray]:
         """Translate the LLM output into waypoints.
 
         Args:
-            text: The output of the LLM. Is expected to follow the format specified in the
-                format instructions of the output parser.
-            music_info: The beat times, amplitude and frequency of the song.
+            text: The output of the LLM, in the YAML-like form produced by the prompt.
+            structure: Hierarchical song structure used to resolve action keys to seconds.
             strict: Enable/disable waypoint proximity and distance checks.
-            t_rth: Time for the drones to return to their starting position
+            t_rth: Time for the drones to return to their starting position.
 
         Returns:
             The waypoints as a dictionary of "time", "pos", "vel", "acc". "time" has shape
@@ -468,9 +467,12 @@ class Choreographer:
         logger.debug("Converting LLM output into waypoints")
         if self.use_motion_primitives:
             choreo = self._response2choreo(text)
-            waypoints = self._choreo2waypoints(choreo, music_info["beat_times"])
+            waypoints = self._choreo2waypoints(choreo, structure)
         else:
-            waypoints = self._raw_response2waypoints(text, music_info["beat_times"])
+            # Raw-waypoint mode predates the structure rewrite and still expects a flat
+            # beat_times list. Pull it from the structure for the time being.
+            flat_times = [b.time_s for s in structure.segments for bar in s.bars for b in bar.beats]
+            waypoints = self._raw_response2waypoints(text, np.asarray(flat_times))
         # Clip waypoint values to the physical limits
         waypoints["pos"] = np.clip(waypoints["pos"], self.lim_lower, self.lim_upper)
         if strict:
@@ -492,59 +494,87 @@ class Choreographer:
 
         return waypoints
 
-    def _response2choreo(self, text: str) -> dict[int, list[str]]:
-        """Translate the LLM output into a choreography."""
+    def _response2choreo(self, text: str) -> dict[tuple[int, int, int], str]:
+        """Translate the LLM output into a (seq, bar, beat) -> action-string choreography."""
         assert self.use_motion_primitives, "Motion primitives not set in _response2choreo"
         choreography = self._slice_choreography_from_text(text)
-        # Filter out unnecessary PLAN commands
-        for i, moves in choreography.items():
-            if any(k in moves for k in ["helix", "spiral", "zig_zag", "wave"]) and (
-                moves.endswith("PLAN")
+        # PLAN is not in the new schema but tolerated for legacy / preset payloads.
+        for addr, moves in list(choreography.items()):
+            if any(k in moves for k in ["helix", "spiral", "zig_zag", "wave"]) and moves.endswith(
+                "PLAN"
             ):
                 moves = moves.replace("PLAN", "").strip()
                 moves = moves.replace("-", "").strip()
-            # Count no of PLAN in moves
             elif moves.count("PLAN") > 1:
                 moves = "PLAN"
-            choreography[i] = moves
+            choreography[addr] = moves
         return choreography
 
     def _choreo2waypoints(
-        self, choreography: dict[int, list[str]], timestamps: list[float]
-    ) -> dict[int, np.ndarray]:
-        """Translate the choreography into waypoints."""
-        if missing := set(range(1, len(timestamps) + 1)) - set(choreography.keys()):
-            raise LLMResponseProcessingError(f"Choreography plan is missing primitive at {missing}")
+        self, choreography: dict[tuple[int, int, int], str], structure: SongStructure
+    ) -> dict[str, np.ndarray]:
+        """Translate a (seq, bar, beat)-keyed choreography into time-based waypoints.
 
-        motion_primitives = {}
-        for i in choreography:
-            motion_primitives[i] = []
-            moves = choreography[i].strip(" ;").split(";")
+        Resolves each hierarchical key to its absolute time via :meth:`SongStructure.time_of`,
+        sorts actions by time, and renumbers them 1..N as synthetic indices for the existing
+        time-based primitive execution pipeline.
+
+        Args:
+            choreography: Action strings keyed by ``(seq, bar, beat)``.
+            structure: Song structure providing ``time_of`` and ``required_keys``.
+
+        Returns:
+            Waypoints dict with ``time``, ``pos``, ``vel``, ``acc`` arrays.
+        """
+        required = set(structure.required_keys())
+        emitted = set(choreography)
+        if missing := required - emitted:
+            raise LLMResponseProcessingError(
+                f"Choreography is missing required keys at {sorted(missing)}"
+            )
+        if not choreography:
+            raise LLMResponseProcessingError("Choreography is empty")
+
+        # Sort emitted actions by their resolved time.
+        ordered = sorted(
+            (
+                (structure.time_of(seq, bar, beat), (seq, bar, beat), action_str)
+                for (seq, bar, beat), action_str in choreography.items()
+            ),
+            key=lambda triple: triple[0],
+        )
+
+        motion_primitives: dict[int, list[dict[str, tuple]]] = {}
+        for synth_idx, (_time, addr, action_str) in enumerate(ordered, start=1):
+            motion_primitives[synth_idx] = []
+            moves = action_str.strip(" ;").split(";")
             for move in moves:
                 fn_name = move.split("(")[0].strip(" -\n")
                 if fn_name == "PLAN":
-                    motion_primitives[i].append({fn_name: ()})
+                    motion_primitives[synth_idx].append({fn_name: ()})
                     continue
                 if fn_name not in motion_primitives_collection:
                     raise LLMResponseProcessingError(
-                        f"Unknown motion primitive '{fn_name}' at timestep {i}"
+                        f"Unknown motion primitive '{fn_name}' at {encode_key(*addr)}"
                     )
-                # Get the arguments after "(", remove comments, and add a , before the closing ) to
-                # enforce that one argument functions are length 1 tuples.
+                # Parse `args` portion: ast.literal_eval on a re-wrapped tuple expression. The
+                # trailing comma forces single-arg functions to parse as length-1 tuples.
                 try:
                     fn_args = ast.literal_eval("(" + move.split("(")[1].split("#")[0][:-1] + ",)")
                 except (SyntaxError, ValueError) as e:
                     raise LLMFormatError(
-                        f"Cannot interpret arguments of '{move}' at timestep {i}. Failed with "
-                        f"{e.__class__.__name__}: {e}"
+                        f"Cannot interpret arguments of '{move}' at {encode_key(*addr)}. "
+                        f"Failed with {e.__class__.__name__}: {e}"
                     )
                 n_args = motion_primitives_collection[fn_name.lower()]["n_args"]
                 if len(fn_args) != n_args:
                     raise LLMFormatError(
-                        f"{fn_name} at timestep {i} must have {n_args} arguments, got {fn_args}"
+                        f"{fn_name} at {encode_key(*addr)} must have {n_args} arguments, "
+                        f"got {fn_args}"
                     )
-                motion_primitives[i].append({fn_name: fn_args})
+                motion_primitives[synth_idx].append({fn_name: fn_args})
 
+        timestamps = np.array([t for t, _, _ in ordered])
         t, pos = self._motion_primitives2time_and_pos(motion_primitives, timestamps)
         return {"time": t, "pos": pos, "vel": np.zeros_like(pos), "acc": np.zeros_like(pos)}
 
@@ -573,18 +603,18 @@ class Choreographer:
         return {"time": t, "pos": pos, "vel": np.zeros_like(pos), "acc": np.zeros_like(pos)}
 
     @staticmethod
-    def _slice_choreography_from_text(text: str) -> dict[int, str]:
+    def _slice_choreography_from_text(text: str) -> dict[tuple[int, int, int], str]:
         """Extract the choreography from the YAML output of the LLM.
 
-        The LLM output might not be a valid YAML because of its formatting, use of quotes and
-        dashes. To reduce formatting issues, we slice out the waypoints manually before attempting
-        to parse the YAML.
+        The LLM output may not be valid YAML (formatting, quotes, dashes). We slice the
+        ``choreography`` block manually and parse hierarchical keys of the form
+        ``s<seq>b<bar>t<beat>``.
 
         Args:
             text: The YAML output of the LLM.
 
         Returns:
-            The sliced YAML output. Not guaranteed to be valid YAML.
+            Dict mapping ``(seq, bar, beat)`` tuples to action strings.
         """
         yaml_text = re.findall(r"```yaml\n(.*?)(?:```)", text, re.DOTALL)
         try:
@@ -598,34 +628,34 @@ class Choreographer:
             print(yaml_text)
             print("=" * 80 + "\n")
 
-        # Step 1: Extract the chunk between `choreography:` and `END` or end of file
+        # Step 1: Extract the chunk between `choreography:` and `END` or end of file.
         match = re.search(r"choreography:\s*(.*?)(?:\s*END|$)", yaml_text, re.DOTALL)
         if not match:
             raise LLMFormatError(
                 "Could not find a valid choreography in the YAML text. Make sure to start the "
                 "choreography plan with the 'choreography' keyword."
             )
-        choreography = match.group(1).strip()  # Extract and trim whitespace
+        choreography = match.group(1).strip()
 
-        # Step 2: Remove everything after # up to newline
+        # Step 2: Strip line comments (everything after `#`).
         choreography = "\n".join(line.split("#")[0].strip() for line in choreography.splitlines())
 
-        # Step 3: Parse the extracted chunk into a dictionary
-        choreography_steps = {}
-        # Find all entries that start with a number and are followed by a colon
-        entries = re.findall(r"(\d+):\s*(.*?)\s*(?=\d+:|$)", choreography, re.DOTALL)
-        for i, entry in enumerate(entries):
+        # Step 3: Parse `s<seq>b<bar>t<beat>: <action>` entries.
+        entry_re = re.compile(rf"({KEY_PATTERN}):\s*(.*?)\s*(?={KEY_PATTERN}:|$)", re.DOTALL)
+        choreography_steps: dict[tuple[int, int, int], str] = {}
+        for entry in entry_re.findall(choreography):
+            key_str, action_str = entry
             try:
-                step = int(entry[0])
-            except (IndexError, ValueError, TypeError) as e:
-                # We do not raise from because all information has to be included in the message of
-                # the LLM exception.
-                raise LLMFormatError(
-                    f"Planning step {i} does not have a valid timestep number. Make sure to start "
-                    "every planning step with the timestep number. E.g. 1: rotate(90, z). This "
-                    f"error originated from the following error: {e}"
-                )
-            choreography_steps[step] = entry[1].strip()
+                addr = decode_key(key_str)
+            except LLMFormatError:
+                raise
+            choreography_steps[addr] = action_str.strip()
+
+        if not choreography_steps:
+            raise LLMFormatError(
+                "No choreography entries parsed. Keys must be in s<seq>b<bar>t<beat> form, "
+                "e.g. s1b1t1."
+            )
 
         return dict(sorted(choreography_steps.items()))
 
@@ -762,3 +792,27 @@ def dicts2arrays(dict_of_dicts: dict[float, dict[int, NDArray]]) -> dict[float, 
     if not all(len(v) == homogeneous_len for v in dict_of_lists.values()):
         raise RuntimeError("Expected all lists to have the same length")
     return {k: np.array(v) for k, v in dict_of_lists.items()}
+
+
+def _render_segments_table(structure: SongStructure) -> str:
+    """Render a SongStructure as the multi-line block injected into the prompt.
+
+    Args:
+        structure: Song structure to describe.
+
+    Returns:
+        A newline-joined string with one indented line per segment, e.g.::
+
+            segment 1: "intro" (0.00s - 12.30s) — 6 bars × 4 beats
+            segment 2: "verse" (12.30s - 32.10s) — 10 bars × 4 beats
+    """
+    lines: list[str] = []
+    for seg in structure.segments:
+        n_bars = len(seg.bars)
+        beats_per_bar = max((len(bar.beats) for bar in seg.bars), default=0)
+        lines.append(
+            f'  segment {seg.id}: "{seg.label}" '
+            f"({seg.start_s:.2f}s - {seg.end_s:.2f}s) — "
+            f"{n_bars} bars × {beats_per_bar} beats"
+        )
+    return "\n".join(lines)

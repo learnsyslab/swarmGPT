@@ -1,13 +1,54 @@
-"""Structured output schema helpers for OpenAI Responses API."""
+"""Structured output schema helpers for OpenAI Responses API.
+
+Keys take the hierarchical form ``"s{seq}b{bar}t{beat}"`` (e.g. ``"s2b4t1"`` = segment 2,
+bar 4, beat 1). The choreographer addresses moments at this granularity; the schema lists
+every addressable beat as an optional property and marks only segment-opening beats as
+required.
+"""
 
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 from swarm_gpt.exception import LLMFormatError
 
 _AXIS_ENUM = ["x", "y", "z"]
+_KEY_PATTERN = r"s\d+b\d+t\d+"
+_KEY_RE = re.compile(r"^s(\d+)b(\d+)t(\d+)$")
+
+
+def encode_key(seq: int, bar: int, beat: int) -> str:
+    """Encode a ``(segment, bar, beat)`` address as a structured-output key string.
+
+    Args:
+        seq: 1-indexed segment id.
+        bar: 1-indexed bar id within the segment.
+        beat: 1-indexed beat id within the bar.
+
+    Returns:
+        Key string in the form ``"s{seq}b{bar}t{beat}"``.
+    """
+    return f"s{seq}b{bar}t{beat}"
+
+
+def decode_key(key: str) -> tuple[int, int, int]:
+    """Decode a structured-output key string into ``(seq, bar, beat)``.
+
+    Args:
+        key: A string matching ``s<seq>b<bar>t<beat>``.
+
+    Returns:
+        ``(seq, bar, beat)`` as 1-indexed integers.
+
+    Raises:
+        LLMFormatError: If ``key`` does not match the expected pattern.
+    """
+    m = _KEY_RE.match(key)
+    if m is None:
+        raise LLMFormatError(f"Choreography key {key!r} is not in the form 's<seq>b<bar>t<beat>'")
+    return int(m.group(1)), int(m.group(2)), int(m.group(3))
 
 
 def _int_schema(*, minimum: int | None = None, maximum: int | None = None) -> dict[str, Any]:
@@ -74,15 +115,12 @@ def _params_schema(num_drones: int, param_names: list[str]) -> dict[str, Any]:
 
 
 def _action_variant_schema(primitive: str, num_drones: int) -> dict[str, Any]:
-    param_names = [] if primitive == "PLAN" else _PRIMITIVE_ARG_ORDER[primitive]
+    param_names = _PRIMITIVE_ARG_ORDER[primitive]
     return {
         "type": "object",
         "additionalProperties": False,
         "properties": {
-            "primitive": {
-                "type": "string",
-                "enum": [primitive],
-            },
+            "primitive": {"type": "string", "enum": [primitive]},
             "params": _params_schema(num_drones, param_names),
         },
         "required": ["primitive", "params"],
@@ -92,43 +130,61 @@ def _action_variant_schema(primitive: str, num_drones: int) -> dict[str, Any]:
 def _action_schema(num_drones: int) -> dict[str, Any]:
     return {
         "anyOf": [
-            _action_variant_schema(primitive, num_drones)
-            for primitive in ["PLAN", *_PRIMITIVE_ARG_ORDER.keys()]
+            _action_variant_schema(primitive, num_drones) for primitive in _PRIMITIVE_ARG_ORDER
         ]
     }
 
 
-def build_motion_primitive_response_schema(*, num_beats: int, num_drones: int) -> dict[str, Any]:
-    """Build a strict schema that enforces beat-exact motion-primitive outputs."""
-    if num_beats < 1:
-        raise ValueError("num_beats must be >= 1")
+def build_motion_primitive_response_schema(
+    *,
+    all_keys: list[tuple[int, int, int]],
+    required_keys: list[tuple[int, int, int]],
+    num_drones: int,
+) -> dict[str, Any]:
+    """Build a strict response schema keyed by hierarchical ``(seq, bar, beat)`` addresses.
+
+    Every beat in ``all_keys`` appears as a property; only ``required_keys`` are listed in
+    ``required``. The LLM may emit actions at any of the optional properties or omit them.
+
+    Args:
+        all_keys: Every addressable ``(seq, bar, beat)`` tuple in the song, in time order.
+        required_keys: Subset of ``all_keys`` that the LLM must emit (segment openings).
+        num_drones: Number of drones in the swarm (constrains drone-id ranges).
+
+    Returns:
+        A JSON-Schema dict suitable for OpenAI Responses API ``response_format``.
+
+    Raises:
+        ValueError: If ``all_keys`` or ``num_drones`` is empty / non-positive, or if any
+            entry in ``required_keys`` is missing from ``all_keys``.
+    """
+    if not all_keys:
+        raise ValueError("all_keys must contain at least one (seq, bar, beat) entry")
     if num_drones < 1:
         raise ValueError("num_drones must be >= 1")
-    beat_keys = [str(i) for i in range(1, num_beats + 1)]
+    encoded_all = [encode_key(*addr) for addr in all_keys]
+    encoded_required = [encode_key(*addr) for addr in required_keys]
+    all_set = set(encoded_all)
+    missing = [k for k in encoded_required if k not in all_set]
+    if missing:
+        raise ValueError(f"required_keys not present in all_keys: {missing}")
     return {
         "type": "object",
         "additionalProperties": False,
         "properties": {
             "song_mood": {"type": "string"},
-            "cord_analysis": {"type": "string"},
             "choreography_plan": {"type": "string"},
             "choreography": {
                 "type": "object",
                 "additionalProperties": False,
-                "properties": {
-                    beat_key: {"$ref": "#/$defs/action_list"} for beat_key in beat_keys
-                },
-                "required": beat_keys,
+                "properties": {key: {"$ref": "#/$defs/action_list"} for key in encoded_all},
+                "required": encoded_required,
             },
         },
-        "required": ["song_mood", "cord_analysis", "choreography_plan", "choreography"],
+        "required": ["song_mood", "choreography_plan", "choreography"],
         "$defs": {
             "action": _action_schema(num_drones),
-            "action_list": {
-                "type": "array",
-                "minItems": 1,
-                "items": {"$ref": "#/$defs/action"},
-            },
+            "action_list": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/action"}},
         },
     }
 
@@ -181,13 +237,14 @@ def _args_from_params(primitive: str, params: Any) -> list[Any]:
 
 
 def action_to_motion_primitive(action: dict[str, Any]) -> str:
-    """Convert one structured action object to legacy `primitive(args)` syntax."""
+    """Convert one structured action object to legacy ``primitive(args)`` syntax."""
     if not isinstance(action, dict):
         raise LLMFormatError(
             f"Structured choreography action must be an object, got {type(action).__name__}"
         )
     primitive = action.get("primitive")
     if primitive == "PLAN":
+        # PLAN is no longer part of the schema. Tolerated only for legacy preset payloads.
         params = action.get("params", {})
         args = action.get("args", [])
         if params or args:
@@ -225,20 +282,33 @@ def action_to_motion_primitive(action: dict[str, Any]) -> str:
     return f"{primitive}({rendered_args})"
 
 
-def structured_payload_to_choreography(payload: dict[str, Any]) -> dict[int, str]:
-    """Convert structured OpenAI payload to the existing choreography dictionary format."""
+def structured_payload_to_choreography(payload: dict[str, Any]) -> dict[tuple[int, int, int], str]:
+    """Convert a structured OpenAI payload to a ``(seq, bar, beat)``-keyed choreography dict.
+
+    Args:
+        payload: The structured-output payload from the LLM.
+
+    Returns:
+        Dict mapping ``(seq, bar, beat)`` tuples to action strings (one or more primitive
+        calls separated by ``"; "``).
+
+    Raises:
+        LLMFormatError: If the payload is malformed (wrong field types, unknown keys,
+            empty action lists, etc.).
+    """
     choreography = payload.get("choreography", {})
     if not isinstance(choreography, dict):
         raise LLMFormatError("Structured output field 'choreography' must be an object")
-    converted: dict[int, str] = {}
-    for beat_text, actions in choreography.items():
-        try:
-            beat = int(beat_text)
-        except (TypeError, ValueError) as e:
-            raise LLMFormatError(
-                f"Structured output beat key {beat_text!r} is not an integer"
-            ) from e
+    converted: dict[tuple[int, int, int], str] = {}
+    for key, actions in choreography.items():
+        addr = decode_key(key)
         if not isinstance(actions, list) or len(actions) == 0:
-            raise LLMFormatError(f"Structured output beat {beat} must include non-empty 'actions'")
-        converted[beat] = "; ".join(action_to_motion_primitive(action) for action in actions)
+            raise LLMFormatError(
+                f"Structured output beat {key!r} must include a non-empty action list"
+            )
+        converted[addr] = "; ".join(action_to_motion_primitive(action) for action in actions)
     return converted
+
+
+# Re-exported for callers that want to validate raw key strings without decoding.
+KEY_PATTERN = _KEY_PATTERN
