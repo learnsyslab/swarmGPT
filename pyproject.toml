@@ -114,7 +114,8 @@ web-build = { cmd = "npm --prefix web run build", description = "Build the brows
 [tool.pixi.feature.music.tasks]
 # Re-run after any `pixi install -e music` that upgrades allin1.
 music-patch = { cmd = "python tools/patch_allin1_natten.py", description = "Patch allin1 for NATTEN >=0.17 API rename" }
-analyze = { cmd = "python tools/test_allin1.py", depends-on = ["music-patch"], description = "Smoke-test allin1 on one song" }
+analyze-one = { cmd = "python tools/test_allin1.py", depends-on = ["music-patch"], description = "Smoke-test allin1 on one song" }
+analyze = { cmd = "python tools/analyze_all.py", depends-on = ["music-patch"], description = "Analyze every un-analyzed song in music/" }
 
 [tool.pixi.pypi-dependencies]
 swarmgpt = { path = ".", editable = true }
