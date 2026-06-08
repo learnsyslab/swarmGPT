@@ -113,13 +113,24 @@ class SongStructure:
             A populated SongStructure.
         """
         bars_flat = _group_beats_into_bars(list(result.beats), list(result.beat_positions))
-        segments_out = _assign_bars_to_segments(bars_flat, list(result.segments))
+        segments_out = _drop_empty_segments(
+            _assign_bars_to_segments(bars_flat, list(result.segments))
+        )
+        raw_bpm = result.bpm
+        if raw_bpm is None:
+            beats_list = list(result.beats)
+            if len(beats_list) >= 2:
+                intervals = [beats_list[i + 1] - beats_list[i] for i in range(len(beats_list) - 1)]
+                median_interval = sorted(intervals)[len(intervals) // 2]
+                raw_bpm = 60.0 / median_interval
+            else:
+                raw_bpm = 0
         return cls(
             schema_version=SCHEMA_VERSION,
             source_path=source_path,
             source_sha256=source_sha256,
             analyzer=analyzer,
-            bpm=int(result.bpm),
+            bpm=int(raw_bpm),
             segments=segments_out,
         )
 
@@ -167,6 +178,7 @@ class SongStructure:
             )
             for s in data["segments"]
         ]
+        segments = _drop_empty_segments(segments)
         return cls(
             schema_version=int(data["schema_version"]),
             source_path=str(data["source_path"]),
@@ -212,12 +224,18 @@ class SongStructure:
     def required_keys(self) -> list[tuple[int, int, int]]:
         """Return the ``(seq, bar, beat)`` tuples the LLM must emit actions at.
 
-        Per design: the first beat of the first bar of every segment.
+        Per design: the downbeat (first beat) of every bar, so choreography density tracks the
+        song's metric structure rather than allin1's coarser, sometimes-degenerate segmentation.
 
         Returns:
-            List of ``(seq, 1, 1)`` tuples, one per segment whose first bar is non-empty.
+            List of ``(seq, bar, beat)`` tuples, one per bar that has at least one beat.
         """
-        return [(s.id, 1, 1) for s in self.segments if s.bars and s.bars[0].beats]
+        return [
+            (segment.id, bar.id, bar.beats[0].id)
+            for segment in self.segments
+            for bar in segment.bars
+            if bar.beats
+        ]
 
     def all_keys(self) -> list[tuple[int, int, int]]:
         """Return every addressable ``(seq, bar, beat)`` tuple in the song.
@@ -306,6 +324,25 @@ def _assign_bars_to_segments(
             )
         )
     return segments_out
+
+
+def _drop_empty_segments(segments: list[Segment]) -> list[Segment]:
+    """Drop segments that contain no beats and renumber the survivors from 1.
+
+    allin1 can emit segment boundaries that no beat falls within (e.g. very short
+    sections). Such segments carry nothing to choreograph and would only mislead the LLM,
+    so they are removed and the remaining segment ids are made contiguous.
+
+    Args:
+        segments: Segments in time order, possibly including empty ones.
+
+    Returns:
+        The non-empty segments with ``id`` renumbered to be contiguous from 1.
+    """
+    kept = [seg for seg in segments if seg.bars]
+    for new_id, seg in enumerate(kept, start=1):
+        seg.id = new_id
+    return kept
 
 
 def sha256_of(path: Path) -> str:

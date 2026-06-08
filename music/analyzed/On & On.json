@@ -1,0 +1,251 @@
+{
+  "schema_version": 1,
+  "source_path": "music/On & On.mp3",
+  "source_sha256": "4c887bae38ab4c2ba2dde990ebd68a793aaf0042b775207a49084f58a33426f0",
+  "analyzer": "allin1@unknown",
+  "bpm": 87,
+  "segments": [
+    {
+      "id": 1,
+      "label": "chorus",
+      "start_s": 0.0,
+      "end_s": 3.44,
+      "bars": []
+    },
+    {
+      "id": 2,
+      "label": "chorus",
+      "start_s": 3.44,
+      "end_s": 25.5,
+      "bars": [
+        {
+          "id": 1,
+          "start_s": 3.44,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 3.44,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 4.12,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 4.82,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 5.5,
+              "position_in_bar": 4
+            }
+          ]
+        },
+        {
+          "id": 2,
+          "start_s": 6.2,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 6.2,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 6.88,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 7.57,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 8.26,
+              "position_in_bar": 4
+            }
+          ]
+        },
+        {
+          "id": 3,
+          "start_s": 8.95,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 8.95,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 9.64,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 10.33,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 11.02,
+              "position_in_bar": 4
+            }
+          ]
+        },
+        {
+          "id": 4,
+          "start_s": 11.71,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 11.71,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 12.4,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 13.09,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 13.77,
+              "position_in_bar": 4
+            }
+          ]
+        },
+        {
+          "id": 5,
+          "start_s": 14.46,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 14.46,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 15.16,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 15.85,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 16.54,
+              "position_in_bar": 4
+            }
+          ]
+        },
+        {
+          "id": 6,
+          "start_s": 17.23,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 17.23,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 17.92,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 18.61,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 19.29,
+              "position_in_bar": 4
+            }
+          ]
+        },
+        {
+          "id": 7,
+          "start_s": 19.99,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 19.99,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 20.67,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 21.37,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 22.06,
+              "position_in_bar": 4
+            }
+          ]
+        },
+        {
+          "id": 8,
+          "start_s": 22.75,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 22.75,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 23.43,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 24.13,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 24.82,
+              "position_in_bar": 4
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "label": "chorus",
+      "start_s": 25.5,
+      "end_s": 30.5,
+      "bars": [
+        {
+          "id": 1,
+          "start_s": 25.5,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 25.5,
+              "position_in_bar": 1
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

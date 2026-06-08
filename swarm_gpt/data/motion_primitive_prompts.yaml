@@ -11,7 +11,9 @@ user_initial: |
   <song_structure>
   {segments_table}
   Total addressable beats: {n_total_beats}.
-  Keys take the form s<seg>b<bar>t<beat> (1-indexed). Example: s2b4t1 = segment 2, bar 4, beat 1.
+  Keys take the form s<seg>b<bar>t<beat> (1-indexed): segment, then bar within that segment,
+  then beat within that bar. Any specific keys shown in the example below illustrate FORMAT
+  ONLY — choose keys from THIS song's actual segment/bar/beat counts above.
   </song_structure>
 
   <drones>
@@ -22,10 +24,10 @@ user_initial: |
 
   <rules>
   - REQUIRED keys (must emit one action list at each): {required_keys_csv}
-    These are the first beat of every segment. Your choreography must mark each structural
-    transition.
+    These are the downbeat of every bar. Emit an action at each so the choreography moves
+    with the song's pulse — do not leave the swarm static for long stretches.
   - OPTIONAL keys: any other s<seg>b<bar>t<beat> in the song's address space.
-    Emit additional actions wherever musical intensity warrants a choreographic accent.
+    Emit additional actions wherever musical intensity warrants a finer accent.
   - Drones hold or continue the previous primitive between emitted actions; absent keys
     are fine.
   - No two drones occupy the same position at the same moment.
@@ -98,9 +100,10 @@ output_format: |
 
 output_format_structured: |
   Return JSON only (no markdown). The schema enforces:
-  - Every choreography key matches the pattern s<seg>b<bar>t<beat>.
-  - All REQUIRED keys are present.
-  - Each value is a non-empty list of action objects: {"primitive":"name","params":{...}}.
+  - "choreography" is an array of entries, each {"key":"s<seg>b<bar>t<beat>","actions":[...]}.
+  - Every key matches the pattern s<seg>b<bar>t<beat> and is one of the song's valid addresses.
+  - All REQUIRED keys are present (as entries). Do not repeat a key.
+  - "actions" is a non-empty list of action objects: {"primitive":"name","params":{...}}.
   Use exactly the parameter names from the primitive signature.
 
   Correct JSON param examples:

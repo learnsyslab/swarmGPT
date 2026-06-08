@@ -63,14 +63,17 @@ def test_decode_key_rejects_malformed():
         decode_key("1")
 
 
-def test_schema_lists_all_keys_in_properties_only_segment_openings_required():
+def test_schema_lists_all_keys_in_enum_as_array_of_entries():
     structure = _simple_structure(n_segments=2, n_bars=1, n_beats=4)
     schema = build_motion_primitive_response_schema(
         all_keys=structure.all_keys(), required_keys=structure.required_keys(), num_drones=5
     )
     choreography = schema["properties"]["choreography"]
-    # 2 segments × 1 bar × 4 beats = 8 addressable keys total.
-    assert set(choreography["properties"]) == {
+    # choreography is an array of {key, actions} entries.
+    assert choreography["type"] == "array"
+    item = choreography["items"]
+    # 2 segments × 1 bar × 4 beats = 8 addressable keys, all offered via the key enum.
+    assert set(item["properties"]["key"]["enum"]) == {
         "s1b1t1",
         "s1b1t2",
         "s1b1t3",
@@ -80,9 +83,9 @@ def test_schema_lists_all_keys_in_properties_only_segment_openings_required():
         "s2b1t3",
         "s2b1t4",
     }
-    # Only segment openings are required.
-    assert choreography["required"] == ["s1b1t1", "s2b1t1"]
-    assert choreography["additionalProperties"] is False
+    # Strict mode: both fields of an entry are required.
+    assert item["required"] == ["key", "actions"]
+    assert item["additionalProperties"] is False
 
 
 def test_schema_rejects_required_keys_not_in_all_keys():
@@ -100,15 +103,21 @@ def test_structured_payload_to_choreography_uses_hierarchical_keys():
     payload = {
         "song_mood": "calm",
         "choreography_plan": "simple",
-        "choreography": {
-            "s1b1t1": [
-                {"primitive": "form_circle", "params": {"drone_ids": [1, 2], "radius_cm": 100}}
-            ],
-            "s2b1t1": [
-                {"primitive": "rotate", "params": {"angle_deg": 90, "axis": "z"}},
-                {"primitive": "move_z", "params": {"drone_ids": [1], "delta_cm": 10}},
-            ],
-        },
+        "choreography": [
+            {
+                "key": "s1b1t1",
+                "actions": [
+                    {"primitive": "form_circle", "params": {"drone_ids": [1, 2], "radius_cm": 100}}
+                ],
+            },
+            {
+                "key": "s2b1t1",
+                "actions": [
+                    {"primitive": "rotate", "params": {"angle_deg": 90, "axis": "z"}},
+                    {"primitive": "move_z", "params": {"drone_ids": [1], "delta_cm": 10}},
+                ],
+            },
+        ],
     }
 
     choreography = choreographer._structured_payload_to_choreography(payload)
@@ -127,19 +136,22 @@ def test_structured_payload_to_choreography_rejects_unexpected_named_params():
     payload = {
         "song_mood": "calm",
         "choreography_plan": "simple",
-        "choreography": {
-            "s1b1t1": [
-                {
-                    "primitive": "form_cone",
-                    "params": {
-                        "drone_ids": [1, 2, 3],
-                        "delta_height_cm": 60,
-                        "spacing_cm": 60,
-                        "is_inverted": 0,
-                    },
-                }
-            ]
-        },
+        "choreography": [
+            {
+                "key": "s1b1t1",
+                "actions": [
+                    {
+                        "primitive": "form_cone",
+                        "params": {
+                            "drone_ids": [1, 2, 3],
+                            "delta_height_cm": 60,
+                            "spacing_cm": 60,
+                            "is_inverted": 0,
+                        },
+                    }
+                ],
+            }
+        ],
     }
     with pytest.raises(LLMFormatError, match="unexpected \\['drone_ids'\\]"):
         choreographer._structured_payload_to_choreography(payload)
@@ -159,9 +171,14 @@ def test_call_responses_structured_includes_json_schema_format():
             payload = {
                 "song_mood": "energetic",
                 "choreography_plan": "test",
-                "choreography": {
-                    "s1b1t1": [{"primitive": "rotate", "params": {"angle_deg": 0, "axis": "z"}}]
-                },
+                "choreography": [
+                    {
+                        "key": "s1b1t1",
+                        "actions": [
+                            {"primitive": "rotate", "params": {"angle_deg": 0, "axis": "z"}}
+                        ],
+                    }
+                ],
             }
             return SimpleNamespace(error=None, output_text=json.dumps(payload))
 
@@ -173,15 +190,14 @@ def test_call_responses_structured_includes_json_schema_format():
 
     parsed = choreographer._call_responses_structured(messages, structure=structure)
 
-    assert "s1b1t1" in parsed["choreography"]
+    assert parsed["choreography"][0]["key"] == "s1b1t1"
     assert captured["text"]["format"]["type"] == "json_schema"
     assert captured["text"]["format"]["name"] == "swarmgpt_choreography"
     assert captured["text"]["format"]["strict"] is True
     schema = captured["text"]["format"]["schema"]
-    assert schema["properties"]["choreography"]["required"] == ["s1b1t1"]
-    assert schema["properties"]["choreography"]["properties"]["s1b1t1"] == {
-        "$ref": "#/$defs/action_list"
-    }
+    item = schema["properties"]["choreography"]["items"]
+    assert item["properties"]["key"]["enum"] == ["s1b1t1"]
+    assert item["properties"]["actions"] == {"$ref": "#/$defs/action_list"}
     action_schema = schema["$defs"]["action"]
     variants = action_schema["anyOf"]
     assert any(
@@ -226,9 +242,12 @@ def test_call_responses_structured_ollama_uses_native_chat(monkeypatch: pytest.M
         payload = {
             "song_mood": "energetic",
             "choreography_plan": "test",
-            "choreography": {
-                "s1b1t1": [{"primitive": "rotate", "params": {"angle_deg": 0, "axis": "z"}}]
-            },
+            "choreography": [
+                {
+                    "key": "s1b1t1",
+                    "actions": [{"primitive": "rotate", "params": {"angle_deg": 0, "axis": "z"}}],
+                }
+            ],
         }
         return {"message": {"content": json.dumps(payload)}}
 
@@ -237,13 +256,14 @@ def test_call_responses_structured_ollama_uses_native_chat(monkeypatch: pytest.M
         [{"role": "user", "content": "hello"}], structure=structure
     )
 
-    assert parsed["choreography"]["s1b1t1"][0]["primitive"] == "rotate"
+    assert parsed["choreography"][0]["actions"][0]["primitive"] == "rotate"
     assert captured["model"] == choreographer.model_id
-    assert captured["format"]["properties"]["choreography"]["required"] == ["s1b1t1"]
+    assert captured["format"]["properties"]["choreography"]["items"]["properties"]["key"][
+        "enum"
+    ] == ["s1b1t1"]
     tail = captured["messages"][-1]["content"]
     assert "Return valid JSON only. Match the provided response format exactly." in tail
     assert "never positional args arrays" in tail
-    assert '"required":["s1b1t1"]' not in tail
     assert captured["options"]["temperature"] == RESPONSES_TEMPERATURE
 
 
@@ -300,9 +320,12 @@ def test_generate_choreography_ollama_raises_when_structured_payload_incomplete(
         choreographer,
         "_call_responses_structured",
         lambda *_args, **_kwargs: {
-            "choreography": {
-                "s1b1t1": [{"primitive": "rotate", "params": {"angle_deg": 0, "axis": "z"}}]
-            }
+            "choreography": [
+                {
+                    "key": "s1b1t1",
+                    "actions": [{"primitive": "rotate", "params": {"angle_deg": 0, "axis": "z"}}],
+                }
+            ]
         },
     )
     with pytest.raises(LLMFormatError, match="missing required keys"):

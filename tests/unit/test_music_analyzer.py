@@ -92,9 +92,16 @@ def test_time_of_raises_for_missing_key() -> None:
         structure.time_of(99, 1, 1)
 
 
-def test_required_keys_are_segment_openings() -> None:
+def test_required_keys_are_bar_downbeats() -> None:
+    # One bar per segment here, so the downbeats coincide with the segment openings.
     structure = _build(_three_segment_song_4_4())
     assert structure.required_keys() == [(1, 1, 1), (2, 1, 1), (3, 1, 1)]
+
+
+def test_required_keys_cover_every_bar() -> None:
+    # Two bars in one segment: both bar downbeats are required, not just the segment opening.
+    structure = _build(_waltz_song_3_4())
+    assert structure.required_keys() == [(1, 1, 1), (1, 2, 1)]
 
 
 def test_all_keys_covers_every_beat() -> None:

@@ -1,0 +1,225 @@
+{
+  "schema_version": 1,
+  "source_path": "music/Still D.R.E.mp3",
+  "source_sha256": "d17e6b53a3f0b4689dfca49ffce16ede29b18cf1e3fe0dead8014b1612f57209",
+  "analyzer": "allin1@unknown",
+  "bpm": 94,
+  "segments": [
+    {
+      "id": 1,
+      "label": "intro",
+      "start_s": 0.0,
+      "end_s": 20.8,
+      "bars": [
+        {
+          "id": 1,
+          "start_s": 0.44,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 0.44,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 1.1,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 1.75,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 2.38,
+              "position_in_bar": 4
+            }
+          ]
+        },
+        {
+          "id": 2,
+          "start_s": 3.0,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 3.0,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 3.66,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 4.29,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 4.93,
+              "position_in_bar": 4
+            }
+          ]
+        },
+        {
+          "id": 3,
+          "start_s": 5.57,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 5.57,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 6.21,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 6.86,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 7.5,
+              "position_in_bar": 4
+            }
+          ]
+        },
+        {
+          "id": 4,
+          "start_s": 8.13,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 8.13,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 8.78,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 9.42,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 10.05,
+              "position_in_bar": 4
+            }
+          ]
+        },
+        {
+          "id": 5,
+          "start_s": 10.69,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 10.69,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 11.33,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 11.97,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 12.62,
+              "position_in_bar": 4
+            }
+          ]
+        },
+        {
+          "id": 6,
+          "start_s": 13.26,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 13.26,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 13.9,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 14.54,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 15.18,
+              "position_in_bar": 4
+            }
+          ]
+        },
+        {
+          "id": 7,
+          "start_s": 15.83,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 15.83,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 16.47,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 17.11,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 17.76,
+              "position_in_bar": 4
+            }
+          ]
+        },
+        {
+          "id": 8,
+          "start_s": 18.4,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 18.4,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 19.04,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 19.68,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 20.32,
+              "position_in_bar": 4
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

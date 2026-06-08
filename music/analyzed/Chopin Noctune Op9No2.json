@@ -1,0 +1,42 @@
+{
+  "schema_version": 1,
+  "source_path": "music/Chopin Noctune Op9No2.mp3",
+  "source_sha256": "bd8c0cb011143b862f68dab96c50bdad302e7faf701ead3a9f43bb8aa74970fe",
+  "analyzer": "allin1@unknown",
+  "bpm": 0,
+  "segments": [
+    {
+      "id": 1,
+      "label": "start",
+      "start_s": 0.0,
+      "end_s": 0.92,
+      "bars": []
+    },
+    {
+      "id": 2,
+      "label": "intro",
+      "start_s": 0.92,
+      "end_s": 28.99,
+      "bars": [
+        {
+          "id": 1,
+          "start_s": 19.81,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 19.81,
+              "position_in_bar": 2
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "label": "start",
+      "start_s": 28.99,
+      "end_s": 29.0,
+      "bars": []
+    }
+  ]
+}

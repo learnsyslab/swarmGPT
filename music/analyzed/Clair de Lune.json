@@ -1,0 +1,229 @@
+{
+  "schema_version": 1,
+  "source_path": "music/Clair de Lune.mp3",
+  "source_sha256": "ec978e3db10811d3647ccc81b01ea82bdc17967ec63323b88f7b8718c79099be",
+  "analyzer": "allin1@unknown",
+  "bpm": 62,
+  "segments": [
+    {
+      "id": 1,
+      "label": "start",
+      "start_s": 0.0,
+      "end_s": 0.99,
+      "bars": []
+    },
+    {
+      "id": 2,
+      "label": "intro",
+      "start_s": 0.99,
+      "end_s": 29.97,
+      "bars": [
+        {
+          "id": 1,
+          "start_s": 1.63,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 1.63,
+              "position_in_bar": 2
+            },
+            {
+              "id": 2,
+              "time_s": 2.59,
+              "position_in_bar": 3
+            },
+            {
+              "id": 3,
+              "time_s": 3.48,
+              "position_in_bar": 4
+            }
+          ]
+        },
+        {
+          "id": 2,
+          "start_s": 4.45,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 4.45,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 5.41,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 6.34,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 7.2,
+              "position_in_bar": 4
+            }
+          ]
+        },
+        {
+          "id": 3,
+          "start_s": 8.15,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 8.15,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 9.0,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 9.94,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 10.89,
+              "position_in_bar": 4
+            }
+          ]
+        },
+        {
+          "id": 4,
+          "start_s": 11.86,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 11.86,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 12.78,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 13.81,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 14.89,
+              "position_in_bar": 4
+            }
+          ]
+        },
+        {
+          "id": 5,
+          "start_s": 15.96,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 15.96,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 16.91,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 17.85,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 18.81,
+              "position_in_bar": 4
+            }
+          ]
+        },
+        {
+          "id": 6,
+          "start_s": 19.77,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 19.77,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 20.74,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 21.72,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 22.65,
+              "position_in_bar": 4
+            }
+          ]
+        },
+        {
+          "id": 7,
+          "start_s": 23.56,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 23.56,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 24.31,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 25.0,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 25.7,
+              "position_in_bar": 4
+            }
+          ]
+        },
+        {
+          "id": 8,
+          "start_s": 26.41,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 26.41,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 27.06,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 27.76,
+              "position_in_bar": 3
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "label": "start",
+      "start_s": 29.97,
+      "end_s": 29.98,
+      "bars": []
+    }
+  ]
+}

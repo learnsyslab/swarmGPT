@@ -1,0 +1,272 @@
+{
+  "schema_version": 1,
+  "source_path": "music/Mozart Serenade in G, Eine kleine Nachtmusik.mp3",
+  "source_sha256": "b7ccce2b43be39dde81ecf7fbd5102c311b7c8c488264cdfb87b7260323de1f7",
+  "analyzer": "allin1@unknown",
+  "bpm": 143,
+  "segments": [
+    {
+      "id": 1,
+      "label": "start",
+      "start_s": 0.0,
+      "end_s": 0.59,
+      "bars": []
+    },
+    {
+      "id": 2,
+      "label": "intro",
+      "start_s": 0.59,
+      "end_s": 16.05,
+      "bars": [
+        {
+          "id": 1,
+          "start_s": 0.61,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 0.61,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 1.08,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 1.55,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 1.99,
+              "position_in_bar": 4
+            }
+          ]
+        },
+        {
+          "id": 2,
+          "start_s": 2.46,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 2.46,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 2.89,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 3.34,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 3.83,
+              "position_in_bar": 4
+            }
+          ]
+        },
+        {
+          "id": 3,
+          "start_s": 4.28,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 4.28,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 4.75,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 5.24,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 5.7,
+              "position_in_bar": 4
+            }
+          ]
+        },
+        {
+          "id": 4,
+          "start_s": 6.17,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 6.17,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 6.62,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 7.08,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 7.56,
+              "position_in_bar": 4
+            }
+          ]
+        },
+        {
+          "id": 5,
+          "start_s": 8.02,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 8.02,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 8.48,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 8.9,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 9.33,
+              "position_in_bar": 4
+            }
+          ]
+        },
+        {
+          "id": 6,
+          "start_s": 9.74,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 9.74,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 10.16,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 10.58,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 11.01,
+              "position_in_bar": 4
+            }
+          ]
+        },
+        {
+          "id": 7,
+          "start_s": 11.43,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 11.43,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 11.85,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 12.27,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 12.68,
+              "position_in_bar": 4
+            }
+          ]
+        },
+        {
+          "id": 8,
+          "start_s": 13.1,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 13.1,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 13.53,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 13.95,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 14.37,
+              "position_in_bar": 4
+            }
+          ]
+        },
+        {
+          "id": 9,
+          "start_s": 14.8,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 14.8,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 15.21,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 15.64,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 16.05,
+              "position_in_bar": 4
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "label": "intro",
+      "start_s": 16.05,
+      "end_s": 33.99,
+      "bars": []
+    },
+    {
+      "id": 4,
+      "label": "intro",
+      "start_s": 33.99,
+      "end_s": 34.02,
+      "bars": []
+    }
+  ]
+}

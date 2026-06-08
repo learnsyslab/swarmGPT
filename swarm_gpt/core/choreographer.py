@@ -575,7 +575,11 @@ class Choreographer:
                 motion_primitives[synth_idx].append({fn_name: fn_args})
 
         timestamps = np.array([t for t, _, _ in ordered])
-        t, pos = self._motion_primitives2time_and_pos(motion_primitives, timestamps)
+        # Forward-looking semantics: the last emitted primitive plays until the song ends.
+        t_end = structure.segments[-1].end_s
+        if t_end <= timestamps[-1]:
+            t_end = float(timestamps[-1]) + 1.0  # guard against a zero-length final interval
+        t, pos = self._motion_primitives2time_and_pos(motion_primitives, timestamps, t_end)
         return {"time": t, "pos": pos, "vel": np.zeros_like(pos), "acc": np.zeros_like(pos)}
 
     def _raw_response2waypoints(self, text: str, timestamps: NDArray) -> dict[int, np.ndarray]:
@@ -660,9 +664,13 @@ class Choreographer:
         return dict(sorted(choreography_steps.items()))
 
     def _motion_primitives2time_and_pos(
-        self, motion_primitives: dict, timestamps: NDArray
+        self, motion_primitives: dict, timestamps: NDArray, t_end: float
     ) -> tuple[NDArray, NDArray]:
-        """Convert motion primitives to waypoint.
+        """Convert motion primitives to waypoints over forward-looking intervals.
+
+        Each primitive plays from its own action time until the next action's time; the final
+        primitive runs until ``t_end`` (the song's end). Drones hold their start positions
+        until the first action.
 
         Returns:
             The motion primitive waypoint timings and positions.
@@ -671,10 +679,10 @@ class Choreographer:
         # TODO: Remove all conversions into cm
         swarm_pos = np.array(list(self.starting_pos.values())) * 100
         waypoints[0] = {i: p.copy() for i, p in enumerate(swarm_pos)}
-        # Add time information to the motion_primitives, filter out PLAN motion_primitives, add
-        # additional time to the function before plan
-        timestamps = np.concatenate(([0], timestamps))  # Add 0 start time
-        motion_primitives = self._merge_motion_primitives(motion_primitives, timestamps)
+        # Forward-looking intervals: primitive i plays [T_i, T_{i+1}], the last one to t_end.
+        # _merge_motion_primitives reads tstart=timesteps[i-1], tend=timesteps[i] for key i.
+        timesteps = np.concatenate((timestamps, [t_end]))
+        motion_primitives = self._merge_motion_primitives(motion_primitives, timesteps)
         for motion_primitive in motion_primitives.values():
             for fn, args in zip(motion_primitive["fn"], motion_primitive["args"]):
                 swarm_pos, _waypoints = self._primitive2waypoints(

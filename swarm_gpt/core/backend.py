@@ -18,6 +18,7 @@ from swarm_gpt.core import Choreographer
 from swarm_gpt.core.sim import replay_sim_states, simulate_axswarm
 from swarm_gpt.exception import LLMException
 from swarm_gpt.utils import MusicManager, generate_default_colors
+from swarm_gpt.utils.music_analyzer import SongStructure
 
 if TYPE_CHECKING:
     from numpy.typing import NDArray as Array
@@ -192,9 +193,9 @@ class AppBackend:
         """
         logger.info(f"Generating initial choreography for song: {song}")
         song_name = self._load_song(song)
-        music_info = self.music_manager.extract_song_info()
+        structure = self._load_structure(song_name)
         self.choreographer.reset_history()
-        prompt = self.choreographer.format_initial_prompt(song_name, music_info)
+        prompt = self.choreographer.format_initial_prompt(song_name, structure)
 
         fixed_response = response is not None
         if preset := song in self.presets:  # Preset was provided
@@ -205,13 +206,11 @@ class AppBackend:
             self.choreographer.messages.append({"role": "assistant", "content": response})
         else:  # Use LLM to generate the choreography
             logger.debug(f"Using LLM to generate choreography for song: {song_name}")
-            response = self.choreographer.generate_choreography(
-                prompt, num_beats=len(music_info["beat_times"])
-            )
+            response = self.choreographer.generate_choreography(prompt, structure=structure)
 
         try:
             self.waypoints = self.choreographer.response2waypoints(
-                response, music_info=music_info, strict=self._strict_processing
+                response, structure, strict=self._strict_processing
             )
         except LLMException as e:
             # We do not want to retry if we are using a preset or a fixed response. This
@@ -238,12 +237,10 @@ class AppBackend:
             logger.warning("No message provided, returning current history")
             return self.choreographer.messages
         prompt = self.choreographer.format_reprompt(message)
-        music_info = self.music_manager.extract_song_info()
-        response = self.choreographer.generate_choreography(
-            prompt, num_beats=len(music_info["beat_times"])
-        )
+        structure = self._load_structure(self.music_manager.song)
+        response = self.choreographer.generate_choreography(prompt, structure=structure)
         self.waypoints = self.choreographer.response2waypoints(
-            response, music_info=music_info, strict=self._strict_processing
+            response, structure, strict=self._strict_processing
         )
         logger.info("Successfully generated choreography")
         return self.choreographer.messages
@@ -503,3 +500,19 @@ class AppBackend:
             song = self.parse_preset_id(song)["song"]
         self.music_manager.song = song
         return song
+
+    def _load_structure(self, song_name: str) -> SongStructure:
+        """Load the cached SongStructure JSON for a song.
+
+        Args:
+            song_name: Stem of the MP3 file (no extension).
+
+        Raises:
+            FileNotFoundError: If no analysis JSON exists yet for the song.
+        """
+        json_path = self.root_path / "music" / "analyzed" / f"{song_name}.json"
+        if not json_path.exists():
+            raise FileNotFoundError(
+                f"No analysis found for '{song_name}'. Run `pixi run -e music analyze` first."
+            )
+        return SongStructure.from_json(json_path)

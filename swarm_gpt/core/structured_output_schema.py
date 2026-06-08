@@ -1,9 +1,10 @@
 """Structured output schema helpers for OpenAI Responses API.
 
 Keys take the hierarchical form ``"s{seq}b{bar}t{beat}"`` (e.g. ``"s2b4t1"`` = segment 2,
-bar 4, beat 1). The choreographer addresses moments at this granularity; the schema lists
-every addressable beat as an optional property and marks only segment-opening beats as
-required.
+bar 4, beat 1). The choreographer addresses moments at this granularity; the schema models
+``choreography`` as an array of ``{"key", "actions"}`` entries, with ``key`` constrained to
+an enum of every addressable beat. The LLM emits only the entries it wants; presence of the
+required segment-opening keys is validated downstream.
 """
 
 from __future__ import annotations
@@ -143,8 +144,10 @@ def build_motion_primitive_response_schema(
 ) -> dict[str, Any]:
     """Build a strict response schema keyed by hierarchical ``(seq, bar, beat)`` addresses.
 
-    Every beat in ``all_keys`` appears as a property; only ``required_keys`` are listed in
-    ``required``. The LLM may emit actions at any of the optional properties or omit them.
+    ``choreography`` is an array of ``{"key", "actions"}`` entries; ``key`` is constrained to
+    an enum of every beat in ``all_keys``. OpenAI strict mode requires all object properties be
+    required, so per-entry both fields are required; the LLM controls sparseness by emitting
+    only the entries it wants. Presence of ``required_keys`` is validated downstream, not here.
 
     Args:
         all_keys: Every addressable ``(seq, bar, beat)`` tuple in the song, in time order.
@@ -175,10 +178,16 @@ def build_motion_primitive_response_schema(
             "song_mood": {"type": "string"},
             "choreography_plan": {"type": "string"},
             "choreography": {
-                "type": "object",
-                "additionalProperties": False,
-                "properties": {key: {"$ref": "#/$defs/action_list"} for key in encoded_all},
-                "required": encoded_required,
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "properties": {
+                        "key": {"type": "string", "enum": encoded_all},
+                        "actions": {"$ref": "#/$defs/action_list"},
+                    },
+                    "required": ["key", "actions"],
+                },
             },
         },
         "required": ["song_mood", "choreography_plan", "choreography"],
@@ -294,14 +303,24 @@ def structured_payload_to_choreography(payload: dict[str, Any]) -> dict[tuple[in
 
     Raises:
         LLMFormatError: If the payload is malformed (wrong field types, unknown keys,
-            empty action lists, etc.).
+            empty action lists, duplicate keys, etc.).
     """
-    choreography = payload.get("choreography", {})
-    if not isinstance(choreography, dict):
-        raise LLMFormatError("Structured output field 'choreography' must be an object")
+    choreography = payload.get("choreography", [])
+    if not isinstance(choreography, list):
+        raise LLMFormatError("Structured output field 'choreography' must be an array")
     converted: dict[tuple[int, int, int], str] = {}
-    for key, actions in choreography.items():
+    for entry in choreography:
+        if not isinstance(entry, dict):
+            raise LLMFormatError(
+                "Each choreography entry must be an object with 'key' and 'actions'"
+            )
+        key = entry.get("key")
+        actions = entry.get("actions")
+        if not isinstance(key, str):
+            raise LLMFormatError("Choreography entry 'key' must be a string")
         addr = decode_key(key)
+        if addr in converted:
+            raise LLMFormatError(f"Duplicate choreography key {key!r}")
         if not isinstance(actions, list) or len(actions) == 0:
             raise LLMFormatError(
                 f"Structured output beat {key!r} must include a non-empty action list"

@@ -1,0 +1,297 @@
+{
+  "schema_version": 1,
+  "source_path": "music/Radetzky March.mp3",
+  "source_sha256": "1b7b71adaf4ba81e7741b263c7e3734ccb3556b69c215416467108d458664aeb",
+  "analyzer": "allin1@unknown",
+  "bpm": 105,
+  "segments": [
+    {
+      "id": 1,
+      "label": "start",
+      "start_s": 0.0,
+      "end_s": 0.02,
+      "bars": []
+    },
+    {
+      "id": 2,
+      "label": "intro",
+      "start_s": 0.02,
+      "end_s": 24.23,
+      "bars": [
+        {
+          "id": 1,
+          "start_s": 0.56,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 0.56,
+              "position_in_bar": 2
+            },
+            {
+              "id": 2,
+              "time_s": 1.13,
+              "position_in_bar": 3
+            },
+            {
+              "id": 3,
+              "time_s": 1.73,
+              "position_in_bar": 4
+            }
+          ]
+        },
+        {
+          "id": 2,
+          "start_s": 2.32,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 2.32,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 2.89,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 3.49,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 4.05,
+              "position_in_bar": 4
+            }
+          ]
+        },
+        {
+          "id": 3,
+          "start_s": 4.65,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 4.65,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 5.21,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 5.77,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 6.34,
+              "position_in_bar": 4
+            }
+          ]
+        },
+        {
+          "id": 4,
+          "start_s": 6.9,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 6.9,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 7.47,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 8.04,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 8.61,
+              "position_in_bar": 4
+            }
+          ]
+        },
+        {
+          "id": 5,
+          "start_s": 9.18,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 9.18,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 9.77,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 10.35,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 10.92,
+              "position_in_bar": 4
+            }
+          ]
+        },
+        {
+          "id": 6,
+          "start_s": 11.5,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 11.5,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 12.1,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 12.7,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 13.3,
+              "position_in_bar": 4
+            }
+          ]
+        },
+        {
+          "id": 7,
+          "start_s": 13.91,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 13.91,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 14.51,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 15.09,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 15.65,
+              "position_in_bar": 4
+            }
+          ]
+        },
+        {
+          "id": 8,
+          "start_s": 16.23,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 16.23,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 16.82,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 17.39,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 17.97,
+              "position_in_bar": 4
+            }
+          ]
+        },
+        {
+          "id": 9,
+          "start_s": 18.56,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 18.56,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 19.14,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 19.76,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 20.35,
+              "position_in_bar": 4
+            }
+          ]
+        },
+        {
+          "id": 10,
+          "start_s": 20.96,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 20.96,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 21.54,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 22.13,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 22.71,
+              "position_in_bar": 4
+            }
+          ]
+        },
+        {
+          "id": 11,
+          "start_s": 23.3,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 23.3,
+              "position_in_bar": 1
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "label": "intro",
+      "start_s": 24.23,
+      "end_s": 24.25,
+      "bars": []
+    }
+  ]
+}
