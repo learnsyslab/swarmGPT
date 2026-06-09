@@ -389,7 +389,13 @@ def create_app(config: ApiConfig | None = None) -> FastAPI:
 
     @app.get("/api/media/music/{song}")
     def music(song: str) -> FileResponse:
-        return FileResponse(_safe_music_path(config, song), media_type="audio/mpeg")
+        # no-cache forces the browser to revalidate (cheap 304 via ETag/Last-Modified) so a
+        # swapped-out MP3 at the same URL is never served stale from the browser cache.
+        return FileResponse(
+            _safe_music_path(config, song),
+            media_type="audio/mpeg",
+            headers={"Cache-Control": "no-cache"},
+        )
 
     @app.post("/api/jobs", status_code=202)
     def create_job(request: JobRequest) -> dict[str, Any]:
