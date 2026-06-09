@@ -472,13 +472,13 @@ class Choreographer:
         """
         logger.debug("Converting LLM output into waypoints")
         if self.use_motion_primitives:
-            choreo = self._response2choreo(text)
+            choreo = self._response2choreo(text, structure)
             waypoints = self._choreo2waypoints(choreo, structure)
         else:
             # Raw-waypoint mode predates the structure rewrite and still expects a flat
             # beat_times list. Pull it from the structure for the time being.
             flat_times = [b.time_s for s in structure.segments for bar in s.bars for b in bar.beats]
-            waypoints = self._raw_response2waypoints(text, np.asarray(flat_times))
+            waypoints = self._raw_response2waypoints(text, np.asarray(flat_times), structure)
         # Clip waypoint values to the physical limits
         waypoints["pos"] = np.clip(waypoints["pos"], self.lim_lower, self.lim_upper)
         if strict:
@@ -500,10 +500,12 @@ class Choreographer:
 
         return waypoints
 
-    def _response2choreo(self, text: str) -> dict[tuple[int, int, int], str]:
+    def _response2choreo(
+        self, text: str, structure: SongStructure | None = None
+    ) -> dict[tuple[int, int, int], str]:
         """Translate the LLM output into a (seq, bar, beat) -> action-string choreography."""
         assert self.use_motion_primitives, "Motion primitives not set in _response2choreo"
-        choreography = self._slice_choreography_from_text(text)
+        choreography = self._slice_choreography_from_text(text, structure)
         # PLAN is not in the new schema but tolerated for legacy / preset payloads.
         for addr, moves in list(choreography.items()):
             if any(k in moves for k in ["helix", "spiral", "zig_zag", "wave"]) and moves.endswith(
@@ -588,10 +590,12 @@ class Choreographer:
         t, pos = self._motion_primitives2time_and_pos(motion_primitives, timestamps, t_end)
         return {"time": t, "pos": pos, "vel": np.zeros_like(pos), "acc": np.zeros_like(pos)}
 
-    def _raw_response2waypoints(self, text: str, timestamps: NDArray) -> dict[int, np.ndarray]:
+    def _raw_response2waypoints(
+        self, text: str, timestamps: NDArray, structure: SongStructure | None = None
+    ) -> dict[int, np.ndarray]:
         """Translate the raw LLM output into waypoints."""
         assert not self.use_motion_primitives, "Motion primitives set in raw response processing"
-        choreography = self._slice_choreography_from_text(text)
+        choreography = self._slice_choreography_from_text(text, structure)
         if missing := set(range(1, len(timestamps) + 1)) - set(choreography.keys()):
             raise LLMResponseProcessingError(f"Choreography plan is missing waypoints {missing}")
 
@@ -613,7 +617,9 @@ class Choreographer:
         return {"time": t, "pos": pos, "vel": np.zeros_like(pos), "acc": np.zeros_like(pos)}
 
     @staticmethod
-    def _slice_choreography_from_text(text: str) -> dict[tuple[int, int, int], str]:
+    def _slice_choreography_from_text(
+        text: str, structure: SongStructure | None = None
+    ) -> dict[tuple[int, int, int], str]:
         """Extract the choreography from the YAML output of the LLM.
 
         The LLM output may not be valid YAML (formatting, quotes, dashes). We slice the
@@ -622,6 +628,8 @@ class Choreographer:
 
         Args:
             text: The YAML output of the LLM.
+            structure: Optional song structure used to annotate each key with its resolved
+                ``time_of`` value in the debug print. Has no effect on parsing.
 
         Returns:
             Dict mapping ``(seq, bar, beat)`` tuples to action strings.
@@ -633,9 +641,22 @@ class Choreographer:
             yaml_text = text
 
         if DEBUG_LLM_OUTPUT:
+            debug_text = yaml_text
+            if structure is not None:
+
+                def _annotate(match: re.Match[str]) -> str:
+                    key = match.group(1)
+                    try:
+                        seq, bar, beat = decode_key(key)
+                        t = structure.time_of(seq, bar, beat)
+                        return f"{key} [t={t:.2f}s]:"
+                    except (LLMFormatError, KeyError):
+                        return f"{key} [t=?]:"
+
+                debug_text = re.sub(rf"({KEY_PATTERN}):", _annotate, yaml_text)
             print("\n" + "=" * 80)
             print("EXTRACTED YAML TEXT (after slicing):")
-            print(yaml_text)
+            print(debug_text)
             print("=" * 80 + "\n")
 
         # Step 1: Extract the chunk between `choreography:` and `END` or end of file.
