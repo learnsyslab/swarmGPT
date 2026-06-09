@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "source_path": "music/songs/Dance of the Flying Machines.mp3",
   "source_sha256": "e85f0baed9e9740509927214dd5783070828d1c7fe630ea070db9eaf87069086",
   "analyzer": "allin1@unknown",
@@ -311,7 +311,7 @@
             },
             {
               "id": 4,
-              "time_s": 23.73,
+              "time_s": 23.72,
               "position_in_bar": 4
             }
           ]
@@ -327,7 +327,7 @@
             },
             {
               "id": 2,
-              "time_s": 24.8,
+              "time_s": 24.79,
               "position_in_bar": 2
             },
             {
@@ -391,5 +391,25 @@
         }
       ]
     }
+  ],
+  "rms_per_2bar": [
+    0.14,
+    0.23,
+    0.24,
+    0.27,
+    0.42,
+    0.93,
+    0.91,
+    1.0
+  ],
+  "centroid_per_2bar": [
+    0.72,
+    0.96,
+    1.0,
+    0.95,
+    0.25,
+    0.61,
+    0.61,
+    0.59
   ]
 }
