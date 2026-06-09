@@ -261,6 +261,63 @@ class SongStructure:
             for beat in bar.beats
         ]
 
+    def crop(self, start_s: float, end_s: float) -> SongStructure:
+        """Return a copy restricted to the window ``[start_s, end_s]``, rebased to 0.
+
+        Keeps only beats whose time falls within the window, drops bars and segments left
+        empty, renumbers all ids contiguously from 1, and shifts every time so the window
+        starts at 0:00. The simulator and player both expect a 0-based timeline, so this is
+        applied at load time while the on-disk full-song JSON is left untouched.
+
+        Args:
+            start_s: Window start in seconds (song-absolute).
+            end_s: Window end in seconds (song-absolute).
+
+        Returns:
+            A new SongStructure spanning ``[0, end_s - start_s]``.
+
+        Raises:
+            ValueError: If ``end_s`` is not greater than ``start_s``.
+        """
+        if end_s <= start_s:
+            raise ValueError(f"crop end ({end_s}) must be greater than start ({start_s})")
+        segments_out: list[Segment] = []
+        for seg in self.segments:
+            bars_out: list[Bar] = []
+            for bar in seg.bars:
+                beats_in = [b for b in bar.beats if start_s <= b.time_s <= end_s]
+                if not beats_in:
+                    continue
+                bars_out.append(
+                    Bar(
+                        id=len(bars_out) + 1,
+                        start_s=beats_in[0].time_s - start_s,
+                        beats=[
+                            Beat(id=i, time_s=b.time_s - start_s, position_in_bar=b.position_in_bar)
+                            for i, b in enumerate(beats_in, start=1)
+                        ],
+                    )
+                )
+            if not bars_out:
+                continue
+            segments_out.append(
+                Segment(
+                    id=len(segments_out) + 1,
+                    label=seg.label,
+                    start_s=max(seg.start_s, start_s) - start_s,
+                    end_s=min(seg.end_s, end_s) - start_s,
+                    bars=bars_out,
+                )
+            )
+        return SongStructure(
+            schema_version=self.schema_version,
+            source_path=self.source_path,
+            source_sha256=self.source_sha256,
+            analyzer=self.analyzer,
+            bpm=self.bpm,
+            segments=segments_out,
+        )
+
 
 def _group_beats_into_bars(
     beats: list[float], positions: list[int]

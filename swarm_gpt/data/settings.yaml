@@ -8,6 +8,23 @@ choreography:
                         # 1 = every bar; 4 = first bar of each segment + every 4th bar after.
                         # Beats in between stay addressable as encouraged-but-optional accents.
 
+# Per-song crop window [start_s, end_s] in seconds. Songs are analyzed in full, but only this
+# window is choreographed and played back (the snippet). Times are rebased so the window starts
+# at 0:00. Falls back to `default` for any song without an explicit entry.
+song_crops:
+  default: [0, 60]
+  "Chopin - Nocturne Op. 9 No. 2": [0, 60]
+  "Crazyflie Drones Theme": [0, 60]
+  "Crazyflie Drones Theme (short)": [0, 60]
+  "Dance of the Flying Machines": [0, 60]
+  "Debussy - Clair de Lune": [0, 60]
+  "J. Strauss I - Radetzky March": [0, 60]
+  "J. Strauss II - The Blue Danube Op. 314": [0, 60]
+  "Mozart - Eine kleine Nachtmusik": [0, 60]
+  "On & On": [0, 60]
+  "Vivaldi - Summer": [0, 60]
+  "We Wish You a Merry Christmas": [0, 60]
+
 # Simulation
 sim_freq: 500 # Frequency for the crazyflow simulation
 attitude_freq: 500 # Frequency for the crazyflow simulation for the drone attitudes

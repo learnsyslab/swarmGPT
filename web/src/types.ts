@@ -42,6 +42,7 @@ export type ChatMessage = {
 export type Playback = {
   schemaVersion: number;
   audioUrl: string;
+  audioOffset: number;
   song: string;
   numDrones: number;
   timestamps: number[];

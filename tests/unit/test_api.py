@@ -14,6 +14,7 @@ def test_normalize_playback_schema():
     backend = SimpleNamespace(
         settings={"axswarm": {"pos_min": [-1, -1, 0], "pos_max": [1, 1, 2]}},
         music_manager=SimpleNamespace(song="Example Song"),
+        crop_window=lambda song: (0.0, 60.0),
     )
     states = np.zeros((2, 3, 13))
     states[:, :, 3:7] = [0, 0, 0, 1]
@@ -22,6 +23,7 @@ def test_normalize_playback_schema():
     )
     assert payload["schemaVersion"] == 1
     assert payload["audioUrl"] == "/api/media/music/Example%20Song"
+    assert payload["audioOffset"] == 0.0
     assert payload["numDrones"] == 3
     assert payload["fields"]["pos"] == [0, 3]
     assert len(payload["states"]) == len(payload["timestamps"])

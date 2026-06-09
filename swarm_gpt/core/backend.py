@@ -501,8 +501,27 @@ class AppBackend:
         self.music_manager.song = song
         return song
 
+    def crop_window(self, song_name: str) -> tuple[float, float]:
+        """Return the ``(start_s, end_s)`` crop window for a song, in seconds.
+
+        Reads ``song_crops`` from settings, falling back to ``song_crops.default`` for any song
+        without an explicit entry.
+
+        Args:
+            song_name: Stem of the MP3 file (no extension).
+
+        Returns:
+            The ``(start_s, end_s)`` window the song is cropped to.
+        """
+        crops = self.settings.get("song_crops", {})
+        window = crops.get(song_name, crops.get("default", [0, 60]))
+        return float(window[0]), float(window[1])
+
     def _load_structure(self, song_name: str) -> SongStructure:
-        """Load the cached SongStructure JSON for a song.
+        """Load the cached SongStructure JSON for a song, cropped to its window.
+
+        The full-song analysis is loaded from disk and then cropped to the song's
+        ``song_crops`` window (see :meth:`crop_window`); only that window is choreographed.
 
         Args:
             song_name: Stem of the MP3 file (no extension).
@@ -515,4 +534,5 @@ class AppBackend:
             raise FileNotFoundError(
                 f"No analysis found for '{song_name}'. Run `pixi run -e music analyze` first."
             )
-        return SongStructure.from_json(json_path)
+        start_s, end_s = self.crop_window(song_name)
+        return SongStructure.from_json(json_path).crop(start_s, end_s)

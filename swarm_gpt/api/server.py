@@ -247,6 +247,7 @@ def normalize_playback(sim_data: dict[str, Any], backend: AppBackend) -> dict[st
     return {
         "schemaVersion": 1,
         "audioUrl": _audio_url(backend.music_manager.song),
+        "audioOffset": backend.crop_window(backend.music_manager.song)[0],
         "song": backend.music_manager.song,
         "numDrones": num_drones,
         "timestamps": timestamps.tolist(),

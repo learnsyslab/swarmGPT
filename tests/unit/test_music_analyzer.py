@@ -135,3 +135,41 @@ def test_schema_version_mismatch_raises(tmp_path: Path) -> None:
 def test_schema_version_constant_is_current() -> None:
     # Guards against accidentally bumping SCHEMA_VERSION without updating tests/JSONs.
     assert SCHEMA_VERSION == 1
+
+
+def test_crop_selects_window_and_rebases_to_zero() -> None:
+    structure = _build(_three_segment_song_4_4())  # 3 segments, beats 0.0..5.5
+    cropped = structure.crop(2.0, 3.9)  # only the "verse" segment's beats fall inside
+    assert len(cropped.segments) == 1
+    seg = cropped.segments[0]
+    assert seg.label == "verse"
+    assert seg.id == 1
+    assert seg.start_s == 0.0  # rebased: window start -> 0
+    assert len(seg.bars) == 1
+    beats = seg.bars[0].beats
+    assert [b.time_s for b in beats] == [0.0, 0.5, 1.0, 1.5]  # 2.0..3.5 shifted by -2.0
+    assert [b.position_in_bar for b in beats] == [1, 2, 3, 4]
+    assert [b.id for b in beats] == [1, 2, 3, 4]
+
+
+def test_crop_renumbers_ids_contiguously() -> None:
+    structure = _build(_three_segment_song_4_4())
+    cropped = structure.crop(2.0, 6.0)  # drops the intro, keeps verse + outro
+    assert [seg.id for seg in cropped.segments] == [1, 2]
+    assert [seg.label for seg in cropped.segments] == ["verse", "outro"]
+    assert cropped.segments[0].bars[0].beats[0].time_s == 0.0
+
+
+def test_crop_full_window_preserves_keys() -> None:
+    structure = _build(_three_segment_song_4_4())
+    cropped = structure.crop(0.0, 6.0)
+    assert cropped.all_keys() == structure.all_keys()
+    assert cropped.segments[0].bars[0].beats[0].time_s == 0.0
+
+
+def test_crop_rejects_non_positive_window() -> None:
+    structure = _build(_three_segment_song_4_4())
+    with pytest.raises(ValueError, match="must be greater"):
+        structure.crop(3.0, 3.0)
+    with pytest.raises(ValueError, match="must be greater"):
+        structure.crop(4.0, 2.0)
