@@ -40,9 +40,7 @@ web/tsconfig.tsbuildinfo
 /log/
 /install/
 
-# all-in-one analysis byproducts / visualizations
-/music/viz/*
-!/music/viz/.gitkeep
+# all-in-one analysis byproducts
 /demix/
 /spec/
 
