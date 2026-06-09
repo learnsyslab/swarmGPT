@@ -123,6 +123,23 @@ The system will automatically:
 - Ensure all movements stay within the configured flight boundaries
 - Synchronize drone movements with the musical timeline
 
+### Adding your own music
+
+The bundled tracks in `music/songs/` are already analyzed — their structure data lives in
+`music/analyzed/`, so they work out of the box. To add a song of your own:
+
+1. Drop the `.mp3` into `music/songs/`.
+2. Analyze it:
+   ```bash
+   pixi run -e music analyze
+   ```
+   This scans `music/songs/` and analyzes any track that doesn't yet have a cached result,
+   writing its structure to `music/analyzed/` and a visualization to `music/viz/`. Songs that
+   are already analyzed are skipped, so the command is safe to re-run. A CUDA GPU is strongly
+   recommended; analysis still runs on CPU but is much slower.
+
+The new song then shows up in the music library the next time you launch the interface.
+
 ### Ready for Deployment
 
 Once you're happy with your generated choreography, you can proceed to deploy it on your physical drone swarm.
@@ -152,5 +169,20 @@ us as follows:
   journal={IEEE Robotics and Automation Letters},
   year={2025},
   publisher={IEEE}
+}
+```
+
+### Music analysis
+
+Song structure (beats, downbeats, and functional segments) is analyzed with the
+[All-In-One Music Structure Analyzer](https://github.com/mir-aidj/all-in-one) by Taejun Kim
+and Juhan Nam. If you use this project's music analysis, please also cite their work:
+
+```bibtex
+@inproceedings{taejun2023allinone,
+  title={All-In-One Metrical And Functional Structure Analysis With Neighborhood Attentions on Demixed Audio},
+  author={Kim, Taejun and Nam, Juhan},
+  booktitle={IEEE Workshop on Applications of Signal Processing to Audio and Acoustics (WASPAA)},
+  year={2023}
 }
 ```
