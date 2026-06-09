@@ -51,7 +51,7 @@ export function App() {
   const [library, setLibrary] = useState<LibraryResponse>({ songs: [], presets: [] });
   const [llm, setLlm] = useState<LlmResponse | null>(null);
   const [provider, setProvider] = useState<"openai" | "ollama">("openai");
-  const [modelId, setModelId] = useState("gpt-4o");
+  const [modelId, setModelId] = useState("gpt-5.4-nano");
   const [selected, setSelected] = useState<LibraryItem | null>(null);
   const [previewing, setPreviewing] = useState<LibraryItem | null>(null);
   const [jobId, setJobId] = useState<string | null>(null);

@@ -18,10 +18,10 @@ if sys.platform == "darwin":
     os.environ.setdefault("JAX_PLATFORMS", "cpu")
 
 
-# models: gpt-4o-2024-05-13, o3-mini
+# models: gpt-5.4-nano, gpt-4o, gpt-4o-2024-05-13, o3-mini
 def main(
     strict: bool = True,
-    model_id: str = "gpt-4o",
+    model_id: str = "gpt-5.4-nano",
     llm_provider: LLMProvider = "openai",
     use_motion_primitives: bool = True,
     host: str = "127.0.0.1",

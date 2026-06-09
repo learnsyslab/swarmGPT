@@ -38,20 +38,25 @@ user_initial: |
     spacing between actions so the motion feels phrased, not metronomic.
   - Drones hold or continue the previous primitive between emitted actions. Holding a pose
     through a calm passage is a valid, expressive choice — not a gap to be filled.
+  - Formation primitives (form_circle, form_star, form_cone) snap into shape quickly and then
+    sit still. A long hold after a formation reads as lifeless on energetic passages — prefer
+    to follow up on a later bar (often the next bar or two later) with a continuation that
+    keeps the swarm alive: rotate preserves the formation while turning it, move_z lifts or
+    lowers it, twister/helix/spiral_speed evolve it into something new. Omit the follow-up
+    only when the music genuinely wants stillness (intro/outro tails, breakdowns).
   - No two drones occupy the same position at the same moment.
   - Stay within bounds_cm; z > 0.
   - Match motion to music: dense, energetic sections (chorus, drop, bridge) get bolder
     primitives; intros and outros stay sparse and gentle.
-  - One key = one action list. Multiple primitives at one key: separate with "; "
-    (e.g. center([1, 2]); move_z([3], 10)).
-  - Each drone is touched at most once per key (except separate move() calls per drone).
+  - One key = exactly one primitive. Do NOT stack primitives at a single key (no semicolons,
+    no chaining). If you want multiple motions, place each on a different beat/bar key.
   </rules>
 
   <primitives>
   Single-shot (executes once over the interval until the next emitted action):
   - rotate(angle_deg, axis) — all drones; axis usually 'z'
   - center([ids]) — listed drones to formation around their centroid
-  - move_z([ids], delta_cm) — vertical shift
+  - move_z([ids], delta_cm) — vertical shift; aim for |delta_cm| ~{move_z_typical_cm} so the motion is visibly noticeable
   - form_circle([ids], radius_cm)
   - form_star(height_cm, spacing 40-80, delta_radius 50-100)
   - form_cone(delta_height 30-80, spacing 40-80, is_inverted 0|1)
@@ -99,7 +104,7 @@ output_format: |
   song_mood: <string>
   choreography_plan: <string>
   choreography:
-    s<seg>b<bar>t<beat>: <primitive call, or 'a(...); b(...)' for multiple>
+    s<seg>b<bar>t<beat>: <single primitive call>
     ...
     END
 
@@ -113,7 +118,7 @@ output_format_structured: |
   - Every key matches the pattern s<seg>b<bar>t<beat> and is one of the song's valid addresses.
   - All REQUIRED keys are present (as entries); add OPTIONAL keys only where musically warranted,
     leaving many bars empty. Do not repeat a key.
-  - "actions" is a non-empty list of action objects: {"primitive":"name","params":{...}}.
+  - "actions" is a list containing EXACTLY one action object: {"primitive":"name","params":{...}}.
   Use exactly the parameter names from the primitive signature.
 
   Correct JSON param examples:

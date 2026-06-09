@@ -318,10 +318,9 @@ def form_star(
         des_pos = np.vstack([des_pos, np.array([0, 0, height]).T])
 
     assignment = _assign_positions(swarm_pos, des_pos)
-
-    waypoints = {}
-    waypoints[tend] = {i: p.copy() for i, p in enumerate(des_pos[assignment])}
-    return des_pos[assignment], waypoints
+    target = des_pos[assignment]
+    waypoints = _formation_waypoints(target, swarm_pos, tstart, tend)
+    return target, waypoints
 
 
 def form_cone(
@@ -365,10 +364,9 @@ def form_cone(
         des_pos = np.vstack([des_pos, np.array([x, y, [z] * drones_in_layer]).T])
 
     assignment = _assign_positions(swarm_pos, des_pos)
-
-    waypoints = {}
-    waypoints[tend] = {i: p.copy() for i, p in enumerate(des_pos[assignment])}
-    return des_pos[assignment], waypoints
+    target = des_pos[assignment]
+    waypoints = _formation_waypoints(target, swarm_pos, tstart, tend)
+    return target, waypoints
 
 
 def twister(
@@ -481,10 +479,10 @@ def form_circle(
             des_pos = np.vstack([des_pos, np.array([x, y, [z_coord] * n]).T])
 
     assignment = _assign_positions(swarm_pos[drone_ids], des_pos)
-    waypoints = {}
-    waypoints[tend] = {i: p.copy() for i, p in enumerate(des_pos[assignment])}
+    target = des_pos[assignment]
+    waypoints = _formation_waypoints(target, swarm_pos[drone_ids], tstart, tend)
     pos = swarm_pos.copy()
-    pos[drone_ids] = des_pos[assignment]
+    pos[drone_ids] = target
     return pos, waypoints
 
 
@@ -595,3 +593,72 @@ def _assign_positions(pos: NDArray, des_pos: NDArray) -> NDArray:
     dist = np.linalg.norm(pos[:, None, :] - des_pos[None, :, :], axis=-1)
     # Use the Hungarian algorithm to find the optimal assignment
     return linear_sum_assignment(dist)[1]
+
+
+# Effective speed cap used when scheduling formation arrivals. Held below axswarm's
+# vel_max=1.73 m/s to leave the MPC headroom; matches the convention used by `rotate`
+# and `spiral`. HEADROOM is a multiplicative buffer for the solver's smoothness and
+# input-continuity penalties; T_MIN prevents trivially small moves from scheduling
+# zero-duration arrivals that the MPC can't track cleanly.
+_FORMATION_V_EFF_MPS = 1.0
+_FORMATION_HEADROOM = 1.3
+_FORMATION_T_MIN_S = 0.5
+# Spacing between hold waypoints once a formation is reached. Must stay below
+# axswarm's K/freq=5s lookahead (settings.yaml: K=50, freq=10). With a gap >= the
+# horizon, _filter_horizon returns an empty mask and axswarm clips past waypoints
+# into the current step, yanking drones back to stale positions.
+_FORMATION_HOLD_DT_S = 4.0
+
+
+def _formation_arrival_time(
+    target_pos: NDArray, current_pos: NDArray, tstart: float, tend: float
+) -> float:
+    """Estimate the earliest feasible arrival time for a formation primitive.
+
+    Sizes the interval to the bottleneck drone's displacement at an effective max
+    velocity (with headroom for MPC smoothness), then clamps to ``[tstart, tend]``.
+
+    Args:
+        target_pos: Desired post-assignment drone positions in cm, shape (n, 3).
+        current_pos: Current positions of the same drones in cm, shape (n, 3).
+        tstart: Interval start time in seconds.
+        tend: Interval end time in seconds.
+
+    Returns:
+        Arrival time in seconds, in ``[tstart, tend]``.
+    """
+    max_travel_m = float(np.linalg.norm(target_pos - current_pos, axis=-1).max()) / 100
+    travel_time = max(max_travel_m / _FORMATION_V_EFF_MPS * _FORMATION_HEADROOM, _FORMATION_T_MIN_S)
+    return min(tstart + travel_time, tend)
+
+
+def _formation_waypoints(
+    target_pos: NDArray, current_pos: NDArray, tstart: float, tend: float
+) -> dict[float, dict[int, NDArray]]:
+    """Schedule a formation arrival followed by hold waypoints up to ``tend``.
+
+    Emits a waypoint at the physics-bounded arrival time, then repeats the same target
+    position every ``_FORMATION_HOLD_DT_S`` seconds until ``tend`` so axswarm's 5-second
+    lookahead is never empty. An empty horizon causes the solver to clip stale past
+    waypoints into the current step, dragging drones back to old positions.
+
+    Args:
+        target_pos: Desired post-assignment drone positions in cm, shape (n, 3).
+        current_pos: Current positions of the same drones in cm, shape (n, 3).
+        tstart: Interval start time in seconds.
+        tend: Interval end time in seconds.
+
+    Returns:
+        ``{time: {drone_id: pos}}`` waypoints covering ``[arrival, tend]``.
+    """
+    arrival = _formation_arrival_time(target_pos, current_pos, tstart, tend)
+    waypoints: dict[float, dict[int, NDArray]] = {
+        arrival: {i: p.copy() for i, p in enumerate(target_pos)}
+    }
+    t = arrival + _FORMATION_HOLD_DT_S
+    while t < tend:
+        waypoints[t] = {i: p.copy() for i, p in enumerate(target_pos)}
+        t += _FORMATION_HOLD_DT_S
+    if arrival < tend:
+        waypoints[tend] = {i: p.copy() for i, p in enumerate(target_pos)}
+    return waypoints

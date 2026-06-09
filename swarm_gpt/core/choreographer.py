@@ -248,6 +248,7 @@ class Choreographer:
             "n_total_beats": n_total_beats,
             "lim_lower": (self.lim_lower * 100).astype(int).tolist(),
             "lim_upper": (self.lim_upper * 100).astype(int).tolist(),
+            "move_z_typical_cm": int((self.lim_upper[2] - self.lim_lower[2]) * 100 / 2),
             "wave_eqn": data["wave"] if self.use_motion_primitives else None,
         }
         return self.prompts["user_initial"].format(**prompt_kwargs)

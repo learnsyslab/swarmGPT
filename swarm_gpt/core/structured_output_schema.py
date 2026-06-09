@@ -193,7 +193,12 @@ def build_motion_primitive_response_schema(
         "required": ["song_mood", "choreography_plan", "choreography"],
         "$defs": {
             "action": _action_schema(num_drones),
-            "action_list": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/action"}},
+            "action_list": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 1,
+                "items": {"$ref": "#/$defs/action"},
+            },
         },
     }
 

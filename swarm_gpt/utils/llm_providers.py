@@ -28,6 +28,7 @@ PROVIDER_LABEL_OLLAMA: Final = "Ollama (local)"
 
 # Shown in the browser UI; users can type another OpenAI id if needed.
 DEFAULT_OPENAI_MODEL_CHOICES: tuple[str, ...] = (
+    "gpt-5.4-nano",
     "gpt-4o",
     "gpt-4o-mini",
     "gpt-4-turbo",

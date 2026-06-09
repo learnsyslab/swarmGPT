@@ -44,11 +44,11 @@ def test_normalize_playback_rejects_mismatched_states():
 def test_app_and_library_metadata_build(tmp_path: Path):
     (tmp_path / "Test Song.mp3").write_bytes(b"")
     app = create_app(ApiConfig(music_dir=tmp_path))
-    backend = _backend_from_config(ApiConfig(music_dir=tmp_path), "openai", "gpt-4o")
+    backend = _backend_from_config(ApiConfig(music_dir=tmp_path), "openai", "gpt-5.4-nano")
 
     assert app.title == "SwarmGPT Browser API"
     assert backend.songs == ["Test Song"]
-    assert DEFAULT_OPENAI_MODEL_CHOICES[0] == "gpt-4o"
+    assert DEFAULT_OPENAI_MODEL_CHOICES[0] == "gpt-5.4-nano"
 
 
 def test_library_returns_preset_display_metadata_and_delete(tmp_path: Path):
