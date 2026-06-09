@@ -15,6 +15,12 @@ license_url = "https://creativecommons.org/licenses/by-nc/3.0/"
 attribution = "Performance by Simone Renzi"
 source = "https://musopen.org/music/2504-suite-bergamasque/"
 
+[songs."Fearless2"]
+license = "NCS (NoCopyrightSounds) Free Download/Stream license"
+license_url = "https://ncs.io/Fearless2"
+attribution = "TULE - Fearless pt.II (feat. Chris Linton) [NCS Release]. Music provided by NoCopyrightSounds. Watch: http://youtu.be/S19UcWdOA-I"
+source = "https://ncs.io/Fearless2"
+
 [songs."Mozart - Eine kleine Nachtmusik"]
 license = "CC BY-NC-ND 3.0"
 license_url = "https://creativecommons.org/licenses/by-nc-nd/3.0/"
