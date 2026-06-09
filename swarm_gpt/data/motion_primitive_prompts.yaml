@@ -22,6 +22,19 @@ user_initial: |
   ONLY — choose keys from THIS song's actual segment/bar/beat counts above.
   </song_structure>
 
+  <song_dynamics>
+  Per-2-bar audio features. Each line is "key: rms / centroid", both normalized to [0, 1].
+  The key is the FIRST beat of the 2-bar window in s#b#t# notation.
+  - rms      ~ loudness (1.0 = song's loudest moment)
+  - centroid ~ brightness (1.0 = brightest; high = treble cymbals/vocals/leads, low = bass/kicks)
+  Use the contrast to choose primitives that match the moment. Examples:
+  - rising rms across adjacent windows → a build-up; favor accumulating motion
+  - high rms + low centroid → bass-driven; bigger vertical moves, slow rotations
+  - high rms + high centroid → treble-driven; fast rotations, helices, waves
+  - low rms regardless of centroid → hold, breathe, minimal new primitives
+  {dynamics_table}
+  </song_dynamics>
+
   <drones>
   count: {num_drones}
   start_cm: {starting_pos}
@@ -48,8 +61,14 @@ user_initial: |
   - Stay within bounds_cm; z > 0.
   - Match motion to music: dense, energetic sections (chorus, drop, bridge) get bolder
     primitives; intros and outros stay sparse and gentle.
-  - One key = exactly one primitive. Do NOT stack primitives at a single key (no semicolons,
-    no chaining). If you want multiple motions, place each on a different beat/bar key.
+  - One entry's "actions" array can hold ONE or MORE actions. Two valid stacking patterns:
+    1. Disjoint drone subsets — different drones, different shapes, coexisting.
+       IMPORTANT: the two subsets MUST end up at different points in space or they will
+       collide. Separate by z (height), radius, or x/y center.
+    2. Formation + motion on overlapping drones — formation snaps in, motion takes over.
+       The system handles the handoff automatically.
+    Do NOT stack two formations on overlapping drones (e.g. form_star + form_circle on the
+    same drones); the result is undefined.
   </rules>
 
   <primitives>
@@ -57,9 +76,13 @@ user_initial: |
   - rotate(angle_deg, axis) — all drones; axis usually 'z'
   - center([ids]) — listed drones to formation around their centroid
   - move_z([ids], delta_cm) — vertical shift; aim for |delta_cm| ~{move_z_typical_cm} so the motion is visibly noticeable
-  - form_circle([ids], radius_cm)
-  - form_star(height_cm, spacing 40-80, delta_radius 50-100)
-  - form_cone(delta_height 30-80, spacing 40-80, is_inverted 0|1)
+  - form_circle([ids], radius_cm, time_to_finish_s)
+      time_to_finish_s: seconds to arrive; pick ~1s for snappy hits, ≥half the interval for slow blooms.
+      The system clamps to physics minimum if your value is too small.
+  - form_star(height_cm, spacing 40-80, delta_radius 50-100, time_to_finish_s)
+      time_to_finish_s: seconds to arrive in the star; same guidance as form_circle.
+  - form_cone(delta_height 30-80, spacing 40-80, is_inverted 0|1, time_to_finish_s)
+      time_to_finish_s: seconds to arrive in the cone; same guidance as form_circle.
   - swap(id1, id2)
   - move(x_cm, y_cm, z_cm, drone_id) — absolute position for one drone
 
@@ -92,7 +115,7 @@ example: |
     sweeps through a helix at the start of bar 2.
   choreography:
     s1b1t1: spiral(3, 100)
-    s2b1t1: form_circle([1, 2, 3], 120)
+    s2b1t1: form_circle([1, 2, 3], 120, 1.5)
     s2b1t3: rotate(60, 'z')
     s2b2t1: helix(2, 40, 90)
     END
@@ -118,13 +141,27 @@ output_format_structured: |
   - Every key matches the pattern s<seg>b<bar>t<beat> and is one of the song's valid addresses.
   - All REQUIRED keys are present (as entries); add OPTIONAL keys only where musically warranted,
     leaving many bars empty. Do not repeat a key.
-  - "actions" is a list containing EXACTLY one action object: {"primitive":"name","params":{...}}.
+  - "actions" is a list of one or more action objects: {"primitive":"name","params":{...}}.
+    Two valid multi-action patterns (both in a single entry's "actions" array):
+    1. Disjoint drone subsets — different drones at different positions in space:
+         "actions": [
+           {"primitive":"form_circle","params":{"drone_ids":[1,2,3,4,5],"radius_cm":100,"time_to_finish_s":2.0}},
+           {"primitive":"form_circle","params":{"drone_ids":[6,7,8,9,10],"radius_cm":180,"time_to_finish_s":2.0}}
+         ]
+       Subsets MUST occupy different regions (different z, different radii, etc.) to avoid collision.
+    2. Formation + motion on overlapping drones — formation arrives, then motion takes over:
+         "actions": [
+           {"primitive":"form_star","params":{"height_cm":100,"min_spacing_cm":60,"delta_radius_cm":80,"time_to_finish_s":2.0}},
+           {"primitive":"rotate","params":{"angle_deg":60,"axis":"z"}}
+         ]
+       The system suppresses form_* hold waypoints automatically — no extra timing needed.
+    Do NOT stack two formations on overlapping drones.
   Use exactly the parameter names from the primitive signature.
 
   Correct JSON param examples:
   - center([ids]) -> {"primitive":"center","params":{"drone_ids":[1,2,3,4]}}
   - move_z([ids], delta_cm) -> {"primitive":"move_z","params":{"drone_ids":[1,2,3,4],"delta_cm":30}}
-  - form_cone(delta_height_cm, spacing_cm, is_inverted) -> {"primitive":"form_cone","params":{"delta_height_cm":60,"spacing_cm":60,"is_inverted":0}}
+  - form_cone(delta_height_cm, spacing_cm, is_inverted) -> {"primitive":"form_cone","params":{"delta_height_cm":60,"spacing_cm":60,"is_inverted":0,"time_to_finish_s":2.0}}
   - spiral_speed(steps, height_cm, degrees, radius_increase) -> {"primitive":"spiral_speed","params":{"steps":3,"height_cm":100,"degrees":180,"radius_increase":1}}
   - wave(steps, height_cm, mu_pairs, a_mu, b_mu) -> {"primitive":"wave","params":{"steps":2,"height_cm":80,"mu_pairs":[[0,0],[1,0]],"a_mu":[0.5,0.25],"b_mu":[0.2,0.1]}}
 
@@ -132,3 +169,4 @@ output_format_structured: |
   - Wrong: {"primitive":"form_cone","params":{"drone_ids":[1,2,3],...}} because form_cone has no drone_ids param.
   - Wrong: {"primitive":"spiral_speed","params":{"steps":3,"angle_deg":90,...}} because spiral_speed uses 'degrees', not 'angle_deg'.
   - Wrong: {"primitive":"move_z","params":{"delta_cm":30}} because move_z also needs drone_ids.
+  - Wrong: {"primitive":"form_star","params":{"height_cm":100,"min_spacing_cm":60,"delta_radius_cm":80}} because form_star also needs time_to_finish_s.

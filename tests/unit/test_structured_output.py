@@ -107,7 +107,10 @@ def test_structured_payload_to_choreography_uses_hierarchical_keys():
             {
                 "key": "s1b1t1",
                 "actions": [
-                    {"primitive": "form_circle", "params": {"drone_ids": [1, 2], "radius_cm": 100}}
+                    {
+                        "primitive": "form_circle",
+                        "params": {"drone_ids": [1, 2], "radius_cm": 100, "time_to_finish_s": 1.5},
+                    }
                 ],
             },
             {
@@ -123,7 +126,7 @@ def test_structured_payload_to_choreography_uses_hierarchical_keys():
     choreography = choreographer._structured_payload_to_choreography(payload)
 
     assert choreography == {
-        (1, 1, 1): "form_circle([1, 2], 100)",
+        (1, 1, 1): "form_circle([1, 2], 100, 1.5)",
         (2, 1, 1): "rotate(90, 'z'); move_z([1], 10)",
     }
 
@@ -332,3 +335,40 @@ def test_generate_choreography_ollama_raises_when_structured_payload_incomplete(
         choreographer.generate_choreography(
             prompt=[{"role": "user", "content": "hello"}], structure=structure
         )
+
+
+def test_form_star_schema_includes_time_to_finish_s():
+    """F1: form_star schema must include time_to_finish_s as a required param."""
+    schema = build_motion_primitive_response_schema(
+        all_keys=[(1, 1, 1)], required_keys=[(1, 1, 1)], num_drones=5
+    )
+    variants = schema["$defs"]["action"]["anyOf"]
+    form_star_variant = next(
+        v for v in variants if v["properties"]["primitive"]["enum"] == ["form_star"]
+    )
+    assert "time_to_finish_s" in form_star_variant["properties"]["params"]["required"]
+    assert "time_to_finish_s" in form_star_variant["properties"]["params"]["properties"]
+
+
+def test_form_circle_schema_includes_time_to_finish_s():
+    """F1: form_circle schema must include time_to_finish_s as a required param."""
+    schema = build_motion_primitive_response_schema(
+        all_keys=[(1, 1, 1)], required_keys=[(1, 1, 1)], num_drones=5
+    )
+    variants = schema["$defs"]["action"]["anyOf"]
+    form_circle_variant = next(
+        v for v in variants if v["properties"]["primitive"]["enum"] == ["form_circle"]
+    )
+    assert "time_to_finish_s" in form_circle_variant["properties"]["params"]["required"]
+
+
+def test_form_cone_schema_includes_time_to_finish_s():
+    """F1: form_cone schema must include time_to_finish_s as a required param."""
+    schema = build_motion_primitive_response_schema(
+        all_keys=[(1, 1, 1)], required_keys=[(1, 1, 1)], num_drones=5
+    )
+    variants = schema["$defs"]["action"]["anyOf"]
+    form_cone_variant = next(
+        v for v in variants if v["properties"]["primitive"]["enum"] == ["form_cone"]
+    )
+    assert "time_to_finish_s" in form_cone_variant["properties"]["params"]["required"]

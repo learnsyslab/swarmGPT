@@ -102,6 +102,7 @@ def _param_schemas(num_drones: int) -> dict[str, dict[str, Any]]:
         "delta_radius_cm": _number_schema(),
         "spacing_cm": _number_schema(),
         "is_inverted": _int_schema(minimum=0, maximum=1),
+        "time_to_finish_s": _number_schema(),
     }
 
 
@@ -193,12 +194,7 @@ def build_motion_primitive_response_schema(
         "required": ["song_mood", "choreography_plan", "choreography"],
         "$defs": {
             "action": _action_schema(num_drones),
-            "action_list": {
-                "type": "array",
-                "minItems": 1,
-                "maxItems": 1,
-                "items": {"$ref": "#/$defs/action"},
-            },
+            "action_list": {"type": "array", "minItems": 1, "items": {"$ref": "#/$defs/action"}},
         },
     }
 
@@ -212,12 +208,12 @@ _PRIMITIVE_ARG_ORDER: dict[str, list[str]] = {
     "spiral": ["steps", "height_cm"],
     "spiral_speed": ["steps", "height_cm", "degrees", "radius_increase"],
     "helix": ["steps", "delta_height_cm", "height_cm"],
-    "form_circle": ["drone_ids", "radius_cm"],
+    "form_circle": ["drone_ids", "radius_cm", "time_to_finish_s"],
     "zig_zag": ["steps", "delta_xy_cm", "delta_z_cm"],
     "wave": ["steps", "height_cm", "mu_pairs", "a_mu", "b_mu"],
     "twister": ["steps", "omega_times_ten", "z_spacing_cm"],
-    "form_star": ["height_cm", "min_spacing_cm", "delta_radius_cm"],
-    "form_cone": ["delta_height_cm", "spacing_cm", "is_inverted"],
+    "form_star": ["height_cm", "min_spacing_cm", "delta_radius_cm", "time_to_finish_s"],
+    "form_cone": ["delta_height_cm", "spacing_cm", "is_inverted", "time_to_finish_s"],
 }
 
 

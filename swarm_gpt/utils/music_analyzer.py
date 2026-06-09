@@ -13,14 +13,20 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from typing import TYPE_CHECKING, Any
+
+import numpy as np
 
 if TYPE_CHECKING:
     from pathlib import Path
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 """On-disk JSON schema version. Bump on incompatible shape changes."""
+
+# Match allin1.visualize's librosa params for consistency with its RMS trace.
+_FRAME_LENGTH = 4096
+_HOP_LENGTH = 1024
 
 
 @dataclass
@@ -91,6 +97,9 @@ class SongStructure:
     analyzer: str
     bpm: int
     segments: list[Segment]
+    # New in v2 — populated at analyze time, sliced by crop().
+    rms_per_2bar: tuple[float, ...] = field(default_factory=tuple)
+    centroid_per_2bar: tuple[float, ...] = field(default_factory=tuple)
 
     @classmethod
     def from_allin1(
@@ -186,6 +195,8 @@ class SongStructure:
             analyzer=str(data["analyzer"]),
             bpm=int(data["bpm"]),
             segments=segments,
+            rms_per_2bar=tuple(float(v) for v in data.get("rms_per_2bar", [])),
+            centroid_per_2bar=tuple(float(v) for v in data.get("centroid_per_2bar", [])),
         )
 
     def to_json(self, path: Path) -> None:
@@ -309,6 +320,18 @@ class SongStructure:
                     bars=bars_out,
                 )
             )
+        # Slice dynamics to the windows that survive. A window survives when its first bar has
+        # at least one beat in [start_s, end_s]. Count how many original windows are skipped
+        # (their first bar's first beat is before start_s), then take surviving_count from there.
+        skip = sum(
+            1
+            for seg in self.segments
+            for i, bar in enumerate(seg.bars)
+            if i % 2 == 0 and bar.beats and bar.beats[0].time_s < start_s
+        )
+        surviving_window_count = sum(1 for seg in segments_out for i in range(0, len(seg.bars), 2))
+        rms_cropped = self.rms_per_2bar[skip : skip + surviving_window_count]
+        centroid_cropped = self.centroid_per_2bar[skip : skip + surviving_window_count]
         return SongStructure(
             schema_version=self.schema_version,
             source_path=self.source_path,
@@ -316,7 +339,87 @@ class SongStructure:
             analyzer=self.analyzer,
             bpm=self.bpm,
             segments=segments_out,
+            rms_per_2bar=rms_cropped,
+            centroid_per_2bar=centroid_cropped,
         )
+
+
+def compute_dynamics_per_2bar(
+    structure: SongStructure, mp3_path: Path
+) -> tuple[tuple[float, ...], tuple[float, ...]]:
+    """Per-2-bar RMS amplitude and spectral centroid, normalized to [0, 1].
+
+    Computes two audio features for each 2-bar window in the song. Windows reset at segment
+    boundaries so each window cleanly belongs to one segment. Both features are normalized by
+    the song-wide maximum so values are scale-invariant across songs.
+
+    Args:
+        structure: The full-song SongStructure (pre-crop). Bars in ``structure.segments``
+            define the window boundaries.
+        mp3_path: Path to the source audio file.
+
+    Returns:
+        ``(rms_tuple, centroid_tuple)`` of equal length
+        ``sum(ceil(len(seg.bars) / 2) for seg in structure.segments)``.
+    """
+    import librosa  # noqa: PLC0415 -- heavy import; keep local
+
+    windows: list[tuple[float, float]] = []
+    for seg in structure.segments:
+        bars = seg.bars
+        for i in range(0, len(bars), 2):
+            start_bar = bars[i]
+            end_bar = bars[i + 1] if i + 1 < len(bars) else bars[i]
+            t_start = start_bar.beats[0].time_s if start_bar.beats else start_bar.start_s
+            t_end = end_bar.beats[-1].time_s if end_bar.beats else end_bar.start_s
+            windows.append((t_start, t_end))
+    if not windows:
+        return ((), ())
+
+    y, sr = librosa.load(str(mp3_path), sr=None, mono=True)
+    rms = librosa.feature.rms(y=y, frame_length=_FRAME_LENGTH, hop_length=_HOP_LENGTH)[0]
+    centroid = librosa.feature.spectral_centroid(
+        y=y, sr=sr, n_fft=_FRAME_LENGTH, hop_length=_HOP_LENGTH
+    )[0]
+    frame_times = librosa.frames_to_time(np.arange(len(rms)), sr=sr, hop_length=_HOP_LENGTH)
+
+    rms_vals: list[float] = []
+    centroid_vals: list[float] = []
+    for t_start, t_end in windows:
+        mask = (frame_times >= t_start) & (frame_times < t_end)
+        rms_vals.append(float(rms[mask].mean()) if mask.any() else 0.0)
+        centroid_vals.append(float(centroid[mask].mean()) if mask.any() else 0.0)
+
+    rms_peak = max(rms_vals) or 1.0
+    centroid_peak = max(centroid_vals) or 1.0
+    return (
+        tuple(round(v / rms_peak, 2) for v in rms_vals),
+        tuple(round(v / centroid_peak, 2) for v in centroid_vals),
+    )
+
+
+def dynamics_window_keys(structure: SongStructure) -> tuple[str, ...]:
+    """Generate the s#b#t# key for the start of each 2-bar window, in order.
+
+    Pure function of the bar layout — not persisted; regenerated whenever the prompt is
+    built. Length matches ``structure.rms_per_2bar``.
+
+    Args:
+        structure: The SongStructure whose bar layout defines the windows.
+
+    Returns:
+        Tuple of key strings, one per 2-bar window.
+    """
+    from swarm_gpt.core.structured_output_schema import encode_key  # noqa: PLC0415
+
+    keys: list[str] = []
+    for seg in structure.segments:
+        bars = seg.bars
+        for i in range(0, len(bars), 2):
+            start_bar = bars[i]
+            if start_bar.beats:
+                keys.append(encode_key(seg.id, start_bar.id, start_bar.beats[0].id))
+    return tuple(keys)
 
 
 def _group_beats_into_bars(
@@ -489,6 +592,9 @@ def analyze_song(
         source_sha256=sha256_of(mp3_path),
         analyzer=f"allin1@{getattr(allin1, '__version__', 'unknown')}",
     )
+    rms_per_2bar, centroid_per_2bar = compute_dynamics_per_2bar(structure, mp3_path)
+    structure.rms_per_2bar = rms_per_2bar
+    structure.centroid_per_2bar = centroid_per_2bar
     cache_dir.mkdir(parents=True, exist_ok=True)
     structure.to_json(cache_path)
     if viz_dir is not None:

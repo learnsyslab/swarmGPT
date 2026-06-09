@@ -42,6 +42,59 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+_FORMATION_PRIMITIVES: frozenset[str] = frozenset({"form_circle", "form_star", "form_cone"})
+_MOTION_PRIMITIVES_FOR_COMPOSITION: frozenset[str] = frozenset(
+    {"rotate", "spiral", "spiral_speed", "twister", "helix", "wave", "zig_zag", "move", "move_z"}
+)
+
+
+def _overlapping_drone_set(action: dict[str, tuple], num_drones: int) -> frozenset[int]:
+    """Return the 0-indexed drone IDs this action touches.
+
+    ``form_circle``, ``move_z``, ``center`` take an explicit drone subset as their first arg.
+    ``swap`` takes two individual drone IDs. ``move`` takes a single drone ID as the fourth arg.
+    All other primitives operate on the full swarm.
+
+    Args:
+        action: Single-entry dict ``{fn_name: args_tuple}``.
+        num_drones: Total number of drones in the swarm.
+
+    Returns:
+        Frozenset of 0-indexed drone IDs the action applies to.
+    """
+    fn_name, args = next(iter(action.items()))
+    if fn_name in {"form_circle", "move_z", "center"}:
+        return frozenset(d - 1 for d in args[0])
+    if fn_name == "swap":
+        return frozenset({args[0] - 1, args[1] - 1})
+    if fn_name == "move":
+        return frozenset({args[3] - 1})
+    return frozenset(range(num_drones))
+
+
+def _form_should_drop_holds(
+    action_list: list[dict[str, tuple]], form_idx: int, num_drones: int
+) -> bool:
+    """Return True if a motion primitive on overlapping drones follows ``form_idx`` in the list.
+
+    Args:
+        action_list: Ordered list of ``{fn_name: args}`` dicts for one choreography key.
+        form_idx: Index of the formation primitive to check.
+        num_drones: Total number of drones in the swarm.
+
+    Returns:
+        True when any later entry is in ``_MOTION_PRIMITIVES_FOR_COMPOSITION`` and shares at
+        least one drone with the formation.
+    """
+    form_drones = _overlapping_drone_set(action_list[form_idx], num_drones)
+    for later in action_list[form_idx + 1 :]:
+        fn_name = next(iter(later))
+        if fn_name in _MOTION_PRIMITIVES_FOR_COMPOSITION:
+            if form_drones & _overlapping_drone_set(later, num_drones):
+                return True
+    return False
+
+
 # Set to True to see raw LLM outputs in terminal
 DEBUG_LLM_OUTPUT = True
 # OLLAMA_CONTEXT_LENGTH = None  # Set None to use Ollama's VRAM-based default.
@@ -238,6 +291,17 @@ class Choreographer:
             latex_file = Path(__file__).resolve().parents[1] / "data/latex_eqn.yaml"
             with open(latex_file, "r") as file:
                 data = yaml.safe_load(file)
+        if self.use_motion_primitives and structure.rms_per_2bar:
+            from swarm_gpt.utils.music_analyzer import dynamics_window_keys  # noqa: PLC0415
+
+            keys = dynamics_window_keys(structure)
+            dynamics_lines = "\n".join(
+                f"{k}: {r:.2f} / {c:.2f}"
+                for k, r, c in zip(keys, structure.rms_per_2bar, structure.centroid_per_2bar)
+            )
+            dynamics_table = dynamics_lines
+        else:
+            dynamics_table = "(not available)"
         prompt_kwargs = {
             "song": song,
             "bpm": structure.bpm,
@@ -250,6 +314,7 @@ class Choreographer:
             "lim_upper": (self.lim_upper * 100).astype(int).tolist(),
             "move_z_typical_cm": int((self.lim_upper[2] - self.lim_lower[2]) * 100 / 2),
             "wave_eqn": data["wave"] if self.use_motion_primitives else None,
+            "dynamics_table": dynamics_table,
         }
         return self.prompts["user_initial"].format(**prompt_kwargs)
 
@@ -712,10 +777,18 @@ class Choreographer:
         timesteps = np.concatenate((timestamps, [t_end]))
         motion_primitives = self._merge_motion_primitives(motion_primitives, timesteps)
         for motion_primitive in motion_primitives.values():
-            for fn, args in zip(motion_primitive["fn"], motion_primitive["args"]):
+            action_list = [
+                {fn: args} for fn, args in zip(motion_primitive["fn"], motion_primitive["args"])
+            ]
+            for i, (fn, args) in enumerate(zip(motion_primitive["fn"], motion_primitive["args"])):
                 swarm_pos, _waypoints = self._primitive2waypoints(
                     fn, args, swarm_pos, motion_primitive["tstart"], motion_primitive["tend"]
                 )
+                if fn in _FORMATION_PRIMITIVES and _form_should_drop_holds(
+                    action_list, i, self.num_drones
+                ):
+                    arrival = min(_waypoints.keys())
+                    _waypoints = {arrival: _waypoints[arrival]}
                 for k, v in _waypoints.items():
                     waypoints[k] = v if k not in waypoints else waypoints[k] | v
 

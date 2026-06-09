@@ -21,12 +21,12 @@ motion_primitives = {
     "spiral_speed": {"n_args": 4},
     "helix": {"n_args": 3},
     "plan": {"n_args": 1},
-    "form_circle": {"n_args": 2},
+    "form_circle": {"n_args": 3},
     "zig_zag": {"n_args": 3},
     "wave": {"n_args": 5},
     "twister": {"n_args": 3},
-    "form_star": {"n_args": 3},
-    "form_cone": {"n_args": 3},
+    "form_star": {"n_args": 4},
+    "form_cone": {"n_args": 4},
 }
 
 
@@ -284,14 +284,14 @@ def wave(
 
 
 def form_star(
-    params: tuple[int, int, int],
+    params: tuple[int, int, int, float],
     swarm_pos: NDArray,
     tstart: float,
     tend: float,
     limits: dict[str, NDArray],
 ) -> tuple[NDArray, dict[float, dict[int, NDArray]]]:
     """Form a star shape with the drones with {n_drones}//2 spokes."""
-    height, min_spacing, delta_radius = params
+    height, min_spacing, delta_radius, time_to_finish_s = params
     min_spacing = max(min_spacing, 40)
     delta_radius = max(delta_radius, 40)
     n_drones = swarm_pos.shape[0]
@@ -319,19 +319,19 @@ def form_star(
 
     assignment = _assign_positions(swarm_pos, des_pos)
     target = des_pos[assignment]
-    waypoints = _formation_waypoints(target, swarm_pos, tstart, tend)
+    waypoints = _formation_waypoints(target, swarm_pos, tstart, tend, time_to_finish_s)
     return target, waypoints
 
 
 def form_cone(
-    params: tuple[int, int, bool],
+    params: tuple[int, int, bool, float],
     swarm_pos: NDArray,
     tstart: float,
     tend: float,
     limits: dict[str, NDArray],
 ) -> tuple[NDArray, dict[float, dict[int, NDArray]]]:
     """Form a cone with the drones."""
-    delta_height, spacing, is_inverted = params
+    delta_height, spacing, is_inverted, time_to_finish_s = params
     n_drones = swarm_pos.shape[0]
 
     # Define limits
@@ -365,7 +365,7 @@ def form_cone(
 
     assignment = _assign_positions(swarm_pos, des_pos)
     target = des_pos[assignment]
-    waypoints = _formation_waypoints(target, swarm_pos, tstart, tend)
+    waypoints = _formation_waypoints(target, swarm_pos, tstart, tend, time_to_finish_s)
     return target, waypoints
 
 
@@ -439,14 +439,14 @@ def center(
 
 
 def form_circle(
-    params: tuple[list[int], int],
+    params: tuple[list[int], int, float],
     swarm_pos: NDArray,
     tstart: float,
     tend: float,
     limits: dict[str, NDArray],
 ) -> tuple[NDArray, dict[float, dict[int, NDArray]]]:
     """Position drones around the circumference of a circle at height z with at least {min_spacing} cm apart."""
-    drone_ids, z_coord = params
+    drone_ids, z_coord, time_to_finish_s = params
     drone_ids = _sanitize_drone_ids(drone_ids, swarm_pos.shape[0])
     n_drones = len(drone_ids)
     z_coord = int(z_coord)  # z coordinate in cm
@@ -480,7 +480,7 @@ def form_circle(
 
     assignment = _assign_positions(swarm_pos[drone_ids], des_pos)
     target = des_pos[assignment]
-    waypoints = _formation_waypoints(target, swarm_pos[drone_ids], tstart, tend)
+    waypoints = _formation_waypoints(target, swarm_pos[drone_ids], tstart, tend, time_to_finish_s)
     pos = swarm_pos.copy()
     pos[drone_ids] = target
     return pos, waypoints
@@ -633,25 +633,28 @@ def _formation_arrival_time(
 
 
 def _formation_waypoints(
-    target_pos: NDArray, current_pos: NDArray, tstart: float, tend: float
+    target_pos: NDArray, current_pos: NDArray, tstart: float, tend: float, time_to_finish_s: float
 ) -> dict[float, dict[int, NDArray]]:
-    """Schedule a formation arrival followed by hold waypoints up to ``tend``.
+    """Schedule a formation arrival at the LLM-chosen time (clamped to physics + interval).
 
-    Emits a waypoint at the physics-bounded arrival time, then repeats the same target
-    position every ``_FORMATION_HOLD_DT_S`` seconds until ``tend`` so axswarm's 5-second
-    lookahead is never empty. An empty horizon causes the solver to clip stale past
-    waypoints into the current step, dragging drones back to old positions.
+    The physics floor is the existing ``_formation_arrival_time`` duration; ``time_to_finish_s``
+    is clamped between that floor and the full interval. Hold waypoints are then emitted every
+    ``_FORMATION_HOLD_DT_S`` seconds so axswarm's 5-second lookahead is never empty.
 
     Args:
         target_pos: Desired post-assignment drone positions in cm, shape (n, 3).
         current_pos: Current positions of the same drones in cm, shape (n, 3).
         tstart: Interval start time in seconds.
         tend: Interval end time in seconds.
+        time_to_finish_s: LLM-requested arrival duration in seconds. Clamped to
+            ``[physics_min_duration, tend - tstart]``.
 
     Returns:
         ``{time: {drone_id: pos}}`` waypoints covering ``[arrival, tend]``.
     """
-    arrival = _formation_arrival_time(target_pos, current_pos, tstart, tend)
+    physics_min_duration = _formation_arrival_time(target_pos, current_pos, tstart, tend) - tstart
+    duration = float(np.clip(time_to_finish_s, physics_min_duration, tend - tstart))
+    arrival = tstart + duration
     waypoints: dict[float, dict[int, NDArray]] = {
         arrival: {i: p.copy() for i, p in enumerate(target_pos)}
     }
