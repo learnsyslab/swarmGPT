@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "source_path": "music/songs/Crazyflie Drones Theme.mp3",
   "source_sha256": "642cf6b82c25fa51bf90e49d5d866c02c8046ca2f738672f766f11ce03b7af10",
   "analyzer": "allin1@unknown",
@@ -9,7 +9,7 @@
       "id": 1,
       "label": "intro",
       "start_s": 0.04,
-      "end_s": 59.61,
+      "end_s": 55.43,
       "bars": [
         {
           "id": 1,
@@ -126,7 +126,7 @@
             },
             {
               "id": 2,
-              "time_s": 7.86,
+              "time_s": 7.87,
               "position_in_bar": 2
             },
             {
@@ -235,12 +235,12 @@
             },
             {
               "id": 3,
-              "time_s": 15.71,
+              "time_s": 15.72,
               "position_in_bar": 3
             },
             {
               "id": 4,
-              "time_s": 16.17,
+              "time_s": 16.18,
               "position_in_bar": 4
             }
           ]
@@ -318,7 +318,7 @@
             },
             {
               "id": 4,
-              "time_s": 21.73,
+              "time_s": 21.72,
               "position_in_bar": 4
             }
           ]
@@ -365,7 +365,7 @@
             },
             {
               "id": 3,
-              "time_s": 24.96,
+              "time_s": 24.97,
               "position_in_bar": 3
             },
             {
@@ -412,7 +412,7 @@
             },
             {
               "id": 2,
-              "time_s": 28.17,
+              "time_s": 28.18,
               "position_in_bar": 2
             },
             {
@@ -507,11 +507,11 @@
         },
         {
           "id": 20,
-          "start_s": 35.1,
+          "start_s": 35.09,
           "beats": [
             {
               "id": 1,
-              "time_s": 35.1,
+              "time_s": 35.09,
               "position_in_bar": 1
             },
             {
@@ -578,7 +578,7 @@
             },
             {
               "id": 4,
-              "time_s": 40.18,
+              "time_s": 40.17,
               "position_in_bar": 4
             }
           ]
@@ -611,11 +611,11 @@
         },
         {
           "id": 24,
-          "start_s": 42.48,
+          "start_s": 42.49,
           "beats": [
             {
               "id": 1,
-              "time_s": 42.48,
+              "time_s": 42.49,
               "position_in_bar": 1
             },
             {
@@ -703,7 +703,7 @@
             },
             {
               "id": 3,
-              "time_s": 48.94,
+              "time_s": 48.95,
               "position_in_bar": 3
             },
             {
@@ -715,11 +715,11 @@
         },
         {
           "id": 28,
-          "start_s": 49.87,
+          "start_s": 49.86,
           "beats": [
             {
               "id": 1,
-              "time_s": 49.87,
+              "time_s": 49.86,
               "position_in_bar": 1
             },
             {
@@ -783,10 +783,70 @@
               "id": 3,
               "time_s": 54.48,
               "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 54.95,
+              "position_in_bar": 4
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "label": "outro",
+      "start_s": 55.43,
+      "end_s": 59.62,
+      "bars": [
+        {
+          "id": 1,
+          "start_s": 55.44,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 55.44,
+              "position_in_bar": 1
             }
           ]
         }
       ]
     }
+  ],
+  "rms_per_2bar": [
+    0.2,
+    0.13,
+    0.15,
+    0.24,
+    0.27,
+    0.28,
+    0.61,
+    0.62,
+    0.6,
+    0.6,
+    0.64,
+    0.6,
+    0.2,
+    0.79,
+    1.0,
+    0.0
+  ],
+  "centroid_per_2bar": [
+    0.34,
+    0.46,
+    0.47,
+    0.79,
+    0.73,
+    0.76,
+    0.53,
+    0.5,
+    0.51,
+    0.51,
+    0.49,
+    0.52,
+    1.0,
+    0.57,
+    0.46,
+    0.0
   ]
 }

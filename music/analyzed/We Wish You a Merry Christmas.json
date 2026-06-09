@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "source_path": "music/songs/We Wish You a Merry Christmas.mp3",
   "source_sha256": "83cc1ac7c8a6a258772e54fd62220130c9ae7b0983a2ebacd14906722fc157e5",
   "analyzer": "allin1@unknown",
@@ -9,15 +9,15 @@
       "id": 1,
       "label": "solo",
       "start_s": 1.82,
-      "end_s": 33.15,
+      "end_s": 33.14,
       "bars": [
         {
           "id": 1,
-          "start_s": 1.83,
+          "start_s": 1.82,
           "beats": [
             {
               "id": 1,
-              "time_s": 1.83,
+              "time_s": 1.82,
               "position_in_bar": 1
             },
             {
@@ -27,7 +27,7 @@
             },
             {
               "id": 3,
-              "time_s": 2.7,
+              "time_s": 2.71,
               "position_in_bar": 3
             }
           ]
@@ -286,11 +286,11 @@
         },
         {
           "id": 14,
-          "start_s": 19.02,
+          "start_s": 19.03,
           "beats": [
             {
               "id": 1,
-              "time_s": 19.02,
+              "time_s": 19.03,
               "position_in_bar": 1
             },
             {
@@ -412,11 +412,11 @@
         },
         {
           "id": 20,
-          "start_s": 26.96,
+          "start_s": 26.97,
           "beats": [
             {
               "id": 1,
-              "time_s": 26.96,
+              "time_s": 26.97,
               "position_in_bar": 1
             },
             {
@@ -520,16 +520,16 @@
     {
       "id": 2,
       "label": "solo",
-      "start_s": 33.15,
+      "start_s": 33.14,
       "end_s": 57.41,
       "bars": [
         {
           "id": 1,
-          "start_s": 33.58,
+          "start_s": 33.59,
           "beats": [
             {
               "id": 1,
-              "time_s": 33.58,
+              "time_s": 33.59,
               "position_in_bar": 1
             },
             {
@@ -567,11 +567,11 @@
         },
         {
           "id": 3,
-          "start_s": 36.23,
+          "start_s": 36.24,
           "beats": [
             {
               "id": 1,
-              "time_s": 36.23,
+              "time_s": 36.24,
               "position_in_bar": 1
             },
             {
@@ -623,7 +623,7 @@
             },
             {
               "id": 3,
-              "time_s": 39.75,
+              "time_s": 39.76,
               "position_in_bar": 3
             }
           ]
@@ -728,7 +728,7 @@
             },
             {
               "id": 3,
-              "time_s": 46.37,
+              "time_s": 46.38,
               "position_in_bar": 3
             }
           ]
@@ -791,7 +791,7 @@
             },
             {
               "id": 3,
-              "time_s": 50.35,
+              "time_s": 50.36,
               "position_in_bar": 3
             }
           ]
@@ -807,7 +807,7 @@
             },
             {
               "id": 2,
-              "time_s": 51.24,
+              "time_s": 51.23,
               "position_in_bar": 2
             },
             {
@@ -840,16 +840,60 @@
         },
         {
           "id": 16,
-          "start_s": 53.43,
+          "start_s": 53.44,
           "beats": [
             {
               "id": 1,
-              "time_s": 53.43,
+              "time_s": 53.44,
               "position_in_bar": 1
             }
           ]
         }
       ]
     }
+  ],
+  "rms_per_2bar": [
+    0.98,
+    0.81,
+    0.78,
+    0.96,
+    0.98,
+    0.82,
+    0.85,
+    1.0,
+    0.44,
+    0.48,
+    0.48,
+    0.48,
+    0.93,
+    0.78,
+    0.81,
+    0.93,
+    0.92,
+    0.79,
+    0.86,
+    0.84
+  ],
+  "centroid_per_2bar": [
+    0.69,
+    0.61,
+    0.63,
+    0.52,
+    0.57,
+    0.59,
+    0.59,
+    0.55,
+    1.0,
+    0.76,
+    0.86,
+    0.83,
+    0.69,
+    0.62,
+    0.61,
+    0.54,
+    0.61,
+    0.61,
+    0.6,
+    0.69
   ]
 }

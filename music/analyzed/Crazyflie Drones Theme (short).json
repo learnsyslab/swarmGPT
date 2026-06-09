@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "source_path": "music/songs/Crazyflie Drones Theme (short).mp3",
   "source_sha256": "3b5ae26247a6a6c1528b27f1aef5811d462850bcfc0ba85e1e7277e991ced57b",
   "analyzer": "allin1@unknown",
@@ -204,7 +204,7 @@
             },
             {
               "id": 2,
-              "time_s": 13.49,
+              "time_s": 13.48,
               "position_in_bar": 2
             },
             {
@@ -273,11 +273,11 @@
         },
         {
           "id": 11,
-          "start_s": 18.56,
+          "start_s": 18.55,
           "beats": [
             {
               "id": 1,
-              "time_s": 18.56,
+              "time_s": 18.55,
               "position_in_bar": 1
             },
             {
@@ -292,7 +292,7 @@
             },
             {
               "id": 4,
-              "time_s": 19.94,
+              "time_s": 19.95,
               "position_in_bar": 4
             }
           ]
@@ -448,18 +448,18 @@
             },
             {
               "id": 4,
-              "time_s": 31.02,
+              "time_s": 31.01,
               "position_in_bar": 4
             }
           ]
         },
         {
           "id": 18,
-          "start_s": 31.49,
+          "start_s": 31.48,
           "beats": [
             {
               "id": 1,
-              "time_s": 31.49,
+              "time_s": 31.48,
               "position_in_bar": 1
             },
             {
@@ -481,5 +481,27 @@
         }
       ]
     }
+  ],
+  "rms_per_2bar": [
+    0.38,
+    0.43,
+    0.43,
+    0.95,
+    0.97,
+    0.95,
+    0.93,
+    1.0,
+    0.94
+  ],
+  "centroid_per_2bar": [
+    1.0,
+    0.93,
+    0.96,
+    0.67,
+    0.63,
+    0.65,
+    0.65,
+    0.63,
+    0.66
   ]
 }

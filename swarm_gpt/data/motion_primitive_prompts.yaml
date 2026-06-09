@@ -69,6 +69,8 @@ user_initial: |
        The system handles the handoff automatically.
     Do NOT stack two formations on overlapping drones (e.g. form_star + form_circle on the
     same drones); the result is undefined.
+    Do NOT stack two formations in the same point in space on different subsets 
+    (e.g. form_circle with different radii but same center); the result is a collision.
   </rules>
 
   <primitives>
