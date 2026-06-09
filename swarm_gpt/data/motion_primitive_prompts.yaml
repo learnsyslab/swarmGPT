@@ -5,6 +5,12 @@ system_initial: |
   You choreograph drone swarms using motion primitives. Choose primitives that match the song's
   structural sections; respect timing, collision, and bounds. Coordinates are integer cm.
 
+  You have creative freedom over WHEN the swarm moves. You do NOT need to choreograph every bar
+  or beat — that produces busy, repetitive motion. Instead vary the rhythm of your choreography:
+  cluster moves where the music is active, let the swarm hold a pose and breathe through calmer
+  passages, and avoid a predictable "something every bar" cadence. Uneven, musically-motivated
+  spacing reads as intentional and expressive; mechanical regularity does not.
+
 user_initial: |
   Plan a choreography for {num_drones} drones to "{song}" at {bpm} BPM.
 
@@ -24,12 +30,14 @@ user_initial: |
 
   <rules>
   - REQUIRED keys (must emit one action list at each): {required_keys_csv}
-    These are the downbeat of every bar. Emit an action at each so the choreography moves
-    with the song's pulse — do not leave the swarm static for long stretches.
-  - OPTIONAL keys: any other s<seg>b<bar>t<beat> in the song's address space.
-    Emit additional actions wherever musical intensity warrants a finer accent.
-  - Drones hold or continue the previous primitive between emitted actions; absent keys
-    are fine.
+    These are a SPARSE skeleton — roughly one anchor every few bars plus each segment's
+    opening — not every bar. They are the floor, not the target.
+  - OPTIONAL keys: every other s<seg>b<bar>t<beat> in the song's address space. Add them only
+    where the music genuinely calls for an accent — a build, a hit, a section change. It is good
+    and expected to leave many bars with no action: do NOT try to cover every bar. Vary the
+    spacing between actions so the motion feels phrased, not metronomic.
+  - Drones hold or continue the previous primitive between emitted actions. Holding a pose
+    through a calm passage is a valid, expressive choice — not a gap to be filled.
   - No two drones occupy the same position at the same moment.
   - Stay within bounds_cm; z > 0.
   - Match motion to music: dense, energetic sections (chorus, drop, bridge) get bolder
@@ -69,8 +77,8 @@ user_initial: |
 example: |
   <example>
   Input: song=Sample, drones=3, bpm=120, structure:
-    segment 1: "intro" (0.00s - 4.00s) — 2 bars × 4 beats
-    segment 2: "chorus" (4.00s - 12.00s) — 4 bars × 4 beats
+    segment 1: "intro" (0.00s - 4.00s) — 2 bars x 4 beats
+    segment 2: "chorus" (4.00s - 12.00s) — 4 bars x 4 beats
   Required keys: s1b1t1, s2b1t1.
   Output:
   song_mood: Steady, building from a soft intro to a confident chorus.
@@ -95,14 +103,16 @@ output_format: |
     ...
     END
 
-  All REQUIRED keys must be present. OPTIONAL keys may be present. Do not invent keys that
-  are not in the song's address space.
+  All REQUIRED keys must be present. Add OPTIONAL keys sparingly, only where the music calls
+  for an accent — leaving bars unchoreographed is expected. Do not invent keys that are not in
+  the song's address space.
 
 output_format_structured: |
   Return JSON only (no markdown). The schema enforces:
   - "choreography" is an array of entries, each {"key":"s<seg>b<bar>t<beat>","actions":[...]}.
   - Every key matches the pattern s<seg>b<bar>t<beat> and is one of the song's valid addresses.
-  - All REQUIRED keys are present (as entries). Do not repeat a key.
+  - All REQUIRED keys are present (as entries); add OPTIONAL keys only where musically warranted,
+    leaving many bars empty. Do not repeat a key.
   - "actions" is a non-empty list of action objects: {"primitive":"name","params":{...}}.
   Use exactly the parameter names from the primitive signature.
 

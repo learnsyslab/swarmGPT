@@ -2,6 +2,12 @@ starting_height: 1.0  # Starting height for all drones
 lighthouse: true  # Whether to use lighthouse or mocap for localization
 land_on_docks: true
 
+# Choreography
+choreography:
+  bars_per_required: 4  # Stride (in bars) between REQUIRED downbeats the LLM must choreograph.
+                        # 1 = every bar; 4 = first bar of each segment + every 4th bar after.
+                        # Beats in between stay addressable as encouraged-but-optional accents.
+
 # Simulation
 sim_freq: 500 # Frequency for the crazyflow simulation
 attitude_freq: 500 # Frequency for the crazyflow simulation for the drone attitudes

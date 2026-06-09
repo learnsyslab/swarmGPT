@@ -1,0 +1,52 @@
+# Provenance and attribution for every track in this directory.
+#
+# Keyed by the song's filename stem (the .mp3 name without extension), which is
+# how the app identifies songs (see swarm_gpt/utils/music_manager.py).
+
+[songs."Chopin - Nocturne Op. 9 No. 2"]
+license = "CC BY-SA 2.0 (recording); composition is public domain"
+license_url = "https://creativecommons.org/licenses/by-sa/2.0/"
+attribution = "Performance by Martha Goldstein (rec. 2006), from the Al Goldstein collection, ibiblio.org"
+source = "https://upload.wikimedia.org/wikipedia/commons/5/5c/Frederic_Chopin_-_Nocturne_Eb_major_Opus_9%2C_number_2.ogg"
+
+[songs."Debussy - Clair de Lune"]
+license = "CC BY-NC 3.0"
+license_url = "https://creativecommons.org/licenses/by-nc/3.0/"
+attribution = "Performance by Simone Renzi"
+source = "https://musopen.org/music/2504-suite-bergamasque/"
+
+[songs."Mozart - Eine kleine Nachtmusik"]
+license = "CC BY-NC-ND 3.0"
+license_url = "https://creativecommons.org/licenses/by-nc-nd/3.0/"
+attribution = "Performance by A Far Cry"
+source = "https://musopen.org/music/28074-serenade-no-13-a-little-night-music-eine-kleine-nachtmusik-k-525/"
+
+[songs."J. Strauss I - Radetzky March"]
+license = "Public Domain (US Government Work)"
+license_url = "https://creativecommons.org/publicdomain/mark/1.0/"
+attribution = "Recording by \"The President's Own\" United States Marine Band, from Sound Off!, recorded May 18-21, 1992 at Center for the Arts, George Mason University; conducted by John R. Bourgeois"
+source = "https://www.marineband.marines.mil/Portals/175/Docs/Audio/Educational_Series/sound_off/radetzky_march.mp3"
+
+[songs."J. Strauss II - The Blue Danube Op. 314"]
+license = "CC BY-NC 4.0"
+license_url = "https://creativecommons.org/licenses/by-nc/4.0/"
+attribution = "Live concert recording by Das Orchester Tsumugi / Takashi Inoue (Recorded 10 Mar. 2024, Fukuoka Symphony Hall, Japan); Source: IMSLP"
+source = "https://www.classicals.de/strauss-2-blue-danube"
+
+[songs."On & On"]
+license = "NCS (NoCopyrightSounds) Free Download/Stream license"
+license_url = "http://ncs.io/onandon"
+attribution = "Cartoon, Jeja - On & On (feat. Daniel Levi) [NCS Release]. Music provided by NoCopyrightSounds. Watch: http://youtu.be/K4DyBUG242c"
+source = "http://ncs.io/onandon"
+
+[songs."Vivaldi - Summer"]
+license = "CC BY-SA 3.0"
+license_url = "https://creativecommons.org/licenses/by-sa/3.0/"
+attribution = "Performance by John Harrison with the Wichita State University Chamber Players"
+source = "https://freemusicarchive.org/music/John_Harrison_with_the_Wichita_State_University_Chamber_Players/The_Four_Seasons_Vivaldi"
+
+[songs."We Wish You a Merry Christmas"]
+license = "Pixabay Content License"
+license_url = "https://pixabay.com/service/terms/"
+attribution = "mintmusic (https://pixabay.com/users/mintmusic-41154881/), \"Merry Christmas\", audio ID 270190"
+source = "https://pixabay.com/music/christmas-merry-christmas-270190/"

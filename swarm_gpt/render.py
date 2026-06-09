@@ -40,7 +40,7 @@ from swarm_gpt.core import AppBackend
 from swarm_gpt.utils import generate_default_colors
 
 ROOT = Path(__file__).resolve().parents[1]
-MUSIC_DIR = ROOT / "music"
+MUSIC_DIR = ROOT / "music" / "songs"
 SCENE_XML = ROOT / "swarm_gpt/data/scene.xml"
 
 # Pick a preset that matches the drone count in swarm_gpt/data/drones.toml.

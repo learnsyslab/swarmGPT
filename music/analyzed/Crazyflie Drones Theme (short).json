@@ -1,21 +1,14 @@
 {
   "schema_version": 1,
-  "source_path": "music/Crazyflie Drones Theme (short).mp3",
+  "source_path": "music/songs/Crazyflie Drones Theme (short).mp3",
   "source_sha256": "3b5ae26247a6a6c1528b27f1aef5811d462850bcfc0ba85e1e7277e991ced57b",
   "analyzer": "allin1@unknown",
   "bpm": 130,
   "segments": [
     {
       "id": 1,
-      "label": "start",
-      "start_s": 0.0,
-      "end_s": 0.11,
-      "bars": []
-    },
-    {
-      "id": 2,
       "label": "intro",
-      "start_s": 0.11,
+      "start_s": 0.1,
       "end_s": 33.0,
       "bars": [
         {
@@ -72,16 +65,16 @@
         },
         {
           "id": 3,
-          "start_s": 3.79,
+          "start_s": 3.8,
           "beats": [
             {
               "id": 1,
-              "time_s": 3.79,
+              "time_s": 3.8,
               "position_in_bar": 1
             },
             {
               "id": 2,
-              "time_s": 4.25,
+              "time_s": 4.26,
               "position_in_bar": 2
             },
             {
@@ -91,7 +84,7 @@
             },
             {
               "id": 4,
-              "time_s": 5.17,
+              "time_s": 5.18,
               "position_in_bar": 4
             }
           ]
@@ -169,7 +162,7 @@
             },
             {
               "id": 4,
-              "time_s": 10.73,
+              "time_s": 10.72,
               "position_in_bar": 4
             }
           ]
@@ -211,7 +204,7 @@
             },
             {
               "id": 2,
-              "time_s": 13.48,
+              "time_s": 13.49,
               "position_in_bar": 2
             },
             {
@@ -280,11 +273,11 @@
         },
         {
           "id": 11,
-          "start_s": 18.55,
+          "start_s": 18.56,
           "beats": [
             {
               "id": 1,
-              "time_s": 18.55,
+              "time_s": 18.56,
               "position_in_bar": 1
             },
             {
@@ -299,7 +292,7 @@
             },
             {
               "id": 4,
-              "time_s": 19.95,
+              "time_s": 19.94,
               "position_in_bar": 4
             }
           ]
@@ -462,11 +455,11 @@
         },
         {
           "id": 18,
-          "start_s": 31.48,
+          "start_s": 31.49,
           "beats": [
             {
               "id": 1,
-              "time_s": 31.48,
+              "time_s": 31.49,
               "position_in_bar": 1
             },
             {

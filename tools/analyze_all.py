@@ -4,9 +4,10 @@ Run with::
 
     pixi run -e music analyze
 
-Scans ``music/*.mp3`` (skipping any ``[deploy]`` variants), and for each song that
-doesn't already have a JSON under ``music/analyzed/``, runs ``allin1.analyze`` and
-caches the result. Existing JSONs are left untouched.
+Scans ``music/songs/*.mp3`` (skipping any ``[deploy]`` variants), and for each song that
+doesn't already have a JSON under ``music/analyzed/``, runs ``allin1.analyze``, caches the
+result, and writes a PNG visualization under ``music/viz/``. Existing JSONs are left
+untouched (their visualizations are not regenerated).
 """
 
 from __future__ import annotations
@@ -21,7 +22,9 @@ from swarm_gpt.utils.music_analyzer import analyze_song
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 MUSIC_DIR = PROJECT_ROOT / "music"
+SONGS_DIR = MUSIC_DIR / "songs"
 ANALYZED_DIR = MUSIC_DIR / "analyzed"
+VIZ_DIR = MUSIC_DIR / "viz"
 
 
 def main() -> None:
@@ -31,13 +34,14 @@ def main() -> None:
     if device == "cpu":
         print("WARNING: no CUDA detected. Analysis on CPU is ~10x+ slower.")
     print(f"PyTorch: {torch.__version__}")
-    print(f"Music dir:    {MUSIC_DIR}")
+    print(f"Songs dir:    {SONGS_DIR}")
     print(f"Analyzed dir: {ANALYZED_DIR}")
+    print(f"Viz dir:      {VIZ_DIR}")
     print()
 
-    mp3s = sorted(p for p in MUSIC_DIR.glob("*.mp3") if not p.stem.endswith("[deploy]"))
+    mp3s = sorted(p for p in SONGS_DIR.glob("*.mp3") if not p.stem.endswith("[deploy]"))
     if not mp3s:
-        print(f"No MP3s found in {MUSIC_DIR}.")
+        print(f"No MP3s found in {SONGS_DIR}.")
         sys.exit(1)
 
     print(f"Found {len(mp3s)} songs:")
@@ -63,7 +67,7 @@ def main() -> None:
         print(f"[{i}/{len(pending)}] {mp3.stem}")
         t0 = time.perf_counter()
         try:
-            structure = analyze_song(mp3, ANALYZED_DIR, device=device)
+            structure = analyze_song(mp3, ANALYZED_DIR, device=device, viz_dir=VIZ_DIR)
         except Exception as e:
             print(f"  FAILED: {e.__class__.__name__}: {e}")
             failures.append((mp3.stem, f"{e.__class__.__name__}: {e}"))

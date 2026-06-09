@@ -41,7 +41,7 @@ def main(
             "or switch the UI to Ollama (local)."
         )
 
-    music_dir = Path(__file__).resolve().parents[1] / "music"
+    music_dir = Path(__file__).resolve().parents[1] / "music" / "songs"
 
     app = create_app(
         ApiConfig(

@@ -86,7 +86,7 @@ class AppBackend:
     def __init__(
         self,
         *,
-        music_dir: Path = Path(__file__).parents[2] / "music",
+        music_dir: Path = Path(__file__).parents[2] / "music" / "songs",
         preset_dir: Path | None = None,
         config_file: Path | None = None,
         strict_processing: bool = True,

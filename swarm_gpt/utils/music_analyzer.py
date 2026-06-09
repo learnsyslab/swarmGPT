@@ -221,20 +221,31 @@ class SongStructure:
                         return beat_obj.time_s
         raise KeyError(f"No beat at (seq={seq}, bar={bar}, beat={beat})")
 
-    def required_keys(self) -> list[tuple[int, int, int]]:
+    def required_keys(self, bars_per_required: int = 1) -> list[tuple[int, int, int]]:
         """Return the ``(seq, bar, beat)`` tuples the LLM must emit actions at.
 
-        Per design: the downbeat (first beat) of every bar, so choreography density tracks the
-        song's metric structure rather than allin1's coarser, sometimes-degenerate segmentation.
+        The downbeat (first beat) of every ``bars_per_required``-th bar, counted from the start
+        of each segment. The first bar of every segment is always required (segment openings are
+        musically load-bearing); the stride only thins the bars in between. A stride of 1
+        requires every bar's downbeat; a stride of 4 requires bars 1, 5, 9, ... within each
+        segment. Beats not returned here remain addressable as optional accents.
+
+        Args:
+            bars_per_required: Stride between required downbeats within a segment (>= 1).
 
         Returns:
-            List of ``(seq, bar, beat)`` tuples, one per bar that has at least one beat.
+            List of ``(seq, bar, beat)`` tuples, in time order.
+
+        Raises:
+            ValueError: If ``bars_per_required`` is less than 1.
         """
+        if bars_per_required < 1:
+            raise ValueError(f"bars_per_required must be >= 1, got {bars_per_required}")
         return [
             (segment.id, bar.id, bar.beats[0].id)
             for segment in self.segments
-            for bar in segment.bars
-            if bar.beats
+            for i, bar in enumerate(segment.bars)
+            if bar.beats and i % bars_per_required == 0
         ]
 
     def all_keys(self) -> list[tuple[int, int, int]]:
@@ -361,16 +372,45 @@ def sha256_of(path: Path) -> str:
     return h.hexdigest()
 
 
-def analyze_song(mp3_path: Path, cache_dir: Path, device: str = "cuda") -> SongStructure:
+def save_visualization(result: Any, viz_dir: Path, stem: str) -> Path:
+    """Save all-in-one's RMS-over-segments visualization as a PNG.
+
+    Renders the same figure as ``allin1.visualize`` (which only writes PDFs) but saves it
+    as a raster image instead.
+
+    Args:
+        result: An ``allin1.AnalysisResult``.
+        viz_dir: Directory to write the PNG into. Created if missing.
+        stem: Output file stem (the song's MP3 stem, no extension).
+
+    Returns:
+        Path to the written PNG.
+    """
+    import allin1  # noqa: PLC0415 -- lazy: only available in the music pixi env
+    import matplotlib.pyplot as plt  # noqa: PLC0415 -- pulled in transitively by allin1
+
+    fig = allin1.visualize(result, out_dir=None, multiprocess=False)
+    viz_dir.mkdir(parents=True, exist_ok=True)
+    out_path = viz_dir / f"{stem}.png"
+    fig.savefig(out_path, dpi=200, bbox_inches="tight")
+    plt.close(fig)
+    return out_path
+
+
+def analyze_song(
+    mp3_path: Path, cache_dir: Path, device: str = "cuda", viz_dir: Path | None = None
+) -> SongStructure:
     """Analyze a single MP3 and cache the result as JSON.
 
     If ``cache_dir/<song_stem>.json`` already exists, loads and returns it without
-    re-running analysis.
+    re-running analysis (and without regenerating any visualization).
 
     Args:
         mp3_path: Path to the MP3 file.
         cache_dir: Directory to read/write JSON caches in. Created if missing.
         device: Torch device for analysis (``"cuda"`` or ``"cpu"``).
+        viz_dir: If given, save a PNG visualization of the analysis here when the song is
+            analyzed (skipped on a cache hit). Created if missing.
 
     Returns:
         The SongStructure for the song.
@@ -394,6 +434,8 @@ def analyze_song(mp3_path: Path, cache_dir: Path, device: str = "cuda") -> SongS
     )
     cache_dir.mkdir(parents=True, exist_ok=True)
     structure.to_json(cache_path)
+    if viz_dir is not None:
+        save_visualization(result, viz_dir, mp3_path.stem)
     return structure
 
 

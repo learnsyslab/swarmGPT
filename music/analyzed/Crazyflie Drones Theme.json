@@ -1,19 +1,12 @@
 {
   "schema_version": 1,
-  "source_path": "music/Crazyflie Drones Theme.mp3",
+  "source_path": "music/songs/Crazyflie Drones Theme.mp3",
   "source_sha256": "642cf6b82c25fa51bf90e49d5d866c02c8046ca2f738672f766f11ce03b7af10",
   "analyzer": "allin1@unknown",
   "bpm": 130,
   "segments": [
     {
       "id": 1,
-      "label": "start",
-      "start_s": 0.0,
-      "end_s": 0.04,
-      "bars": []
-    },
-    {
-      "id": 2,
       "label": "intro",
       "start_s": 0.04,
       "end_s": 59.61,
@@ -133,7 +126,7 @@
             },
             {
               "id": 2,
-              "time_s": 7.87,
+              "time_s": 7.86,
               "position_in_bar": 2
             },
             {
@@ -242,7 +235,7 @@
             },
             {
               "id": 3,
-              "time_s": 15.72,
+              "time_s": 15.71,
               "position_in_bar": 3
             },
             {
@@ -325,7 +318,7 @@
             },
             {
               "id": 4,
-              "time_s": 21.72,
+              "time_s": 21.73,
               "position_in_bar": 4
             }
           ]
@@ -419,7 +412,7 @@
             },
             {
               "id": 2,
-              "time_s": 28.18,
+              "time_s": 28.17,
               "position_in_bar": 2
             },
             {
@@ -540,11 +533,11 @@
         },
         {
           "id": 21,
-          "start_s": 36.94,
+          "start_s": 36.95,
           "beats": [
             {
               "id": 1,
-              "time_s": 36.94,
+              "time_s": 36.95,
               "position_in_bar": 1
             },
             {
@@ -767,7 +760,7 @@
             },
             {
               "id": 4,
-              "time_s": 53.1,
+              "time_s": 53.09,
               "position_in_bar": 4
             }
           ]
@@ -794,13 +787,6 @@
           ]
         }
       ]
-    },
-    {
-      "id": 3,
-      "label": "end",
-      "start_s": 59.61,
-      "end_s": 59.62,
-      "bars": []
     }
   ]
 }

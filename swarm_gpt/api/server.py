@@ -35,7 +35,7 @@ from swarm_gpt.utils.llm_providers import (
 logger = logging.getLogger(__name__)
 
 ROOT = Path(__file__).resolve().parents[2]
-MUSIC_DIR = ROOT / "music"
+MUSIC_DIR = ROOT / "music" / "songs"
 WEB_DIST_DIR = ROOT / "web" / "dist"
 SWARM_BACKGROUND = ROOT / "swarm_gpt" / "ui" / "swarm.png"
 DRONE_ASSET_DIR = Path(drone_models.__file__).resolve().parent / "data" / "assets"

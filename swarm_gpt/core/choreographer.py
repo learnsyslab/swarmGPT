@@ -94,6 +94,10 @@ class Choreographer:
         self.lim_lower = np.array(self.settings["axswarm"]["pos_min"])
         self.lim_upper = np.array(self.settings["axswarm"]["pos_max"])
         assert len(self.lim_lower) == 3 and len(self.lim_upper) == 3, "Limits must be 3D"
+        # Stride (in bars) between required downbeats; beats in between are optional accents.
+        self._bars_per_required = int(
+            self.settings.get("choreography", {}).get("bars_per_required", 1)
+        )
 
     def configure_llm(self, provider: LLMProvider, model_id: str) -> None:
         """Switch provider and model (used by the web UI).
@@ -226,7 +230,9 @@ class Choreographer:
         # Convert starting positions to cm for the LLM (integer tokens).
         starting_pos = [(pos * 100).astype(int).tolist() for pos in self.starting_pos.values()]
         segments_table = _render_segments_table(structure)
-        required_keys_csv = ", ".join(encode_key(*k) for k in structure.required_keys())
+        required_keys_csv = ", ".join(
+            encode_key(*k) for k in structure.required_keys(self._bars_per_required)
+        )
         n_total_beats = len(structure.all_keys())
         if self.use_motion_primitives:
             latex_file = Path(__file__).resolve().parents[1] / "data/latex_eqn.yaml"
@@ -314,7 +320,7 @@ class Choreographer:
         client = self._chat_client_for_call()
         schema = build_motion_primitive_response_schema(
             all_keys=structure.all_keys(),
-            required_keys=structure.required_keys(),
+            required_keys=structure.required_keys(self._bars_per_required),
             num_drones=self.num_drones,
         )
         input_messages, instructions = prepare_responses_messages(messages)
@@ -362,7 +368,7 @@ class Choreographer:
         """Call Ollama's native chat structured output path."""
         schema = build_motion_primitive_response_schema(
             all_keys=structure.all_keys(),
-            required_keys=structure.required_keys(),
+            required_keys=structure.required_keys(self._bars_per_required),
             num_drones=self.num_drones,
         )
         grounded_messages = [
@@ -526,7 +532,7 @@ class Choreographer:
         Returns:
             Waypoints dict with ``time``, ``pos``, ``vel``, ``acc`` arrays.
         """
-        required = set(structure.required_keys())
+        required = set(structure.required_keys(self._bars_per_required))
         emitted = set(choreography)
         if missing := required - emitted:
             raise LLMResponseProcessingError(
