@@ -24,6 +24,8 @@ song_crops:
   "On & On": [0, 60]
   "Vivaldi - Summer": [0, 60]
   "We Wish You a Merry Christmas": [0, 60]
+  "Fearless2": [0, 60]
+  "Mortals": [0, 60]
 
 # Simulation
 sim_freq: 500 # Frequency for the crazyflow simulation
