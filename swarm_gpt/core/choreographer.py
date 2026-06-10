@@ -255,11 +255,17 @@ class Choreographer:
         """Reset the LLM history to ensure a clean slate."""
         self.messages.clear()
 
-    def load_drone_config(self, config_file: Path | None = None):
+    def load_drone_config(self, config_file: Path | None = None) -> None:
         """Load the drone configuration from the config file.
 
-        The configuration file is a yaml file that contains the drone IDs and their initial
-        positions.
+        The configuration file is a TOML file containing an ``active`` list of
+        cf-names and one ``[cfXX]`` table per drone with ``addr`` (last radio
+        address byte) and ``pos`` (initial xyz position). URI and channel are
+        derived at load time; they are not stored in the file.
+
+        Args:
+            config_file: Path to the TOML config file. Defaults to
+                ``swarm_gpt/data/drones.toml``.
         """
         with open(Path(__file__).resolve().parents[1] / "data/settings.yaml", "r") as f:
             self.settings = yaml.safe_load(f)
@@ -267,15 +273,33 @@ class Choreographer:
         if config_file is None:
             config_file = Path(__file__).resolve().parents[1] / "data/drones.toml"
         with open(config_file) as f:
-            self.drones = toml.load(f)
+            raw = toml.load(f)
 
-        for drone_name, data in self.drones.items():
-            i = int(drone_name[2:])
+        uri_base: str = self.settings["radio"]["uri_base"]
+        active: list[str] = raw.get("active", [])
+        registry: dict[str, dict] = {k: v for k, v in raw.items() if k != "active"}
+
+        missing = [name for name in active if name not in registry]
+        if missing:
+            raise ValueError(f"Drones in 'active' not found in drone table: {missing}")
+
+        addrs = [registry[name]["addr"] for name in active]
+        if len(addrs) != len(set(addrs)):
+            raise ValueError(f"Duplicate addr values in active drones: {addrs}")
+
+        self.drones = {}
+        for i, name in enumerate(active):
+            entry = registry[name]
+            addr: int = entry["addr"]
+            channel: int = (addr // 10) * 10
+            uri: str = uri_base.format(channel=channel, addr=addr)
             self.agents[i] = i
-            self.starting_pos[i] = np.array(data["pos"])
+            self.starting_pos[i] = np.array(entry["pos"])
             self.starting_pos[i][2] = self.settings["starting_height"]
-            self.uris[i] = data["uri"]
-        self.num_drones = len(self.agents.values())
+            self.uris[i] = uri
+            self.drones[name] = {"addr": addr, "uri": uri, "pos": entry["pos"]}
+
+        self.num_drones = len(self.agents)
         assert self.num_drones > 0, "No drones detected in config file"
 
     def _format_initial_user_prompt(self, song: str, structure: SongStructure) -> str:
