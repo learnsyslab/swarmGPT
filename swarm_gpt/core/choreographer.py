@@ -147,6 +147,11 @@ class Choreographer:
         self.lim_lower = np.array(self.settings["axswarm"]["pos_min"])
         self.lim_upper = np.array(self.settings["axswarm"]["pos_max"])
         assert len(self.lim_lower) == 3 and len(self.lim_upper) == 3, "Limits must be 3D"
+        # Ellipsoidal collision envelope (x, y, z) in meters that axswarm enforces as a hard
+        # MPC constraint. The offline collision check scales separations by this so it rejects
+        # the same layouts the solver cannot hold (e.g. circles stacked < 0.6m apart in z).
+        self.collision_envelope = np.array(self.settings["axswarm"]["collision_envelope"])
+        assert len(self.collision_envelope) == 3, "Collision envelope must be 3D"
         # Stride (in bars) between required downbeats; beats in between are optional accents.
         self._bars_per_required = int(
             self.settings.get("choreography", {}).get("bars_per_required", 1)
@@ -359,15 +364,22 @@ class Choreographer:
     def _collision_check(
         self,
         pos: NDArray,
-        min_dist: float = 0.1,
+        margin: float = 1.0,
         time: NDArray | None = None,
         structure: SongStructure | None = None,
     ):
-        """Check that no two drones are too close to each other at the same time.
+        """Check that no two drones violate the MPC's collision envelope at the same time.
+
+        Separations are scaled by ``self.collision_envelope`` (the ellipsoid axswarm enforces),
+        so a pair is in conflict when the envelope-scaled distance drops below 1. This matches
+        the solver's constraint — e.g. two drones must be >=0.6m apart in z but only >=0.35m in
+        x/y — instead of the old isotropic sphere, which let vertically stacked formations slip
+        through and then jitter under the MPC.
 
         Args:
             pos: The positions of the drones as a (n_drones, T, 3) array.
-            min_dist: The minimum allowed distance between any two drones at the same time.
+            margin: Multiplicative inflation of the envelope. ``1.0`` matches the MPC exactly;
+                values >1 reject layouts that are merely close to the constraint.
             time: Optional 1-D array of length ``T`` giving the seconds of each waypoint column.
                 When provided together with ``structure``, offending columns are reported as the
                 nearest ``s#b#t#`` key instead of opaque waypoint indices.
@@ -375,16 +387,19 @@ class Choreographer:
                 hierarchical key for a choreographer-friendly error message.
 
         Raises:
-            LLMPlanError: If two drones are too close together at the same time.
+            LLMPlanError: If two drones violate the collision envelope at the same time.
         """
         differences = pos[:, None, :, :] - pos[None, :, :, :]  # Reshape for broadcasting
-        distance = np.linalg.norm(differences, axis=-1)
+        # Scale each axis by the envelope so the norm is <1 exactly when the pair is inside the
+        # ellipsoidal collision constraint, regardless of how the separation splits across axes.
+        scaled = differences / (self.collision_envelope * margin)
+        distance = np.linalg.norm(scaled, axis=-1)
         # Set the diagonal to a large number to avoid comparing the same drone
         distance += np.eye(self.num_drones).reshape(self.num_drones, self.num_drones, 1) * 1000
         min_distance = np.min(distance, axis=1)  # (n_drones, T). Closest encounter for each time
-        if not np.any(min_distance < min_dist):
+        if not np.any(min_distance < 1.0):
             return
-        drones, times = np.nonzero(min_distance < min_dist)
+        drones, times = np.nonzero(min_distance < 1.0)
         if time is None or structure is None:
             raise LLMPlanError(
                 f"Drones {set((d + 1) for d in drones.tolist())} get too close "
@@ -596,9 +611,7 @@ class Choreographer:
         # Clip waypoint values to the physical limits
         waypoints["pos"] = np.clip(waypoints["pos"], self.lim_lower, self.lim_upper)
         if strict:
-            self._collision_check(
-                waypoints["pos"], 0.25, time=waypoints["time"][0], structure=structure
-            )
+            self._collision_check(waypoints["pos"], time=waypoints["time"][0], structure=structure)
 
         # Add home position (TODO make cleaner)
         home = np.zeros((len(self.agents.values()), 1, 3))
