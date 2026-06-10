@@ -1,3 +1,6 @@
+radio:
+  uri_base: "radio://0/{channel}/2M/E7E7E7E7{addr:02X}"
+
 starting_height: 1.0  # Starting height for all drones
 lighthouse: true  # Whether to use lighthouse or mocap for localization
 land_on_docks: true
