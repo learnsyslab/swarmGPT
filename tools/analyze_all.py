@@ -12,11 +12,13 @@ untouched (their visualizations are not regenerated).
 
 from __future__ import annotations
 
+import re
 import sys
 import time
 from pathlib import Path
 
 import torch
+import yaml
 
 from swarm_gpt.utils.music_analyzer import analyze_song
 
@@ -25,6 +27,52 @@ MUSIC_DIR = PROJECT_ROOT / "music"
 SONGS_DIR = MUSIC_DIR / "songs"
 ANALYZED_DIR = MUSIC_DIR / "analyzed"
 VIZ_DIR = MUSIC_DIR / "viz"
+SETTINGS_PATH = PROJECT_ROOT / "swarm_gpt" / "data" / "settings.yaml"
+
+
+def _ensure_song_crop(song_stem: str) -> None:
+    """Add ``song_stem`` to ``song_crops`` in settings.yaml if it is not already present.
+
+    Uses a line-oriented insertion so comments and formatting are fully preserved.
+    The new entry is appended after the last existing line in the ``song_crops:`` block.
+
+    Args:
+        song_stem: MP3 filename without extension, used as the settings key.
+    """
+    text = SETTINGS_PATH.read_text()
+
+    # Quick check via YAML parse — avoids a text-insert if the key already exists.
+    settings = yaml.safe_load(text)
+    if song_stem in settings.get("song_crops", {}):
+        return
+
+    # Find the song_crops: block and locate its last indented line.
+    lines = text.splitlines(keepends=True)
+    in_block = False
+    last_entry_idx = -1
+    for i, line in enumerate(lines):
+        if re.match(r"^song_crops\s*:", line):
+            in_block = True
+            continue
+        if in_block:
+            if re.match(r"^\S", line):
+                # A non-indented line marks the end of the block.
+                break
+            if line.strip() and not line.strip().startswith("#"):
+                last_entry_idx = i
+
+    if last_entry_idx == -1:
+        # Fallback: couldn't find the block — print a warning and skip.
+        print(
+            f"  WARNING: could not locate song_crops block in {SETTINGS_PATH}; "
+            f"add '{song_stem}: [0, 60]' manually."
+        )
+        return
+
+    new_line = f'  "{song_stem}": [0, 60]\n'
+    lines.insert(last_entry_idx + 1, new_line)
+    SETTINGS_PATH.write_text("".join(lines))
+    print(f"  Added '{song_stem}' to song_crops in settings.yaml with default crop [0, 60].")
 
 
 def main() -> None:
@@ -80,6 +128,7 @@ def main() -> None:
             f"{len(structure.segments)} segments, "
             f"{beats} beats"
         )
+        _ensure_song_crop(mp3.stem)
 
     total_elapsed = time.perf_counter() - total_start
     print()
