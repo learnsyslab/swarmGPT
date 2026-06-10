@@ -21,6 +21,12 @@ license_url = "https://ncs.io/Fearless2"
 attribution = "TULE - Fearless pt.II (feat. Chris Linton) [NCS Release]. Music provided by NoCopyrightSounds. Watch: http://youtu.be/S19UcWdOA-I"
 source = "https://ncs.io/Fearless2"
 
+[songs."Mortals"]
+license = "NCS (NoCopyrightSounds) Free Download/Stream license"
+license_url = "https://ncs.io/Mortals"
+attribution = "Warriyo - Mortals (feat. Laura Brehm) [NCS Release]. Music provided by NoCopyrightSounds. Watch: http://youtu.be/yJg-Y5byMMw"
+source = "https://ncs.io/Fearless2"
+
 [songs."Mozart - Eine kleine Nachtmusik"]
 license = "CC BY-NC-ND 3.0"
 license_url = "https://creativecommons.org/licenses/by-nc-nd/3.0/"
