@@ -76,7 +76,7 @@ user_initial: |
     1. Disjoint drone subsets — different drones, different shapes, coexisting.
        IMPORTANT: the two subsets MUST end up at different points in space or they will
        collide. Separating by height alone needs a LARGE gap: the vertical collision
-       envelope is 60cm, so stacked formations must differ in z by at least 60cm.
+       envelope is 60cm, so stacked formations must differ in z by at least 70cm, preferably larger to allow for movement.
        A smaller gap (or same x/y footprint) makes the drones jitter. Otherwise separate
        by radius or x/y center.
     2. Formation + motion on overlapping drones — formation snaps in, motion takes over.

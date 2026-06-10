@@ -420,7 +420,7 @@ class Choreographer:
         raise LLMPlanError(
             "Drones get too close to each other near these moments: "
             f"{locations}. Separate the colliding drones there by height (z), radius, or x/y "
-            "center, or move them to different keys."
+            "center, move them to different keys. Try moving some drones lower in height (z) if they are colliding with other drones near the height limit."
         )
 
     @staticmethod
