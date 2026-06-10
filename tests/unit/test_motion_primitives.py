@@ -52,7 +52,7 @@ def test_form_circle_respects_time_to_finish():
     swarm = _swarm_10()
     limits = _limits()
     drone_ids = list(range(1, 6))  # drones 1-5
-    _, wps = form_circle((drone_ids, 100, 8.0), swarm, 0.0, 10.0, limits)
+    _, wps = form_circle((drone_ids, 100, 100, 8.0), swarm, 0.0, 10.0, limits)
     times = sorted(wps.keys())
     assert times[0] >= 7.0, f"expected late arrival, got {times[0]}"
 
