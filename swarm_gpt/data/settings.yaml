@@ -19,12 +19,12 @@ song_crops:
   "Dance of the Flying Machines": [0, 60]
   "Debussy - Clair de Lune": [0, 60]
   "J. Strauss I - Radetzky March": [0, 60]
-  "J. Strauss II - The Blue Danube Op. 314": [0, 60]
+  "J. Strauss II - The Blue Danube Op. 314": [64, 124]
   "Mozart - Eine kleine Nachtmusik": [0, 60]
   "On & On": [0, 60]
   "Vivaldi - Summer": [0, 60]
   "We Wish You a Merry Christmas": [0, 60]
-  "Fearless2": [0, 60]
+  "Fearless2": [35, 70]
   "Mortals": [0, 60]
 
 # Simulation

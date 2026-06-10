@@ -356,25 +356,73 @@ class Choreographer:
             print("=" * 80 + "\n")
         return content
 
-    def _collision_check(self, pos: NDArray, min_dist: float = 0.1):
+    def _collision_check(
+        self,
+        pos: NDArray,
+        min_dist: float = 0.1,
+        time: NDArray | None = None,
+        structure: SongStructure | None = None,
+    ):
         """Check that no two drones are too close to each other at the same time.
 
         Args:
             pos: The positions of the drones as a (n_drones, T, 3) array.
             min_dist: The minimum allowed distance between any two drones at the same time.
+            time: Optional 1-D array of length ``T`` giving the seconds of each waypoint column.
+                When provided together with ``structure``, offending columns are reported as the
+                nearest ``s#b#t#`` key instead of opaque waypoint indices.
+            structure: Optional song structure used to resolve waypoint times to the nearest
+                hierarchical key for a choreographer-friendly error message.
 
         Raises:
-            ValueError: If two drones are too close together at the same time.
+            LLMPlanError: If two drones are too close together at the same time.
         """
         differences = pos[:, None, :, :] - pos[None, :, :, :]  # Reshape for broadcasting
         distance = np.linalg.norm(differences, axis=-1)
         # Set the diagonal to a large number to avoid comparing the same drone
         distance += np.eye(self.num_drones).reshape(self.num_drones, self.num_drones, 1) * 1000
         min_distance = np.min(distance, axis=1)  # (n_drones, T). Closest encounter for each time
-        if np.any(min_distance < min_dist):
-            drones, times = np.nonzero(min_distance < min_dist)
-            drones, times = drones.tolist(), times.tolist()
-            raise LLMPlanError(f"Drones {set(drones)} get too close at waypoints {set(times)}")
+        if not np.any(min_distance < min_dist):
+            return
+        drones, times = np.nonzero(min_distance < min_dist)
+        if time is None or structure is None:
+            raise LLMPlanError(
+                f"Drones {set((d + 1) for d in drones.tolist())} get too close "
+                f"at waypoints {set(times.tolist())}"
+            )
+        # Group offending drones by the nearest s#b#t# key so the LLM can act on a reprompt.
+        time_to_key = self._time_to_key_lookup(structure)
+        by_key: dict[str, set[int]] = {}
+        key_time: dict[str, float] = {}
+        for drone_idx, time_idx in zip(drones.tolist(), times.tolist()):
+            key, key_t = self._nearest_key(float(time[time_idx]), time_to_key)
+            by_key.setdefault(key, set()).add(drone_idx + 1)  # 1-indexed for the LLM
+            key_time[key] = key_t
+        locations = "; ".join(
+            f"{key} (t≈{key_time[key]:.1f}s): drones {sorted(by_key[key])}"
+            for key in sorted(by_key, key=lambda k: key_time[k])
+        )
+        raise LLMPlanError(
+            "Drones get too close to each other near these moments: "
+            f"{locations}. Separate the colliding drones there by height (z), radius, or x/y "
+            "center, or move them to different keys."
+        )
+
+    @staticmethod
+    def _time_to_key_lookup(structure: SongStructure) -> list[tuple[float, str]]:
+        """Build a time-sorted ``(time_s, s#b#t#)`` table for every addressable beat."""
+        table = [
+            (structure.time_of(seq, bar, beat), encode_key(seq, bar, beat))
+            for seq, bar, beat in structure.all_keys()
+        ]
+        table.sort(key=lambda pair: pair[0])
+        return table
+
+    @staticmethod
+    def _nearest_key(t_sec: float, time_to_key: list[tuple[float, str]]) -> tuple[str, float]:
+        """Return the ``(key, beat_time_s)`` whose beat time is closest to ``t_sec``."""
+        beat_t, key = min(time_to_key, key=lambda pair: abs(pair[0] - t_sec))
+        return key, beat_t
 
     def _call_responses_structured(
         self, messages: list[dict[str, str]], structure: SongStructure
@@ -548,7 +596,9 @@ class Choreographer:
         # Clip waypoint values to the physical limits
         waypoints["pos"] = np.clip(waypoints["pos"], self.lim_lower, self.lim_upper)
         if strict:
-            self._collision_check(waypoints["pos"], 0.25)
+            self._collision_check(
+                waypoints["pos"], 0.25, time=waypoints["time"][0], structure=structure
+            )
 
         # Add home position (TODO make cleaner)
         home = np.zeros((len(self.agents.values()), 1, 3))
