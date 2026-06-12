@@ -1,4 +1,4 @@
-active = ["cf31", "cf32", "cf33", "cf34", "cf35", "cf41", "cf42", "cf43", "cf44"]
+active = ["cf31", "cf32", "cf33", "cf34", "cf35", "cf41", "cf42", "cf43", "cf44", "cf45"]
 
 [cf31]
 addr = 31
