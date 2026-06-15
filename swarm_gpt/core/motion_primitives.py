@@ -50,6 +50,7 @@ def rotate(
     tstart: float,
     tend: float,
     limits: dict[str, NDArray],
+    swarm_vel: NDArray | None = None,
 ) -> tuple[NDArray, dict[float, dict[int, NDArray]]]:
     """Rotate all drones by angle theta."""
     angle, axis = params
@@ -82,6 +83,7 @@ def spiral(
     tstart: float,
     tend: float,
     limits: dict[str, NDArray],
+    swarm_vel: NDArray | None = None,
 ) -> tuple[NDArray, dict[float, dict[int, NDArray]]]:
     """Spiral primitive."""
     n_drones = swarm_pos.shape[0]
@@ -96,7 +98,7 @@ def spiral(
     y = start_radius * np.sin(angles)
     # TODO: Vary height over time?
     des_pos = np.array([x, y, [height] * n_drones]).T
-    assignment = _assign_positions(swarm_pos, des_pos)
+    assignment = _assign_positions(swarm_pos, des_pos, swarm_vel=swarm_vel)
     dt = (tend - tstart) / steps
 
     waypoints = {}
@@ -118,6 +120,7 @@ def spiral_speed(
     tstart: float,
     tend: float,
     limits: dict[str, NDArray],
+    swarm_vel: NDArray | None = None,
 ) -> tuple[NDArray, dict[float, dict[int, NDArray]]]:
     """Spiral primitive with speed control."""
     steps, height, degrees, increase = params
@@ -132,7 +135,7 @@ def spiral_speed(
     x = start_radius * np.cos(angles)
     y = start_radius * np.sin(angles)
     des_pos = np.array([x, y, [height] * n_drones]).T
-    assignment = _assign_positions(swarm_pos, des_pos)
+    assignment = _assign_positions(swarm_pos, des_pos, swarm_vel=swarm_vel)
     dt = (tend - tstart) / steps
 
     waypoints = {}
@@ -155,6 +158,7 @@ def zig_zag(
     tstart: float,
     tend: float,
     limits: dict[str, NDArray],
+    swarm_vel: NDArray | None = None,
 ) -> tuple[NDArray, dict[float, dict[int, NDArray]]]:
     """Move drones in a zigzag pattern, with ``params`` of ``[steps, delta, delta_h]``.
 
@@ -185,6 +189,7 @@ def helix(
     tstart: float,
     tend: float,
     limits: dict[str, NDArray],
+    swarm_vel: NDArray | None = None,
 ) -> tuple[NDArray, dict[float, dict[int, NDArray]]]:
     """Rise the drones up while they circle around the center."""
     steps, delta_h, height = params
@@ -220,6 +225,7 @@ def wave(
     tstart: float,
     tend: float,
     limits: dict[str, NDArray],
+    swarm_vel: NDArray | None = None,
 ) -> tuple[NDArray, dict[float, dict[int, NDArray]]]:
     """Run a standing-wave pattern over a grid, with ``params`` of ``[steps, height_cm]``."""
     steps, height = params
@@ -265,6 +271,7 @@ def form_star(
     tstart: float,
     tend: float,
     limits: dict[str, NDArray],
+    swarm_vel: NDArray | None = None,
 ) -> tuple[NDArray, dict[float, dict[int, NDArray]]]:
     """Form a star shape with the drones with {n_drones}//2 spokes."""
     height, min_spacing, delta_radius, time_to_finish_s = params
@@ -293,7 +300,7 @@ def form_star(
     if n_drones != drones_per_circle * 2:
         des_pos = np.vstack([des_pos, np.array([0, 0, height]).T])
 
-    assignment = _assign_positions(swarm_pos, des_pos)
+    assignment = _assign_positions(swarm_pos, des_pos, swarm_vel=swarm_vel)
     target = des_pos[assignment]
     waypoints = _formation_waypoints(target, swarm_pos, tstart, tend, time_to_finish_s)
     return target, waypoints
@@ -305,6 +312,7 @@ def form_cone(
     tstart: float,
     tend: float,
     limits: dict[str, NDArray],
+    swarm_vel: NDArray | None = None,
 ) -> tuple[NDArray, dict[float, dict[int, NDArray]]]:
     """Form a cone with the drones."""
     delta_height, spacing, is_inverted, time_to_finish_s = params
@@ -337,7 +345,7 @@ def form_cone(
         y = radius * np.sin(angles)
         des_pos = np.vstack([des_pos, np.array([x, y, [z] * drones_in_layer]).T])
 
-    assignment = _assign_positions(swarm_pos, des_pos)
+    assignment = _assign_positions(swarm_pos, des_pos, swarm_vel=swarm_vel)
     target = des_pos[assignment]
     waypoints = _formation_waypoints(target, swarm_pos, tstart, tend, time_to_finish_s)
     return target, waypoints
@@ -349,6 +357,7 @@ def twister(
     tstart: float,
     tend: float,
     limits: dict[str, NDArray],
+    swarm_vel: NDArray | None = None,
 ) -> tuple[NDArray, dict[float, dict[int, NDArray]]]:
     """Form a spinning upside-down cone with drones."""
     steps, omega, z_spacing = params
@@ -404,6 +413,7 @@ def center(
     tstart: float,
     tend: float,
     limits: dict[str, NDArray],
+    swarm_vel: NDArray | None = None,
 ) -> tuple[NDArray, dict[float, dict[int, NDArray]]]:
     """Move all the drones to the center, calculated from current position."""
     drone_ids = _sanitize_drone_ids(params[0], swarm_pos.shape[0])
@@ -416,7 +426,8 @@ def center(
     x = radius * np.cos(angles)
     y = radius * np.sin(angles)
     des_pos = np.array([x, y, [centroid[2]] * n_drones]).T
-    assignment = _assign_positions(swarm_pos[drone_ids], des_pos)
+    vel_subset = swarm_vel[drone_ids] if swarm_vel is not None else None
+    assignment = _assign_positions(swarm_pos[drone_ids], des_pos, swarm_vel=vel_subset)
     waypoints = {}
     waypoints[tend] = {i: p.copy() for i, p in enumerate(des_pos[assignment])}
     pos = swarm_pos.copy()
@@ -430,6 +441,7 @@ def form_circle(
     tstart: float,
     tend: float,
     limits: dict[str, NDArray],
+    swarm_vel: NDArray | None = None,
 ) -> tuple[NDArray, dict[float, dict[int, NDArray]]]:
     """Position drones around the circumference of a circle at a given radius and height."""
     drone_ids, radius_cm, z_coord_cm, time_to_finish_s = params
@@ -464,7 +476,8 @@ def form_circle(
         else:
             des_pos = np.vstack([des_pos, np.array([x, y, [z_coord] * n]).T])
 
-    assignment = _assign_positions(swarm_pos[drone_ids], des_pos)
+    vel_subset = swarm_vel[drone_ids] if swarm_vel is not None else None
+    assignment = _assign_positions(swarm_pos[drone_ids], des_pos, swarm_vel=vel_subset)
     target = des_pos[assignment]
     waypoints = _formation_waypoints(
         target, swarm_pos[drone_ids], tstart, tend, time_to_finish_s, drone_ids=drone_ids
@@ -480,6 +493,7 @@ def swap(
     tstart: float,
     tend: float,
     limits: dict[str, NDArray],
+    swarm_vel: NDArray | None = None,
 ) -> tuple[NDArray, dict[float, dict[int, NDArray]]]:
     """Swap the positions of two drones."""
     drone1_id, drone2_id = params
@@ -497,6 +511,7 @@ def move_z(
     tstart: float,
     tend: float,
     limits: dict[str, NDArray],
+    swarm_vel: NDArray | None = None,
 ) -> tuple[NDArray, dict[float, dict[int, NDArray]]]:
     """Move the drones along the z-axis."""
     drone_ids, distance = params
@@ -519,6 +534,7 @@ def move(
     tstart: float,
     tend: float,
     limits: dict[str, NDArray],
+    swarm_vel: NDArray | None = None,
 ) -> tuple[NDArray, dict[float, dict[int, NDArray]]]:
     """Translate move function to waypoints."""
     x, y, z, drone_id = params
