@@ -5,6 +5,7 @@ import sys
 from types import EllipsisType
 from typing import Callable
 
+import minsnap_trajectories as ms
 import numpy as np
 from numpy.typing import NDArray
 from scipy.optimize import linear_sum_assignment
@@ -630,16 +631,10 @@ def _sanitize_drone_ids(drone_ids: str | list[int], n_drones: int) -> list[int]:
     return [id - 1 for id in drone_ids]  # TODO: Make LLM assign IDs starting at 0
 
 
-def _assign_positions(pos: NDArray, des_pos: NDArray) -> NDArray:
-    """Assign drones to the closest desired positions, returning the assigned IDs."""
-    dist = np.linalg.norm(pos[:, None, :] - des_pos[None, :, :], axis=-1)
-    # The Hungarian algorithm gives the globally optimal assignment.
-    return linear_sum_assignment(dist)[1]
-
-
-# Effective speed cap used when scheduling formation arrivals. Held below axswarm's vel_max=1.73
-# m/s to leave the MPC headroom. HEADROOM is a multiplicative buffer for the solver's smoothness
-# and input-continuity penalties; T_MIN prevents trivially small moves from scheduling
+# Effective speed cap used when scheduling formation arrivals. Held below axswarm's
+# vel_max=1.73 m/s to leave the MPC headroom; matches the convention used by `rotate`
+# and `spiral`. HEADROOM is a multiplicative buffer for the solver's smoothness and
+# input-continuity penalties; T_MIN prevents trivially small moves from scheduling
 # zero-duration arrivals that the MPC can't track cleanly.
 _FORMATION_V_EFF_MPS = 1.0
 _FORMATION_HEADROOM = 1.3
@@ -648,6 +643,71 @@ _FORMATION_T_MIN_S = 0.5
 # the remaining interval exceeds this, so the axswarm lookahead is never empty without flooding the
 # waypoints array for normal-length intervals.
 _MPC_HORIZON_S = 5.0
+
+
+def _minsnap_cost_matrix(pos: NDArray, des_pos: NDArray, vel: NDArray) -> NDArray:
+    """Compute per-pair minimum-snap trajectory cost matrix.
+
+    For each (drone i, target j) pair, generates a two-waypoint minimum-snap
+    trajectory from drone i's current position and velocity to target j with
+    zero final velocity. The time budget T_ij is derived from the per-pair
+    Euclidean distance and the drone velocity cap. The snap cost
+    (integral of squared snap over [0, T_ij]) is returned as the cost.
+
+    Args:
+        pos: Current drone positions in cm, shape (n, 3).
+        des_pos: Desired target positions in cm, shape (m, 3).
+        vel: Current drone velocities in cm/s, shape (n, 3).
+
+    Returns:
+        Cost matrix of shape (n, m).
+    """
+    n, m = len(pos), len(des_pos)
+    cost = np.zeros((n, m))
+    # Convert from cm / cm·s⁻¹ to m / m·s⁻¹ for the package
+    pos_m = pos / 100.0
+    des_m = des_pos / 100.0
+    vel_ms = vel / 100.0
+    v_eff = _FORMATION_V_EFF_MPS * _FORMATION_HEADROOM
+
+    for i in range(n):
+        for j in range(m):
+            dist_m = float(np.linalg.norm(des_m[j] - pos_m[i]))
+            T = max(dist_m / v_eff, _FORMATION_T_MIN_S)
+            waypoints = [
+                ms.Waypoint(time=0.0, position=pos_m[i], velocity=vel_ms[i]),
+                ms.Waypoint(time=T, position=des_m[j]),
+            ]
+            traj = ms.generate_trajectory(waypoints, degree=8, idx_minimized_orders=4)
+            t_samples = np.linspace(0.0, T, 20)
+            derivs = ms.compute_trajectory_derivatives(traj, t_samples, num_orders=5)
+            snap = derivs[4]  # shape (20, 3)
+            cost[i, j] = float(np.trapezoid(np.sum(snap**2, axis=-1), t_samples))
+
+    return cost
+
+
+def _assign_positions(pos: NDArray, des_pos: NDArray, swarm_vel: NDArray | None = None) -> NDArray:
+    """Assign drones to the closest desired positions.
+
+    Uses minimum-snap trajectory cost when ``swarm_vel`` is provided, falling
+    back to Euclidean distance otherwise.
+
+    Args:
+        pos: Current drone positions in cm, shape (n, 3).
+        des_pos: Desired target positions in cm, shape (m, 3).
+        swarm_vel: Current drone velocities in cm/s, shape (n, 3). When
+            provided, per-pair minimum-snap cost is used as the assignment
+            metric instead of Euclidean distance.
+
+    Returns:
+        The assigned target indices as a numpy array of shape (n,).
+    """
+    if swarm_vel is not None:
+        cost = _minsnap_cost_matrix(pos, des_pos, swarm_vel)
+    else:
+        cost = np.linalg.norm(pos[:, None, :] - des_pos[None, :, :], axis=-1)
+    return linear_sum_assignment(cost)[1]
 
 
 def _formation_arrival_time(
