@@ -668,12 +668,11 @@ def _minsnap_cost_matrix(pos: NDArray, des_pos: NDArray, vel: NDArray) -> NDArra
     pos_m = pos / 100.0
     des_m = des_pos / 100.0
     vel_ms = vel / 100.0
-    v_eff = _FORMATION_V_EFF_MPS * _FORMATION_HEADROOM
 
     for i in range(n):
         for j in range(m):
             dist_m = float(np.linalg.norm(des_m[j] - pos_m[i]))
-            T = max(dist_m / v_eff, _FORMATION_T_MIN_S)
+            T = max(dist_m / _FORMATION_V_EFF_MPS * _FORMATION_HEADROOM, _FORMATION_T_MIN_S)
             waypoints = [
                 ms.Waypoint(time=0.0, position=pos_m[i], velocity=vel_ms[i]),
                 ms.Waypoint(time=T, position=des_m[j]),
