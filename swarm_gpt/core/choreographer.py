@@ -1038,7 +1038,20 @@ class Choreographer:
         tend: float,
         swarm_vel: NDArray | None = None,
     ) -> tuple[NDArray, dict[float, dict[int, NDArray]]]:
-        """Convert a motion primitive to waypoint coordinates."""
+        """Convert a motion primitive to waypoint coordinates.
+
+        Args:
+            fn_name: Name of the motion primitive function.
+            args: Arguments to pass to the primitive function.
+            swarm_pos: Current positions of all drones in cm, shape (n, 3).
+            tstart: Start time of the primitive interval in seconds.
+            tend: End time of the primitive interval in seconds.
+            swarm_vel: Current velocities of all drones in cm/s, shape (n, 3).
+                Forwarded to the primitive for velocity-aware assignment.
+
+        Returns:
+            Updated swarm positions and a waypoint dictionary.
+        """
         if fn_name == "PLAN":
             raise ValueError("PLAN should have been handled before")
         fn = primitive_by_name(fn_name)
