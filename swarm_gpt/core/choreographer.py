@@ -926,6 +926,7 @@ class Choreographer:
         waypoints = {}
         # TODO: Remove all conversions into cm
         swarm_pos = np.array(list(self.starting_pos.values())) * 100
+        swarm_vel = np.zeros_like(swarm_pos)  # drones start from hover
         waypoints[0] = {i: p.copy() for i, p in enumerate(swarm_pos)}
         # _merge_motion_primitives reads tstart=timesteps[i-1], tend=timesteps[i] for key i.
         timesteps = np.concatenate((timestamps, [t_end]))
@@ -934,10 +935,18 @@ class Choreographer:
             action_list = [
                 {fn: args} for fn, args in zip(motion_primitive["fn"], motion_primitive["args"])
             ]
+            dt = motion_primitive["tend"] - motion_primitive["tstart"]
             for i, (fn, args) in enumerate(zip(motion_primitive["fn"], motion_primitive["args"])):
+                prev_pos = swarm_pos.copy()
                 swarm_pos, _waypoints = self._primitive2waypoints(
-                    fn, args, swarm_pos, motion_primitive["tstart"], motion_primitive["tend"]
+                    fn,
+                    args,
+                    swarm_pos,
+                    motion_primitive["tstart"],
+                    motion_primitive["tend"],
+                    swarm_vel=swarm_vel,
                 )
+                swarm_vel = (swarm_pos - prev_pos) / dt if dt > 0 else swarm_vel
                 if fn in _FORMATION_PRIMITIVES and _form_should_drop_holds(
                     action_list, i, self.num_drones
                 ):
@@ -1021,7 +1030,13 @@ class Choreographer:
         return motion_primitives
 
     def _primitive2waypoints(
-        self, fn_name: str, args: tuple, swarm_pos: dict, tstart: float, tend: float
+        self,
+        fn_name: str,
+        args: tuple,
+        swarm_pos: NDArray,
+        tstart: float,
+        tend: float,
+        swarm_vel: NDArray | None = None,
     ) -> tuple[NDArray, dict[float, dict[int, NDArray]]]:
         """Convert a motion primitive to waypoint coordinates."""
         if fn_name == "PLAN":
@@ -1033,7 +1048,7 @@ class Choreographer:
         # `waypoints` may cover only a subset of drones, so `swarm_pos` is passed alongside it to
         # track every drone's current position. Both are dicts so it stays visible which drones a
         # primitive actually moved.
-        swarm_pos, waypoints = fn(args, swarm_pos, tstart, tend, limits)
+        swarm_pos, waypoints = fn(args, swarm_pos, tstart, tend, limits, swarm_vel)
         return swarm_pos, waypoints
 
 
