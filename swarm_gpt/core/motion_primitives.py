@@ -5,7 +5,6 @@ import sys
 from types import EllipsisType
 from typing import Callable
 
-import minsnap_trajectories as ms
 import numpy as np
 from numpy.typing import NDArray
 from scipy.optimize import linear_sum_assignment
@@ -665,14 +664,29 @@ _FORMATION_T_MIN_S = 0.5
 _MPC_HORIZON_S = 5.0
 
 
-def _minsnap_cost_matrix(pos: NDArray, des_pos: NDArray, vel: NDArray, T: float) -> NDArray:
-    """Compute per-pair minimum-snap trajectory cost matrix.
+# Closed-form minimum-snap cost constants. For a degree-8 polynomial that
+# minimises the snap integral subject to fixed (position, velocity, zero
+# acceleration) at the start and (position, zero velocity, zero acceleration)
+# at the end, the optimal cost per axis is the quadratic form
+#     a * d**2 / T**7 + 2c * d * v / T**6 + b * v**2 / T**5
+# where d = target - start and v = start velocity. The constants are universal
+# (translation- and scale-derived); they were obtained by solving the
+# constrained QP in exact rational arithmetic and verified to be optimal. This
+# replaces per-pair calls to a trajectory solver with vectorised arithmetic,
+# making the cost matrix O(n*m) flops instead of O(n*m) polynomial solves.
+_MINSNAP_A = 30240.0
+_MINSNAP_B = 7680.0
+_MINSNAP_C = -15120.0
 
-    For each (drone i, target j) pair, generates a two-waypoint minimum-snap
-    trajectory from drone i's current position and velocity to target j with
-    zero final velocity, over a shared time horizon T. Using a common T makes
-    costs directly comparable across pairs so the Hungarian algorithm can rank
-    them correctly.
+
+def _minsnap_cost_matrix(pos: NDArray, des_pos: NDArray, vel: NDArray, T: float) -> NDArray:
+    """Compute the per-pair minimum-snap trajectory cost matrix in closed form.
+
+    For each (drone i, target j) pair this is the exact minimum snap integral of
+    a two-waypoint trajectory from drone i's position and velocity to target j
+    with zero final velocity and acceleration, over a shared horizon T. Using a
+    common T makes costs directly comparable across pairs so the Hungarian
+    algorithm can rank them correctly.
 
     Args:
         pos: Current drone positions in cm, shape (n, 3).
@@ -683,25 +697,10 @@ def _minsnap_cost_matrix(pos: NDArray, des_pos: NDArray, vel: NDArray, T: float)
     Returns:
         Cost matrix of shape (n, m).
     """
-    n, m = len(pos), len(des_pos)
-    cost = np.zeros((n, m))
-    pos_m = pos / 100.0
-    des_m = des_pos / 100.0
-    vel_ms = vel / 100.0
-
-    for i in range(n):
-        for j in range(m):
-            waypoints = [
-                ms.Waypoint(time=0.0, position=pos_m[i], velocity=vel_ms[i]),
-                ms.Waypoint(time=T, position=des_m[j]),
-            ]
-            traj = ms.generate_trajectory(waypoints, degree=8, idx_minimized_orders=4)
-            t_samples = np.linspace(0.0, T, 20)
-            derivs = ms.compute_trajectory_derivatives(traj, t_samples, num_orders=5)
-            snap = derivs[4]  # shape (20, 3)
-            cost[i, j] = float(np.trapezoid(np.sum(snap**2, axis=-1), t_samples))
-
-    return cost
+    d = des_pos[None, :, :] / 100.0 - pos[:, None, :] / 100.0  # (n, m, 3), meters
+    v = vel[:, None, :] / 100.0  # (n, 1, 3), m/s
+    cost = _MINSNAP_A * d**2 / T**7 + 2.0 * _MINSNAP_C * d * v / T**6 + _MINSNAP_B * v**2 / T**5
+    return cost.sum(axis=-1)
 
 
 def _assign_positions(
