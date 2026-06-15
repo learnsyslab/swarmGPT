@@ -98,7 +98,7 @@ def spiral(
     y = start_radius * np.sin(angles)
     # TODO: Vary height over time?
     des_pos = np.array([x, y, [height] * n_drones]).T
-    assignment = _assign_positions(swarm_pos, des_pos, swarm_vel=swarm_vel)
+    assignment = _assign_positions(swarm_pos, des_pos, swarm_vel=swarm_vel, T=tend - tstart)
     dt = (tend - tstart) / steps
 
     waypoints = {}
@@ -135,7 +135,7 @@ def spiral_speed(
     x = start_radius * np.cos(angles)
     y = start_radius * np.sin(angles)
     des_pos = np.array([x, y, [height] * n_drones]).T
-    assignment = _assign_positions(swarm_pos, des_pos, swarm_vel=swarm_vel)
+    assignment = _assign_positions(swarm_pos, des_pos, swarm_vel=swarm_vel, T=tend - tstart)
     dt = (tend - tstart) / steps
 
     waypoints = {}
@@ -300,7 +300,7 @@ def form_star(
     if n_drones != drones_per_circle * 2:
         des_pos = np.vstack([des_pos, np.array([0, 0, height]).T])
 
-    assignment = _assign_positions(swarm_pos, des_pos, swarm_vel=swarm_vel)
+    assignment = _assign_positions(swarm_pos, des_pos, swarm_vel=swarm_vel, T=tend - tstart)
     target = des_pos[assignment]
     waypoints = _formation_waypoints(target, swarm_pos, tstart, tend, time_to_finish_s)
     return target, waypoints
@@ -345,7 +345,7 @@ def form_cone(
         y = radius * np.sin(angles)
         des_pos = np.vstack([des_pos, np.array([x, y, [z] * drones_in_layer]).T])
 
-    assignment = _assign_positions(swarm_pos, des_pos, swarm_vel=swarm_vel)
+    assignment = _assign_positions(swarm_pos, des_pos, swarm_vel=swarm_vel, T=tend - tstart)
     target = des_pos[assignment]
     waypoints = _formation_waypoints(target, swarm_pos, tstart, tend, time_to_finish_s)
     return target, waypoints
@@ -427,7 +427,9 @@ def center(
     y = radius * np.sin(angles)
     des_pos = np.array([x, y, [centroid[2]] * n_drones]).T
     vel_subset = swarm_vel[drone_ids] if swarm_vel is not None else None
-    assignment = _assign_positions(swarm_pos[drone_ids], des_pos, swarm_vel=vel_subset)
+    assignment = _assign_positions(
+        swarm_pos[drone_ids], des_pos, swarm_vel=vel_subset, T=tend - tstart
+    )
     waypoints = {}
     waypoints[tend] = {i: p.copy() for i, p in enumerate(des_pos[assignment])}
     pos = swarm_pos.copy()
@@ -477,7 +479,9 @@ def form_circle(
             des_pos = np.vstack([des_pos, np.array([x, y, [z_coord] * n]).T])
 
     vel_subset = swarm_vel[drone_ids] if swarm_vel is not None else None
-    assignment = _assign_positions(swarm_pos[drone_ids], des_pos, swarm_vel=vel_subset)
+    assignment = _assign_positions(
+        swarm_pos[drone_ids], des_pos, swarm_vel=vel_subset, T=tend - tstart
+    )
     target = des_pos[assignment]
     waypoints = _formation_waypoints(
         target, swarm_pos[drone_ids], tstart, tend, time_to_finish_s, drone_ids=drone_ids
@@ -661,34 +665,32 @@ _FORMATION_T_MIN_S = 0.5
 _MPC_HORIZON_S = 5.0
 
 
-def _minsnap_cost_matrix(pos: NDArray, des_pos: NDArray, vel: NDArray) -> NDArray:
+def _minsnap_cost_matrix(pos: NDArray, des_pos: NDArray, vel: NDArray, T: float) -> NDArray:
     """Compute per-pair minimum-snap trajectory cost matrix.
 
     For each (drone i, target j) pair, generates a two-waypoint minimum-snap
     trajectory from drone i's current position and velocity to target j with
-    zero final velocity. The time budget T_ij is derived from the per-pair
-    Euclidean distance and the drone velocity cap. The snap cost
-    (integral of squared snap over [0, T_ij]) is returned as the cost.
+    zero final velocity, over a shared time horizon T. Using a common T makes
+    costs directly comparable across pairs so the Hungarian algorithm can rank
+    them correctly.
 
     Args:
         pos: Current drone positions in cm, shape (n, 3).
         des_pos: Desired target positions in cm, shape (m, 3).
         vel: Current drone velocities in cm/s, shape (n, 3).
+        T: Shared time horizon in seconds for all pairs.
 
     Returns:
         Cost matrix of shape (n, m).
     """
     n, m = len(pos), len(des_pos)
     cost = np.zeros((n, m))
-    # Convert from cm / cm·s⁻¹ to m / m·s⁻¹ for the package
     pos_m = pos / 100.0
     des_m = des_pos / 100.0
     vel_ms = vel / 100.0
 
     for i in range(n):
         for j in range(m):
-            dist_m = float(np.linalg.norm(des_m[j] - pos_m[i]))
-            T = max(dist_m / _FORMATION_V_EFF_MPS * _FORMATION_HEADROOM, _FORMATION_T_MIN_S)
             waypoints = [
                 ms.Waypoint(time=0.0, position=pos_m[i], velocity=vel_ms[i]),
                 ms.Waypoint(time=T, position=des_m[j]),
@@ -702,24 +704,27 @@ def _minsnap_cost_matrix(pos: NDArray, des_pos: NDArray, vel: NDArray) -> NDArra
     return cost
 
 
-def _assign_positions(pos: NDArray, des_pos: NDArray, swarm_vel: NDArray | None = None) -> NDArray:
+def _assign_positions(
+    pos: NDArray, des_pos: NDArray, swarm_vel: NDArray | None = None, T: float | None = None
+) -> NDArray:
     """Assign drones to the closest desired positions.
 
-    Uses minimum-snap trajectory cost when ``swarm_vel`` is provided, falling
-    back to Euclidean distance otherwise.
+    Uses minimum-snap trajectory cost when both ``swarm_vel`` and ``T`` are
+    provided, falling back to Euclidean distance otherwise.
 
     Args:
         pos: Current drone positions in cm, shape (n, 3).
         des_pos: Desired target positions in cm, shape (m, 3).
         swarm_vel: Current drone velocities in cm/s, shape (n, 3). When
-            provided, per-pair minimum-snap cost is used as the assignment
-            metric instead of Euclidean distance.
+            provided together with ``T``, per-pair minimum-snap cost is used.
+        T: Shared time horizon in seconds. Required when ``swarm_vel`` is
+            provided. Determines how long each drone has to reach its target.
 
     Returns:
         The assigned target indices as a numpy array of shape (n,).
     """
-    if swarm_vel is not None:
-        cost = _minsnap_cost_matrix(pos, des_pos, swarm_vel)
+    if swarm_vel is not None and T is not None:
+        cost = _minsnap_cost_matrix(pos, des_pos, swarm_vel, T)
     else:
         cost = np.linalg.norm(pos[:, None, :] - des_pos[None, :, :], axis=-1)
     return linear_sum_assignment(cost)[1]
