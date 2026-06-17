@@ -2,7 +2,7 @@
 
 Every spline is a Bernstein polynomial stored as control points over a real time
 interval ``[t0, t1]``. Operations act on control points so the curve stays exactly
-in the Bernstein basis. See ``docs/specs/2026-06-17-swarmgpt2-trajectory-rewrite.md``.
+in the Bernstein basis.
 """
 
 from __future__ import annotations
