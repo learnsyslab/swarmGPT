@@ -52,7 +52,7 @@ def rotate(
     """Rotate all drones by angle theta."""
     angle, axis = params
     angle = np.deg2rad(float(angle))
-    steps = int(tend - tstart)  # Number of steps to rotate
+    steps = max(1, min(int(tend - tstart), 2))  # Number of steps to rotate
     # override rotation to be around z axis atm
     if "z" in axis:
         axis = np.array([0, 0, 1])
@@ -126,7 +126,7 @@ def spiral_speed(
     steps, height, degrees, increase = params
     n_drones = swarm_pos.shape[0]
     min_spacing = 60  # Minimum distance between drones in cm
-    steps = int(tend - tstart)
+    steps = max(1, min(int(tend - tstart), 2))
 
     # Calculate the circumference needed to place all drones with at least the minimum spacing
     start_radius = min_spacing / (2 * np.sin(np.pi / n_drones))
@@ -515,7 +515,7 @@ def move_z(
     """Move the drones along the z-axis."""
     drone_ids, distance = params
     drone_ids = _sanitize_drone_ids(drone_ids, swarm_pos.shape[0])
-    steps = int(tend - tstart)
+    steps = max(1, min(int(tend - tstart), 2))
 
     z_min = limits["lower"][2] * 100
     z_max = limits["upper"][2] * 100
