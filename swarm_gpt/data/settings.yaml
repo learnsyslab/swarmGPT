@@ -24,7 +24,7 @@ song_crops:
   "J. Strauss I - Radetzky March": [0, 60]
   "J. Strauss II - The Blue Danube Op. 314": [64, 124]
   "Mozart - Eine kleine Nachtmusik": [0, 60]
-  "On & On": [0, 60]
+  "On & On": [52, 82]
   "Vivaldi - Summer": [0, 60]
   "We Wish You a Merry Christmas": [0, 60]
   "Fearless2": [35, 70]
@@ -60,7 +60,7 @@ axswarm:
   pos_max: [2.2, 2.7, 1.7]  # Maximum position of the AMSwarm drones
   vel_max: 1.73  # Maximum velocity of the AMSwarm drones
   acc_max: 1.0  # Maximum force of the AMSwarm drones (0.75 gs)
-  collision_envelope: [0.35, 0.35, 0.6]  # Collision envelope width in x, y, z
+  collision_envelope: [0.25, 0.25, 0.6]  # Collision envelope width in x, y, z
 
   # MPC
   K: 50  # Number of timesteps in the optimization horizon

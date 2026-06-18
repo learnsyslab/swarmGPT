@@ -607,11 +607,10 @@ def _assign_positions(pos: NDArray, des_pos: NDArray) -> NDArray:
 _FORMATION_V_EFF_MPS = 1.0
 _FORMATION_HEADROOM = 1.3
 _FORMATION_T_MIN_S = 0.5
-# Spacing between hold waypoints once a formation is reached. Must stay below
-# axswarm's K/freq=5s lookahead (settings.yaml: K=50, freq=10). With a gap >= the
-# horizon, _filter_horizon returns an empty mask and axswarm clips past waypoints
-# into the current step, yanking drones back to stale positions.
-_FORMATION_HOLD_DT_S = 4.0
+# MPC lookahead window length (K=50 timesteps at freq=10 Hz). Hold waypoints are
+# only emitted when the remaining interval exceeds this, so the axswarm lookahead
+# is never empty without flooding the waypoints array for normal-length intervals.
+_MPC_HORIZON_S = 5.0
 
 
 def _formation_arrival_time(
@@ -647,8 +646,10 @@ def _formation_waypoints(
     """Schedule a formation arrival at the LLM-chosen time (clamped to physics + interval).
 
     The physics floor is the existing ``_formation_arrival_time`` duration; ``time_to_finish_s``
-    is clamped between that floor and the full interval. Hold waypoints are then emitted every
-    ``_FORMATION_HOLD_DT_S`` seconds so axswarm's 5-second lookahead is never empty.
+    is clamped between that floor and the full interval. Hold waypoints are emitted only when
+    the remaining interval exceeds ``_MPC_HORIZON_S`` — i.e. only when axswarm's lookahead
+    would otherwise be empty — spaced ``_MPC_HORIZON_S`` apart. For typical inter-beat
+    intervals (< 5s) no hold waypoints are emitted, keeping the waypoints array small.
 
     Args:
         target_pos: Desired post-assignment drone positions in cm, shape (n, 3).
@@ -667,13 +668,13 @@ def _formation_waypoints(
     physics_min_duration = _formation_arrival_time(target_pos, current_pos, tstart, tend) - tstart
     duration = float(np.clip(time_to_finish_s, physics_min_duration, tend - tstart))
     arrival = tstart + duration
-    waypoints: dict[float, dict[int, NDArray]] = {
-        arrival: {d: p.copy() for d, p in zip(ids, target_pos)}
-    }
-    t = arrival + _FORMATION_HOLD_DT_S
+    entry = {d: p.copy() for d, p in zip(ids, target_pos)}
+    waypoints: dict[float, dict[int, NDArray]] = {arrival: entry}
+    # Only emit holds when the lookahead window would otherwise be empty.
+    t = arrival + _MPC_HORIZON_S
     while t < tend:
         waypoints[t] = {d: p.copy() for d, p in zip(ids, target_pos)}
-        t += _FORMATION_HOLD_DT_S
+        t += _MPC_HORIZON_S
     if arrival < tend:
         waypoints[tend] = {d: p.copy() for d, p in zip(ids, target_pos)}
     return waypoints
