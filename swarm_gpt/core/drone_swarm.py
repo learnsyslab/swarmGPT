@@ -96,7 +96,8 @@ class DroneSwarm:
 
     def get_obs(self, uri: str) -> dict[str, Array]:
         """Generate the observation for a drone using mocap or lighthouse."""
-        return self._run(self._read_observation(uri))
+        obs = self._run(self._parallel_by_uri("Reading observation", [uri], self._read_observation))
+        return obs[0]
 
     def missing_uris(self) -> list[str]:
         """Return configured URIs that are not currently active."""
@@ -420,6 +421,7 @@ class DroneSwarm:
                 logger.error(f"{uri} disconnected or unreachable. {action_name} failed: {result}")
             else:
                 logger.error(f"{action_name} failed for {uri}: {result}")
+        return results
 
     async def _emergency_stop(self, uri: str) -> None:
         await self._cf(uri).localization().emergency().send_emergency_stop()
@@ -483,6 +485,8 @@ class DroneSwarm:
                 "rpy": rpy,
                 "is_outdated": False,
             }
+        except Exception as exc:
+            logger.error(f"Reading observation from {uri} failed: {exc}")
         finally:
             await stream.stop()
 

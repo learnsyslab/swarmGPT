@@ -56,7 +56,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/tzdata-2025c-hc9c84f9_1.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/wheel-0.47.0-pyhd8ed1ab_0.conda
       - pypi: .
-      - pypi: git+https://github.com/learnsyslab/axswarm#2ce7540d07983d152c3df7a0d77166de18dbd2d6
+      - pypi: git+https://github.com/learnsyslab/axswarm.git#2ce7540d07983d152c3df7a0d77166de18dbd2d6
       - pypi: https://files.pythonhosted.org/packages/01/8e/1e35281b8ab6d5d72ebe9911edcdffa3f36b04ed9d51dec6dd140396e220/scipy-1.17.1-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/01/be/72532be3da7acc5fdfbccdb95215cd04f995a0886532a5b423f929cda4cc/uvicorn-0.48.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/02/28/167b291356c2cc315a2d62a95b0ceace72b5b0bf547de30b89313110f032/av-17.0.1-cp311-abi3-manylinux_2_28_x86_64.whl
@@ -943,8 +943,8 @@ environments:
       - conda: https://prefix.dev/robostack-kilted/linux-64/ros-kilted-zstd-vendor-0.32.0-np2py312h31f38b3_14.conda
       - conda: https://prefix.dev/robostack-kilted/linux-64/ros2-distro-mutex-0.12.0-kilted_14.conda
       - pypi: .
-      - pypi: git+https://github.com/bitcraze/crazyflie-lib-python-v2#329bd2cb6b21ccecce0396926887743c148a6bd6
-      - pypi: git+https://github.com/learnsyslab/axswarm#2ce7540d07983d152c3df7a0d77166de18dbd2d6
+      - pypi: git+https://github.com/bitcraze/crazyflie-lib-python-v2.git#329bd2cb6b21ccecce0396926887743c148a6bd6
+      - pypi: git+https://github.com/learnsyslab/axswarm.git#2ce7540d07983d152c3df7a0d77166de18dbd2d6
       - pypi: https://files.pythonhosted.org/packages/01/8e/1e35281b8ab6d5d72ebe9911edcdffa3f36b04ed9d51dec6dd140396e220/scipy-1.17.1-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/01/be/72532be3da7acc5fdfbccdb95215cd04f995a0886532a5b423f929cda4cc/uvicorn-0.48.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/02/28/167b291356c2cc315a2d62a95b0ceace72b5b0bf547de30b89313110f032/av-17.0.1-cp311-abi3-manylinux_2_28_x86_64.whl
@@ -1998,8 +1998,8 @@ environments:
       - conda: https://prefix.dev/robostack-kilted/linux-64/ros-kilted-zstd-vendor-0.32.0-np2py312h31f38b3_14.conda
       - conda: https://prefix.dev/robostack-kilted/linux-64/ros2-distro-mutex-0.12.0-kilted_14.conda
       - pypi: .
-      - pypi: git+https://github.com/bitcraze/crazyflie-lib-python-v2#329bd2cb6b21ccecce0396926887743c148a6bd6
-      - pypi: git+https://github.com/learnsyslab/axswarm#2ce7540d07983d152c3df7a0d77166de18dbd2d6
+      - pypi: git+https://github.com/bitcraze/crazyflie-lib-python-v2.git#329bd2cb6b21ccecce0396926887743c148a6bd6
+      - pypi: git+https://github.com/learnsyslab/axswarm.git#2ce7540d07983d152c3df7a0d77166de18dbd2d6
       - pypi: https://files.pythonhosted.org/packages/01/8e/1e35281b8ab6d5d72ebe9911edcdffa3f36b04ed9d51dec6dd140396e220/scipy-1.17.1-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/01/be/72532be3da7acc5fdfbccdb95215cd04f995a0886532a5b423f929cda4cc/uvicorn-0.48.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/02/28/167b291356c2cc315a2d62a95b0ceace72b5b0bf547de30b89313110f032/av-17.0.1-cp311-abi3-manylinux_2_28_x86_64.whl
@@ -15794,22 +15794,22 @@ packages:
   - mutagen
   - imageio>=2.37.0,<3
   - av>=15.1.0,<18
-  - axswarm @ git+https://github.com/learnsyslab/axswarm ; extra == 'sim'
+  - axswarm @ git+https://github.com/learnsyslab/axswarm.git ; extra == 'sim'
   - crazyflow==0.1.0 ; extra == 'sim'
   - drone-models==0.1.0 ; extra == 'sim'
   - drone-controllers==0.1.0 ; extra == 'sim'
   - jax>=0.7 ; extra == 'sim'
-  - cflib2 @ git+https://github.com/bitcraze/crazyflie-lib-python-v2 ; extra == 'deploy'
+  - cflib2 @ git+https://github.com/bitcraze/crazyflie-lib-python-v2.git ; extra == 'deploy'
   - drone-estimators ; extra == 'deploy'
   requires_python: '>=3.10'
-- pypi: git+https://github.com/bitcraze/crazyflie-lib-python-v2#329bd2cb6b21ccecce0396926887743c148a6bd6
+- pypi: git+https://github.com/bitcraze/crazyflie-lib-python-v2.git#329bd2cb6b21ccecce0396926887743c148a6bd6
   name: cflib2
   version: 0.1.0
   requires_dist:
   - packaging~=25.0
   - tyro>=1.0.8
   requires_python: '>=3.11'
-- pypi: git+https://github.com/learnsyslab/axswarm#2ce7540d07983d152c3df7a0d77166de18dbd2d6
+- pypi: git+https://github.com/learnsyslab/axswarm.git#2ce7540d07983d152c3df7a0d77166de18dbd2d6
   name: axswarm
   version: 0.1.0
   requires_dist:
