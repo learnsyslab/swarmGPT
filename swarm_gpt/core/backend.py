@@ -395,12 +395,12 @@ class AppBackend:
                         color_top=color_top,
                         color_bot=color_bot,
                     )
+            self.music_manager.stop()
             swarm.goto(final_pos_dict, duration=2.0)  # Transition from ideal point to hover pos
             # if self.settings["land_on_docks"]: # Commented out for demo
             #     swarm.goto(final_pos_dict, duration=5.0)  # Hovering
             swarm.goto(landing_pos_dict, duration=1.5)  # Landing
         finally:
-            self.music_manager.stop()
             swarm.close()
         self.music_manager.song = original_song
         logger.info("Deployment successful")
