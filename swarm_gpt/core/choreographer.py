@@ -32,6 +32,7 @@ from swarm_gpt.utils.llm_providers import (
     prepare_responses_messages,
     register_ollama_client,
 )
+from swarm_gpt.utils.music_analyzer import dynamics_window_keys
 
 if TYPE_CHECKING:
     from numpy.typing import NDArray
@@ -272,7 +273,7 @@ class Choreographer:
             raw = toml.load(f)
 
         uri_base: str = self.settings["radio"]["uri_base"]
-        active: list[str] = raw.get("active", [])
+        active: list[str] = raw["active"]
         registry: dict[str, dict] = {k: v for k, v in raw.items() if k != "active"}
 
         missing = [name for name in active if name not in registry]
@@ -317,8 +318,6 @@ class Choreographer:
             with open(latex_file, "r") as file:
                 data = yaml.safe_load(file)
         if self.use_motion_primitives and structure.rms_per_2bar:
-            from swarm_gpt.utils.music_analyzer import dynamics_window_keys  # noqa: PLC0415
-
             keys = dynamics_window_keys(structure)
             dynamics_lines = "\n".join(
                 f"{k}: {r:.2f} / {c:.2f}"

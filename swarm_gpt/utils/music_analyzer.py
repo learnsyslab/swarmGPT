@@ -13,19 +13,21 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 from dataclasses import asdict, dataclass, field
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
-import logging
 
 logger = logging.getLogger(__name__)
 
 try:
+    import allin1
     import librosa
-    import allin1  
     import matplotlib.pyplot as plt
-    import natten.functional as nf  
+    import natten.functional as nf
+
+    from swarm_gpt.core.structured_output_schema import encode_key
 except ImportError as e:
     logger.error(f"{e} - please use the music env to analyze songs")
 
@@ -121,7 +123,9 @@ class SongStructure:
     centroid_per_2bar: tuple[float, ...] = field(default_factory=tuple)
 
     @classmethod
-    def from_allin1(cls, result: Any, source_path: str, song_sha256: str, analyzer: str) -> SongStructure:
+    def from_allin1(
+        cls, result: Any, source_path: str, song_sha256: str, analyzer: str
+    ) -> SongStructure:
         """Build a SongStructure from an ``allin1.AnalysisResult``.
 
         Groups flat ``beats`` / ``beat_positions`` into bars by detecting position
@@ -174,7 +178,7 @@ class SongStructure:
             ValueError: If the JSON's ``schema_version`` is missing or unsupported.
         """
         data = json.loads(path.read_text())
-        version = data.get("schema_version")
+        version = data["schema_version"]
         if version != SCHEMA_VERSION:
             raise ValueError(
                 f"Unsupported schema_version {version!r} in {path}; "
@@ -212,8 +216,8 @@ class SongStructure:
             analyzer=str(data["analyzer"]),
             bpm=int(data["bpm"]),
             segments=segments,
-            rms_per_2bar=tuple(float(v) for v in data.get("rms_per_2bar", [])),
-            centroid_per_2bar=tuple(float(v) for v in data.get("centroid_per_2bar", [])),
+            rms_per_2bar=tuple(float(v) for v in data["rms_per_2bar"]),
+            centroid_per_2bar=tuple(float(v) for v in data["centroid_per_2bar"]),
         )
 
     def to_json(self, path: Path) -> None:
@@ -425,8 +429,6 @@ def dynamics_window_keys(structure: SongStructure) -> tuple[str, ...]:
     Returns:
         Tuple of key strings, one per 2-bar window.
     """
-    from swarm_gpt.core.structured_output_schema import encode_key  # noqa: PLC0415
-
     keys: list[str] = []
     for seg in structure.segments:
         bars = seg.bars
@@ -594,7 +596,6 @@ def analyze_song(
         return SongStructure.from_json(cache_path)
 
     _apply_natten_compat()
-    import allin1  # noqa: PLC0415 -- lazy: only available in the music pixi env
 
     result = allin1.analyze(str(mp3_path), device=device)
     if isinstance(result, list):

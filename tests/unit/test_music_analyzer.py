@@ -67,10 +67,7 @@ def _waltz_song_3_4() -> FakeAllin1Result:
 
 def _build(result: FakeAllin1Result) -> SongStructure:
     return SongStructure.from_allin1(
-        result=result,
-        source_path="music/Test.mp3",
-        song_sha256="deadbeef",
-        analyzer="allin1@test",
+        result=result, source_path="music/Test.mp3", song_sha256="deadbeef", analyzer="allin1@test"
     )
 
 

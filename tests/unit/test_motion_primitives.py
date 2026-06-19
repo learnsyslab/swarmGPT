@@ -6,16 +6,12 @@ from swarm_gpt.core.motion_primitives import form_circle, form_cone, form_star
 
 
 def _limits() -> dict:
-    return {
-        "lower": np.array([-2.2, -2.7, 0.25]),
-        "upper": np.array([2.2, 2.7, 1.7]),
-    }
+    return {"lower": np.array([-2.2, -2.7, 0.25]), "upper": np.array([2.2, 2.7, 1.7])}
 
 
 def _swarm_10() -> np.ndarray:
     return np.array(
-        [[x, y, 100] for x in (-200, -100, 0, 100, 200) for y in (-100, 100)],
-        dtype=float,
+        [[x, y, 100] for x in (-200, -100, 0, 100, 200) for y in (-100, 100)], dtype=float
     )
 
 

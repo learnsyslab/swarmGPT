@@ -33,7 +33,7 @@ def test_frontend_install_skips_cleanly_when_web_package_is_missing(tmp_path: Pa
     bin_dir = tmp_path / "bin"
     bin_dir.mkdir()
     npm = bin_dir / "npm"
-    npm.write_text(f"#!/usr/bin/env bash\necho \"$@\" >> {npm_log}\n")
+    npm.write_text(f'#!/usr/bin/env bash\necho "$@" >> {npm_log}\n')
     npm.chmod(0o755)
     env = os.environ | {"PATH": f"{bin_dir}:{os.environ['PATH']}"}
 

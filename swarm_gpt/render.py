@@ -68,7 +68,7 @@ logger = logging.getLogger(__name__)
 
 def preset_audio_path(preset_meta: dict[str, object]) -> Path:
     """Resolve the audio file declared by a preset's metadata."""
-    song = preset_meta.get("song")
+    song = preset_meta["song"]
     if not isinstance(song, str) or not song:
         raise ValueError("Preset metadata must contain a non-empty 'song' field")
 

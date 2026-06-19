@@ -128,7 +128,9 @@ def simulate_axswarm(
             if not all(success):
                 logger.info("Solve failed")
             if len(solve_times) == 20:
-                logger.debug(f"[sim] mean solve time (first 20 calls): {sum(solve_times)/20*1000:.1f}ms")
+                logger.debug(
+                    f"[sim] mean solve time (first 20 calls): {sum(solve_times) / 20 * 1000:.1f}ms"
+                )
 
             solver_data = solver_data.step(solver_data)
             pos, vel = solver_data.u_pos[:, 0], solver_data.u_vel[:, 0]

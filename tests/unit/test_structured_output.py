@@ -109,7 +109,12 @@ def test_structured_payload_to_choreography_uses_hierarchical_keys():
                 "actions": [
                     {
                         "primitive": "form_circle",
-                        "params": {"drone_ids": [1, 2], "radius_cm": 100, "z_coord_cm": 100, "time_to_finish_s": 1.5},
+                        "params": {
+                            "drone_ids": [1, 2],
+                            "radius_cm": 100,
+                            "z_coord_cm": 100,
+                            "time_to_finish_s": 1.5,
+                        },
                     }
                 ],
             },
