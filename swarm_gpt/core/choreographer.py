@@ -95,8 +95,7 @@ def _form_should_drop_holds(
     return False
 
 
-# Set to True to see raw LLM outputs in terminal
-DEBUG_LLM_OUTPUT = True
+
 # OLLAMA_CONTEXT_LENGTH = None  # Set None to use Ollama's VRAM-based default.
 OLLAMA_CONTEXT_LENGTH = None
 
@@ -378,11 +377,11 @@ class Choreographer:
             raise LLMPlanError(
                 f"Model {self._model_id!r} returned empty content. Try another model or reprompt."
             )
-        if DEBUG_LLM_OUTPUT:
-            print("\n" + "=" * 80)
-            print("RAW LLM OUTPUT:")
-            print(content)
-            print("=" * 80 + "\n")
+
+        logger.debug("\n" + "=" * 80)
+        logger.debug("RAW LLM OUTPUT:")
+        logger.debug(content)
+        logger.debug("=" * 80 + "\n")
         return content
 
     def _collision_check(
@@ -793,24 +792,23 @@ class Choreographer:
         except IndexError:
             yaml_text = text
 
-        if DEBUG_LLM_OUTPUT:
-            debug_text = yaml_text
-            if structure is not None:
+        debug_text = yaml_text
+        if structure is not None:
 
-                def _annotate(match: re.Match[str]) -> str:
-                    key = match.group(1)
-                    try:
-                        seq, bar, beat = decode_key(key)
-                        t = structure.time_of(seq, bar, beat)
-                        return f"{key} [t={t:.2f}s]:"
-                    except (LLMFormatError, KeyError):
-                        return f"{key} [t=?]:"
+            def _annotate(match: re.Match[str]) -> str:
+                key = match.group(1)
+                try:
+                    seq, bar, beat = decode_key(key)
+                    t = structure.time_of(seq, bar, beat)
+                    return f"{key} [t={t:.2f}s]:"
+                except (LLMFormatError, KeyError):
+                    return f"{key} [t=?]:"
 
-                debug_text = re.sub(rf"({KEY_PATTERN}):", _annotate, yaml_text)
-            print("\n" + "=" * 80)
-            print("EXTRACTED YAML TEXT (after slicing):")
-            print(debug_text)
-            print("=" * 80 + "\n")
+            debug_text = re.sub(rf"({KEY_PATTERN}):", _annotate, yaml_text)
+        logger.debug("\n" + "=" * 80)
+        logger.debug("EXTRACTED YAML TEXT (after slicing):")
+        logger.debug(debug_text)
+        logger.debug("=" * 80 + "\n")
 
         # Step 1: Extract the chunk between `choreography:` and `END` or end of file.
         match = re.search(r"choreography:\s*(.*?)(?:\s*END|$)", yaml_text, re.DOTALL)
