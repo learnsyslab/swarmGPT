@@ -301,22 +301,7 @@ class AppBackend:
         logger.info("Deploying drones")
         assert self.splines, "Please run the simulation first!"
 
-        # If a deploy version of the song is present, play it
-        original_song = self.music_manager.song
-        using_deploy_variant = False
-        try:
-            self.music_manager.song = original_song + "[deploy]"
-            using_deploy_variant = True
-        except AssertionError:
-            ...
-
-        crop_start_s, crop_end_s = self.crop_window(original_song)
-        if using_deploy_variant:
-            play_start_s = 0.0
-            play_end_s = crop_end_s - crop_start_s
-        else:
-            play_start_s = crop_start_s
-            play_end_s = crop_end_s
+        play_start_s, play_end_s = self.crop_window(self.music_manager.song)
 
         if not self.music_manager.verify_libvlc():
             logger.error("VLC/libvlc is not available. Install VLC (see README) before deploying.")
@@ -402,7 +387,6 @@ class AppBackend:
             swarm.goto(landing_pos_dict, duration=1.5)  # Landing
         finally:
             swarm.close()
-        self.music_manager.song = original_song
         logger.info("Deployment successful")
         return True
 
@@ -524,8 +508,8 @@ class AppBackend:
         Returns:
             The ``(start_s, end_s)`` window the song is cropped to.
         """
-        crops = self.settings.get("song_crops", {})
-        window = crops.get(song_name, crops.get("default", [0, 60]))
+        crops = self.settings["song_crops"]
+        window = crops.get(song_name, crops["default"])
         return float(window[0]), float(window[1])
 
     def _load_structure(self, song_name: str) -> SongStructure:

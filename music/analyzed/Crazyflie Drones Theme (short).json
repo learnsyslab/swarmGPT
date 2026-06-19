@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
   "source_path": "music/songs/Crazyflie Drones Theme (short).mp3",
-  "source_sha256": "3b5ae26247a6a6c1528b27f1aef5811d462850bcfc0ba85e1e7277e991ced57b",
+  "song_sha256": "3b5ae26247a6a6c1528b27f1aef5811d462850bcfc0ba85e1e7277e991ced57b",
   "analyzer": "allin1@unknown",
   "bpm": 130,
   "segments": [

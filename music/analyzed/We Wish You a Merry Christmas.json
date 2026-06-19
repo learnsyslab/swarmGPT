@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
   "source_path": "music/songs/We Wish You a Merry Christmas.mp3",
-  "source_sha256": "83cc1ac7c8a6a258772e54fd62220130c9ae7b0983a2ebacd14906722fc157e5",
+  "song_sha256": "83cc1ac7c8a6a258772e54fd62220130c9ae7b0983a2ebacd14906722fc157e5",
   "analyzer": "allin1@unknown",
   "bpm": 136,
   "segments": [

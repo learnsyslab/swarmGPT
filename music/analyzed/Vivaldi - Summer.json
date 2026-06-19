@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
   "source_path": "music/songs/Vivaldi - Summer.mp3",
-  "source_sha256": "c345fb628edb69267c88ed1cd7d6708297e26f1e4cdfbd258e5c67872db1a812",
+  "song_sha256": "c345fb628edb69267c88ed1cd7d6708297e26f1e4cdfbd258e5c67872db1a812",
   "analyzer": "allin1@unknown",
   "bpm": 76,
   "segments": [

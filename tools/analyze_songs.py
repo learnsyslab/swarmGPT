@@ -3,17 +3,23 @@
 Run with::
 
     pixi run -e music analyze
+    pixi run -e music analyze --test
 
 Scans ``music/songs/*.mp3`` (skipping any ``[deploy]`` variants), and for each song that
 doesn't already have a JSON under ``music/analyzed/``, runs ``allin1.analyze``, caches the
 result, and writes a PNG visualization under ``music/viz/``. Existing JSONs are left
 untouched (their visualizations are not regenerated).
+
+With ``--test``, analyzes only the default ``On & On`` song as a smoke test: nothing is
+saved (no JSON cache, no PNG); the result is printed to the console.
 """
 
 from __future__ import annotations
 
+import argparse
 import re
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -28,6 +34,7 @@ SONGS_DIR = MUSIC_DIR / "songs"
 ANALYZED_DIR = MUSIC_DIR / "analyzed"
 VIZ_DIR = MUSIC_DIR / "viz"
 SETTINGS_PATH = PROJECT_ROOT / "swarm_gpt" / "data" / "settings.yaml"
+TEST_SONG = "On & On"
 
 
 def _ensure_song_crop(song_stem: str) -> None:
@@ -43,7 +50,7 @@ def _ensure_song_crop(song_stem: str) -> None:
 
     # Quick check via YAML parse — avoids a text-insert if the key already exists.
     settings = yaml.safe_load(text)
-    if song_stem in settings.get("song_crops", {}):
+    if song_stem in settings["song_crops"]:
         return
 
     # Find the song_crops: block and locate its last indented line.
@@ -75,13 +82,60 @@ def _ensure_song_crop(song_stem: str) -> None:
     print(f"  Added '{song_stem}' to song_crops in settings.yaml with default crop [0, 60].")
 
 
+def _run_test(device: str) -> None:
+    """Analyze the default song without persisting anything; print to console.
+
+    Runs a fresh analysis of :data:`TEST_SONG` into a throwaway temp directory (so no JSON
+    cache and no PNG are written) and prints a summary. Used as a smoke test for the music
+    pixi env.
+
+    Args:
+        device: Torch device for analysis (``"cuda"`` or ``"cpu"``).
+    """
+    song_path = SONGS_DIR / f"{TEST_SONG}.mp3"
+    if not song_path.exists():
+        print(f"ERROR: test song not found at {song_path}")
+        sys.exit(1)
+
+    print(f"Test mode: analyzing '{TEST_SONG}' (nothing will be saved)")
+    print()
+    t0 = time.perf_counter()
+    with tempfile.TemporaryDirectory() as tmp:
+        structure = analyze_song(song_path, Path(tmp), device=device)
+    elapsed = time.perf_counter() - t0
+
+    beats = sum(len(bar.beats) for seg in structure.segments for bar in seg.bars)
+    print(
+        f"done in {elapsed:5.1f}s -- "
+        f"{structure.bpm} BPM, {len(structure.segments)} segments, {beats} beats"
+    )
+    print()
+    print("Segments:")
+    for seg in structure.segments:
+        print(f"  {seg.start_s:6.2f}s - {seg.end_s:6.2f}s : {seg.label} ({len(seg.bars)} bars)")
+
+
 def main() -> None:
     """Scan ``music/``, analyze every song that is missing a cached JSON."""
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--test",
+        action="store_true",
+        help=f"Analyze only '{TEST_SONG}' without saving; print the result to the console.",
+    )
+    args = parser.parse_args()
+
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print(f"Device: {device}")
     if device == "cpu":
         print("WARNING: no CUDA detected. Analysis on CPU is ~10x+ slower.")
     print(f"PyTorch: {torch.__version__}")
+    print()
+
+    if args.test:
+        _run_test(device)
+        return
+
     print(f"Songs dir:    {SONGS_DIR}")
     print(f"Analyzed dir: {ANALYZED_DIR}")
     print(f"Viz dir:      {VIZ_DIR}")

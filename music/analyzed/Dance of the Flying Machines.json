@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
   "source_path": "music/songs/Dance of the Flying Machines.mp3",
-  "source_sha256": "e85f0baed9e9740509927214dd5783070828d1c7fe630ea070db9eaf87069086",
+  "song_sha256": "e85f0baed9e9740509927214dd5783070828d1c7fe630ea070db9eaf87069086",
   "analyzer": "allin1@unknown",
   "bpm": 113,
   "segments": [

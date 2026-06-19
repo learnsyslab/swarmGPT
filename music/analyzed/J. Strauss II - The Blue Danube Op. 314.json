@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
   "source_path": "music/songs/J. Strauss II - The Blue Danube Op. 314.mp3",
-  "source_sha256": "bc2f64926e8d76065dd0072074cbcb642c06ea25cc772e42f48d2c21fb7a58a1",
+  "song_sha256": "bc2f64926e8d76065dd0072074cbcb642c06ea25cc772e42f48d2c21fb7a58a1",
   "analyzer": "allin1@unknown",
   "bpm": 95,
   "segments": [

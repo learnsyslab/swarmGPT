@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
   "source_path": "music/songs/On & On.mp3",
-  "source_sha256": "8dadfc64562b8234f5bf3b3c2ea536cbe4bc088a8df9bd923b0219035fcf0eae",
+  "song_sha256": "8dadfc64562b8234f5bf3b3c2ea536cbe4bc088a8df9bd923b0219035fcf0eae",
   "analyzer": "allin1@unknown",
   "bpm": 87,
   "segments": [

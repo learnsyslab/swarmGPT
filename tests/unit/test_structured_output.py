@@ -36,7 +36,7 @@ def _simple_structure(n_segments: int = 2, n_bars: int = 1, n_beats: int = 4) ->
     return SongStructure(
         schema_version=SCHEMA_VERSION,
         source_path="music/Test.mp3",
-        source_sha256="deadbeef",
+        song_sha256="deadbeef",
         analyzer="allin1@test",
         bpm=120,
         segments=segments,

@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
   "source_path": "music/songs/J. Strauss I - Radetzky March.mp3",
-  "source_sha256": "17639064feb259fc90d225906b9827fccf781c8903b51a2eb5b5f2b0aa84c457",
+  "song_sha256": "17639064feb259fc90d225906b9827fccf781c8903b51a2eb5b5f2b0aa84c457",
   "analyzer": "allin1@unknown",
   "bpm": 102,
   "segments": [

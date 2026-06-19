@@ -17,6 +17,17 @@ from dataclasses import asdict, dataclass, field
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
+import logging
+
+logger = logging.getLogger(__name__)
+
+try:
+    import librosa
+    import allin1  
+    import matplotlib.pyplot as plt
+    import natten.functional as nf  
+except ImportError as e:
+    logger.error(f"{e} - please use the music env to analyze songs")
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -30,9 +41,7 @@ _HOP_LENGTH = 1024
 
 
 def _apply_natten_compat() -> None:
-    # natten 0.17+ renamed natten1dav→na1d_av etc. allin1 1.x uses the old names.
-    # Re-alias them so the `from natten.functional import ...` in dinat.py resolves.
-    import natten.functional as nf  # noqa: PLC0415
+
     if not hasattr(nf, "natten1dav"):
         nf.natten1dav = nf.na1d_av
         nf.natten2dav = nf.na2d_av
@@ -96,7 +105,7 @@ class SongStructure:
     Attributes:
         schema_version: Format version of the JSON serialization.
         source_path: Path to the source audio file, as a string relative to project root.
-        source_sha256: SHA-256 of the source audio file, used to detect MP3 changes.
+        song_sha256: SHA-256 of the source audio file, used to detect MP3 changes.
         analyzer: Identifier of the analysis engine that produced this structure.
         bpm: Tempo in beats per minute.
         segments: Functional segments of the song, in time order.
@@ -104,18 +113,15 @@ class SongStructure:
 
     schema_version: int
     source_path: str
-    source_sha256: str
+    song_sha256: str
     analyzer: str
     bpm: int
     segments: list[Segment]
-    # New in v2 — populated at analyze time, sliced by crop().
     rms_per_2bar: tuple[float, ...] = field(default_factory=tuple)
     centroid_per_2bar: tuple[float, ...] = field(default_factory=tuple)
 
     @classmethod
-    def from_allin1(
-        cls, result: Any, source_path: str, source_sha256: str, analyzer: str
-    ) -> SongStructure:
+    def from_allin1(cls, result: Any, source_path: str, song_sha256: str, analyzer: str) -> SongStructure:
         """Build a SongStructure from an ``allin1.AnalysisResult``.
 
         Groups flat ``beats`` / ``beat_positions`` into bars by detecting position
@@ -126,7 +132,7 @@ class SongStructure:
                 ``beat_positions``, and ``segments`` whose entries expose ``start``,
                 ``end``, ``label``).
             source_path: Source audio file path, as a string relative to project root.
-            source_sha256: SHA-256 hex digest of the source audio file.
+            song_sha256: SHA-256 hex digest of the source audio file.
             analyzer: Identifier of the analyzer used (e.g. ``"allin1@1.1.0"``).
 
         Returns:
@@ -148,7 +154,7 @@ class SongStructure:
         return cls(
             schema_version=SCHEMA_VERSION,
             source_path=source_path,
-            source_sha256=source_sha256,
+            song_sha256=song_sha256,
             analyzer=analyzer,
             bpm=int(raw_bpm),
             segments=segments_out,
@@ -202,7 +208,7 @@ class SongStructure:
         return cls(
             schema_version=int(data["schema_version"]),
             source_path=str(data["source_path"]),
-            source_sha256=str(data["source_sha256"]),
+            song_sha256=str(data["song_sha256"]),
             analyzer=str(data["analyzer"]),
             bpm=int(data["bpm"]),
             segments=segments,
@@ -346,7 +352,7 @@ class SongStructure:
         return SongStructure(
             schema_version=self.schema_version,
             source_path=self.source_path,
-            source_sha256=self.source_sha256,
+            song_sha256=self.song_sha256,
             analyzer=self.analyzer,
             bpm=self.bpm,
             segments=segments_out,
@@ -373,8 +379,6 @@ def compute_dynamics_per_2bar(
         ``(rms_tuple, centroid_tuple)`` of equal length
         ``sum(ceil(len(seg.bars) / 2) for seg in structure.segments)``.
     """
-    import librosa  # noqa: PLC0415 -- heavy import; keep local
-
     windows: list[tuple[float, float]] = []
     for seg in structure.segments:
         bars = seg.bars
@@ -558,8 +562,6 @@ def save_visualization(result: Any, viz_dir: Path, stem: str) -> Path:
         Path to the written PNG.
     """
     _apply_natten_compat()
-    import allin1  # noqa: PLC0415 -- lazy: only available in the music pixi env
-    import matplotlib.pyplot as plt  # noqa: PLC0415 -- pulled in transitively by allin1
 
     fig = allin1.visualize(result, out_dir=None, multiprocess=False)
     viz_dir.mkdir(parents=True, exist_ok=True)
@@ -602,7 +604,7 @@ def analyze_song(
     structure = SongStructure.from_allin1(
         result=result,
         source_path=source_path,
-        source_sha256=sha256_of(mp3_path),
+        song_sha256=sha256_of(mp3_path),
         analyzer=f"allin1@{getattr(allin1, '__version__', 'unknown')}",
     )
     rms_per_2bar, centroid_per_2bar = compute_dynamics_per_2bar(structure, mp3_path)

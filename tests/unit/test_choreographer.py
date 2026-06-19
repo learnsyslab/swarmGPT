@@ -98,7 +98,7 @@ def test_form_star_hold_pruning_in_pipeline():
     structure = SongStructure(
         schema_version=2,
         source_path="test.mp3",
-        source_sha256="abc",
+        song_sha256="abc",
         analyzer="test",
         bpm=120,
         segments=[seg],

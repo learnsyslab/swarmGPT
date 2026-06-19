@@ -112,8 +112,7 @@ web-dev = { cmd = "npm --prefix web run dev", description = "Serve the browser f
 web-build = { cmd = "npm --prefix web run build", description = "Build the browser frontend" }
 
 [tool.pixi.feature.music.tasks]
-analyze-one = { cmd = "python tools/test_allin1.py", description = "Smoke-test allin1 on one song" }
-analyze = { cmd = "python tools/analyze_all.py", description = "Analyze every un-analyzed song in music/" }
+analyze = { cmd = "python tools/analyze_songs.py", description = "Analyze every un-analyzed song in music/ (use --test for a console-only smoke test)" }
 
 [tool.pixi.pypi-dependencies]
 swarmgpt = { path = ".", editable = true }

@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
   "source_path": "music/songs/Mortals.mp3",
-  "source_sha256": "9fb83219afc5e94113a7ae218ade0074f65664484cac93822dca351e7e42ea81",
+  "song_sha256": "9fb83219afc5e94113a7ae218ade0074f65664484cac93822dca351e7e42ea81",
   "analyzer": "allin1@unknown",
   "bpm": 90,
   "segments": [

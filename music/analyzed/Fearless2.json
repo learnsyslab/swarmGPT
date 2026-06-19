@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
   "source_path": "music/songs/Fearless2.mp3",
-  "source_sha256": "498c483e69e56dd8e809fd8b82d4b5c72ccb8df55470a2266ecdbf43fcd1c863",
+  "song_sha256": "498c483e69e56dd8e809fd8b82d4b5c72ccb8df55470a2266ecdbf43fcd1c863",
   "analyzer": "allin1@unknown",
   "bpm": 109,
   "segments": [

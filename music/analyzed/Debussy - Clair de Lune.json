@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
   "source_path": "music/songs/Debussy - Clair de Lune.mp3",
-  "source_sha256": "9720553b8bfab52fdc48d4aa8ce9ceebf8cd559c7ce68402e0908c009c2b1a7d",
+  "song_sha256": "9720553b8bfab52fdc48d4aa8ce9ceebf8cd559c7ce68402e0908c009c2b1a7d",
   "analyzer": "allin1@unknown",
   "bpm": 65,
   "segments": [

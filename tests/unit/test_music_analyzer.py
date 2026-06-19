@@ -69,7 +69,7 @@ def _build(result: FakeAllin1Result) -> SongStructure:
     return SongStructure.from_allin1(
         result=result,
         source_path="music/Test.mp3",
-        source_sha256="deadbeef",
+        song_sha256="deadbeef",
         analyzer="allin1@test",
     )
 
@@ -201,7 +201,7 @@ def _make_synthetic_structure(n_bars: int, bar_dur: float) -> SongStructure:
     return SongStructure(
         schema_version=SCHEMA_VERSION,
         source_path="test.mp3",
-        source_sha256="abc",
+        song_sha256="abc",
         analyzer="test",
         bpm=120,
         segments=[seg],
@@ -226,7 +226,7 @@ def _make_synthetic_structure_two_segments(bars_per_seg: int) -> SongStructure:
     return SongStructure(
         schema_version=SCHEMA_VERSION,
         source_path="test.mp3",
-        source_sha256="abc",
+        song_sha256="abc",
         analyzer="test",
         bpm=120,
         segments=segments,

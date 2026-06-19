@@ -95,7 +95,6 @@ def _form_should_drop_holds(
     return False
 
 
-
 # OLLAMA_CONTEXT_LENGTH = None  # Set None to use Ollama's VRAM-based default.
 OLLAMA_CONTEXT_LENGTH = None
 
@@ -152,9 +151,7 @@ class Choreographer:
         self.collision_envelope = np.array(self.settings["axswarm"]["collision_envelope"])
         assert len(self.collision_envelope) == 3, "Collision envelope must be 3D"
         # Stride (in bars) between required downbeats; beats in between are optional accents.
-        self._bars_per_required = int(
-            self.settings.get("choreography", {}).get("bars_per_required", 1)
-        )
+        self._bars_per_required = int(self.settings["choreography"]["bars_per_required"])
 
     def configure_llm(self, provider: LLMProvider, model_id: str) -> None:
         """Switch provider and model (used by the web UI).

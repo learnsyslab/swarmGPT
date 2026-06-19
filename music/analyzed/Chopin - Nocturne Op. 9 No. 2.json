@@ -1,7 +1,7 @@
 {
   "schema_version": 2,
   "source_path": "music/songs/Chopin - Nocturne Op. 9 No. 2.mp3",
-  "source_sha256": "f49e8cd3d533409289a3fae796e112a58d34bf8d2ef31705afcb9e6bd448d649",
+  "song_sha256": "f49e8cd3d533409289a3fae796e112a58d34bf8d2ef31705afcb9e6bd448d649",
   "analyzer": "allin1@unknown",
   "bpm": 65,
   "segments": [
