@@ -366,9 +366,9 @@ class AppBackend:
                     taken_off = False
                     continue
                 try:
-                    logger.info(f"Trying to get obs for {uri}")
+                    logger.debug(f"Trying to get obs for {uri}")
                     obs = swarm.get_obs(uri)
-                    logger.info(f"got obs for {uri}")
+                    logger.debug(f"got obs for {uri}")
                     z = obs["pos"][2]
                     qw = np.abs(obs["quat"][-1])
                 # Demo fix: If the drone is disconnected, we cannot get its position. We assume it has not taken off.
@@ -386,7 +386,7 @@ class AppBackend:
                         "VLC could not start playback; skipping choreography (drones will land)."
                     )
                 else:
-                    logger.info("Starting choreography execution")
+                    logger.debug("Starting choreography execution")
                     swarm.execute_choreography(
                         choreography_dict,
                         self.waypoints["time"][0, -1],
@@ -396,7 +396,6 @@ class AppBackend:
             swarm.goto(final_pos_dict, duration=2.0)  # Transition from ideal point to hover pos
             if self.settings["land_on_docks"]: # Commented out for demo
                 swarm.goto(final_pos_dict, duration=3.0)  # Hovering
-            # swarm.goto(landing_pos_dict, duration=1.5)  # Landing
             swarm.land(duration=1.5)  # Landing
         finally:
             swarm.close()
