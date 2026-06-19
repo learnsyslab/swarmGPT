@@ -397,7 +397,7 @@ class DroneSwarm:
 
         if failures:
             raise RuntimeError(
-                "Lighthouse deck check failed. Expected "
+                "Lighthouse deck check failed. Are you using lighthouse? Expected "
                 f"{_LIGHTHOUSE_DECK_PARAM}=1 for every drone: {'; '.join(failures)}"
             )
 

@@ -2,7 +2,7 @@ radio:
   uri_base: "radio://0/{channel}/2M/E7E7E7E7{addr:02X}"
 
 starting_height: 1.0  # Starting height for all drones
-lighthouse: true  # Whether to use lighthouse or mocap for localization
+lighthouse: false  # Whether to use lighthouse or mocap for localization
 land_on_docks: true
 
 # Choreography
@@ -56,8 +56,8 @@ axswarm:
   input_continuity_weight: 1.0  # Weight of the input continuity objective in the cost
 
   # Limits
-  pos_min: [-2.2, -2.7, 0.25]  # Minimum position of the AMSwarm drones
-  pos_max: [2.2, 2.7, 1.7]  # Maximum position of the AMSwarm drones
+  pos_min: [-2.0, -2.0, 0.25]  # Minimum position of the AMSwarm drones
+  pos_max: [2.0, 2.0, 1.7]  # Maximum position of the AMSwarm drones
   vel_max: 1.73  # Maximum velocity of the AMSwarm drones
   acc_max: 1.0  # Maximum force of the AMSwarm drones (0.75 gs)
   collision_envelope: [0.25, 0.25, 0.6]  # Collision envelope width in x, y, z
