@@ -98,8 +98,6 @@ class DroneSwarm:
         """Generate the observation for a drone using mocap or lighthouse."""
         obs = self._run(self._parallel_by_uri("Reading observation", [uri], self._read_observation))
         return obs[0]
-        # return self._run(self._read_observation(uri))
-        # return self._run(self._parallel_by_uri("Reading observation", [uri], self._read_observation)[0])
 
     def missing_uris(self) -> list[str]:
         """Return configured URIs that are not currently active."""
