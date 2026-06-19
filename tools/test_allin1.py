@@ -15,8 +15,16 @@ import sys
 import time
 from pathlib import Path
 
-import allin1
+import natten.functional as _nf
 import torch
+
+if not hasattr(_nf, "natten1dav"):
+    _nf.natten1dav = _nf.na1d_av
+    _nf.natten2dav = _nf.na2d_av
+    _nf.natten1dqkrpb = lambda q, k, rpb, ks, d: _nf.na1d_qk(q, k, ks, d, rpb=rpb)
+    _nf.natten2dqkrpb = lambda q, k, rpb, ks, d: _nf.na2d_qk(q, k, ks, d, rpb=rpb)
+
+import allin1
 
 from swarm_gpt.utils.music_analyzer import save_visualization
 

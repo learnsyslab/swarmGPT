@@ -29,6 +29,17 @@ _FRAME_LENGTH = 4096
 _HOP_LENGTH = 1024
 
 
+def _apply_natten_compat() -> None:
+    # natten 0.17+ renamed natten1dav→na1d_av etc. allin1 1.x uses the old names.
+    # Re-alias them so the `from natten.functional import ...` in dinat.py resolves.
+    import natten.functional as nf  # noqa: PLC0415
+    if not hasattr(nf, "natten1dav"):
+        nf.natten1dav = nf.na1d_av
+        nf.natten2dav = nf.na2d_av
+        nf.natten1dqkrpb = lambda q, k, rpb, ks, d: nf.na1d_qk(q, k, ks, d, rpb=rpb)
+        nf.natten2dqkrpb = lambda q, k, rpb, ks, d: nf.na2d_qk(q, k, ks, d, rpb=rpb)
+
+
 @dataclass
 class Beat:
     """One beat within a bar.
@@ -546,6 +557,7 @@ def save_visualization(result: Any, viz_dir: Path, stem: str) -> Path:
     Returns:
         Path to the written PNG.
     """
+    _apply_natten_compat()
     import allin1  # noqa: PLC0415 -- lazy: only available in the music pixi env
     import matplotlib.pyplot as plt  # noqa: PLC0415 -- pulled in transitively by allin1
 
@@ -579,6 +591,7 @@ def analyze_song(
     if cache_path.exists():
         return SongStructure.from_json(cache_path)
 
+    _apply_natten_compat()
     import allin1  # noqa: PLC0415 -- lazy: only available in the music pixi env
 
     result = allin1.analyze(str(mp3_path), device=device)
