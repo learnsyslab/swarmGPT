@@ -303,10 +303,20 @@ class AppBackend:
 
         # If a deploy version of the song is present, play it
         original_song = self.music_manager.song
+        using_deploy_variant = False
         try:
             self.music_manager.song = original_song + "[deploy]"
+            using_deploy_variant = True
         except AssertionError:
             ...
+
+        crop_start_s, crop_end_s = self.crop_window(original_song)
+        if using_deploy_variant:
+            play_start_s = 0.0
+            play_end_s = crop_end_s - crop_start_s
+        else:
+            play_start_s = crop_start_s
+            play_end_s = crop_end_s
 
         if not self.music_manager.verify_libvlc():
             logger.error("VLC/libvlc is not available. Install VLC (see README) before deploying.")
@@ -374,7 +384,7 @@ class AppBackend:
                     taken_off = False
                     logger.warning(f"Drone {uri} has not taken off yet: z={z:.2f}m")
             if taken_off:
-                if not self.music_manager.play(wait=True):
+                if not self.music_manager.play(wait=True, start_s=play_start_s, end_s=play_end_s):
                     logger.error(
                         "VLC could not start playback; skipping choreography (drones will land)."
                     )
@@ -390,6 +400,7 @@ class AppBackend:
             #     swarm.goto(final_pos_dict, duration=5.0)  # Hovering
             swarm.goto(landing_pos_dict, duration=1.5)  # Landing
         finally:
+            self.music_manager.stop()
             swarm.close()
         self.music_manager.song = original_song
         logger.info("Deployment successful")
