@@ -7,6 +7,7 @@ and the configured TF names to be available.
 from __future__ import annotations
 
 import argparse
+import time
 import tomllib
 from pathlib import Path
 from typing import Any
@@ -35,8 +36,11 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--limit", type=int, default=None, help="Use only the first N drones.")
     parser.add_argument("--height", type=float, default=0.6, help="Takeoff/test height in meters.")
-    parser.add_argument("--min-height", type=float, default=0.2, help="Minimum accepted z after takeoff.")
+    parser.add_argument(
+        "--min-height", type=float, default=0.2, help="Minimum accepted z after takeoff."
+    )
     parser.add_argument("--takeoff-duration", type=float, default=3.0)
+    parser.add_argument("--setpoint-duration", type=float, default=2.0)
     parser.add_argument("--goto-duration", type=float, default=3.0)
     parser.add_argument("--choreo-duration", type=float, default=3.0)
     parser.add_argument("--land-duration", type=float, default=3.0)
@@ -87,21 +91,19 @@ def check_observations(swarm: DroneSwarm) -> None:
         rpy = np.asarray(obs["rpy"], dtype=float)
         if pos.shape != (3,) or quat.shape != (4,) or rpy.shape != (3,):
             raise RuntimeError(f"Invalid observation shape for {uri}: {obs}")
-        if not np.all(np.isfinite(pos)) or not np.all(np.isfinite(quat)) or not np.all(np.isfinite(rpy)):
+        if (
+            not np.all(np.isfinite(pos))
+            or not np.all(np.isfinite(quat))
+            or not np.all(np.isfinite(rpy))
+        ):
             raise RuntimeError(f"Non-finite observation for {uri}: {obs}")
         if np.linalg.norm(quat) < 0.5:
             raise RuntimeError(f"Suspicious quaternion for {uri}: {quat}")
-        print(
-            f"  {uri}: pos = {pos.round(3).tolist()}, "
-            f"rpy = {np.degrees(rpy).round(1).tolist()}"
-        )
+        print(f"  {uri}: pos = {pos.round(3).tolist()}, rpy = {np.degrees(rpy).round(1).tolist()}")
 
 
 def pose_for_uri(
-    swarm: DroneSwarm,
-    drones_by_uri: dict[str, dict[str, Any]],
-    uri: str,
-    height: float,
+    swarm: DroneSwarm, drones_by_uri: dict[str, dict[str, Any]], uri: str, height: float
 ) -> np.ndarray:
     """Return a [x, y, z, yaw_deg] pose for command references."""
     if not swarm.is_active(uri):
@@ -190,6 +192,15 @@ def run_smoke_test(args: argparse.Namespace) -> None:
             uri: pose_for_uri(swarm, drones_by_uri, uri, args.height) for uri in swarm.uris
         }
 
+        print("\nHolding position with manually streamed setpoints")
+        period = 1 / args.ctrl_freq
+        deadline = time.monotonic() + args.setpoint_duration
+        next_tick = time.monotonic()
+        while time.monotonic() < deadline:
+            swarm.setpoint(takeoff_poses)
+            next_tick += period
+            time.sleep(max(0.0, next_tick - time.monotonic()))
+
         print("\nGoing to a small offset")
         goto_refs = {}
         goto_targets = {}
@@ -198,7 +209,7 @@ def run_smoke_test(args: argparse.Namespace) -> None:
             target[0] += args.goto_dx
             target[1] += args.goto_dy
             goto_targets[uri] = target
-            goto_refs[uri] = [target]
+            goto_refs[uri] = target
         swarm.goto(goto_refs, duration=args.goto_duration)
 
         print("\nExecuting simple choreography")
@@ -220,10 +231,7 @@ def run_smoke_test(args: argparse.Namespace) -> None:
                 args.choreo_duration / 2.0: np.array([0.0, 60.0, 60.0, 0.0]),
             }
         swarm.execute_choreography(
-            choreography,
-            args.choreo_duration,
-            color_top=cue_color_top,
-            color_bot=cue_color_bot,
+            choreography, args.choreo_duration, color_top=cue_color_top, color_bot=cue_color_bot
         )
 
         print("\nLanding")
