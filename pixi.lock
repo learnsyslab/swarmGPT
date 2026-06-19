@@ -2556,6 +2556,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/wheel-0.47.0-pyhd8ed1ab_0.conda
       - pypi: .
       - pypi: git+https://github.com/CPJKU/madmom.git#27f032e8947204902c675e5e341a3faf5dc86dae
+      - pypi: git+https://github.com/govi218/all-in-one.git?branch=gov%2Fupdate-deprecated#90c571ae2620d6df9cbcdc08cfeb5ece42c40abb
       - pypi: https://download-r2.pytorch.org/whl/cu126/torch-2.6.0%2Bcu126-cp312-cp312-manylinux_2_28_x86_64.whl
       - pypi: https://download-r2.pytorch.org/whl/cu126/torchaudio-2.6.0%2Bcu126-cp312-cp312-linux_x86_64.whl
       - pypi: https://download-r2.pytorch.org/whl/triton-3.2.0-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl
@@ -2640,7 +2641,6 @@ environments:
       - pypi: https://files.pythonhosted.org/packages/b3/38/89ba8ad64ae25be8de66a6d463314cf1eb366222074cfda9ee839c56a4b4/mdurl-0.1.2-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/b3/81/4da04ced5a082363ecfa159c010d200ecbd959ae410c10c0264a38cac0f5/markdown_it_py-4.2.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/b5/ba/c63c5786dfee4c3417094c4b00966e61e4a63efecee22cb7b4c0387dda83/librosa-0.11.0-py3-none-any.whl
-      - pypi: https://files.pythonhosted.org/packages/b7/6d/e301dee03fb8b0d72e55ba6022d53cb0fd997437dd4693de34b1c605b90d/allin1-1.1.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/b7/ce/149a00dd41f10bc29e5921b496af8b574d8413afcd5e30dfa0ed46c2cc5e/six-1.17.0-py2.py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/bd/6e/95b0e537de1f4d4301f76f944642c6da50d1511cc7b3d64dc418a66c7509/wcwidth-0.8.1-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/be/51/d82bb424e8aa372190c5233253a2ceb399a778747d18b42cff487411e663/openai-2.41.0-py3-none-any.whl
@@ -29198,6 +29198,24 @@ packages:
   - packaging~=25.0
   - tyro>=1.0.8
   requires_python: '>=3.11'
+- pypi: git+https://github.com/govi218/all-in-one.git?branch=gov%2Fupdate-deprecated#90c571ae2620d6df9cbcdc08cfeb5ece42c40abb
+  name: allin1
+  version: 1.1.0
+  requires_dist:
+  - demucs
+  - huggingface-hub
+  - hydra-core
+  - librosa
+  - matplotlib
+  - natten ; sys_platform == 'darwin'
+  - numpy
+  - omegaconf
+  - lightning ; extra == 'train'
+  - mir-eval ; extra == 'train'
+  - numpy<1.24 ; extra == 'train'
+  - timm ; extra == 'train'
+  - wandb ; extra == 'train'
+  requires_python: '>=3.8'
 - pypi: git+https://github.com/learnsyslab/axswarm.git#2ce7540d07983d152c3df7a0d77166de18dbd2d6
   name: axswarm
   version: 0.1.0
@@ -31800,25 +31818,6 @@ packages:
   - setuptools-scm>=7,<10 ; extra == 'dev'
   - setuptools>=64 ; extra == 'dev'
   requires_python: '>=3.10'
-- pypi: https://files.pythonhosted.org/packages/b7/6d/e301dee03fb8b0d72e55ba6022d53cb0fd997437dd4693de34b1c605b90d/allin1-1.1.0-py3-none-any.whl
-  name: allin1
-  version: 1.1.0
-  sha256: 90edc464637ce7f71113f518c320359e9fef3c17e71e4940cb3637c4081f800e
-  requires_dist:
-  - demucs
-  - huggingface-hub
-  - hydra-core
-  - librosa
-  - matplotlib
-  - natten ; sys_platform == 'darwin'
-  - numpy
-  - omegaconf
-  - lightning ; extra == 'train'
-  - mir-eval ; extra == 'train'
-  - numpy<1.24 ; extra == 'train'
-  - timm ; extra == 'train'
-  - wandb ; extra == 'train'
-  requires_python: '>=3.8'
 - pypi: https://files.pythonhosted.org/packages/b7/ce/149a00dd41f10bc29e5921b496af8b574d8413afcd5e30dfa0ed46c2cc5e/six-1.17.0-py2.py3-none-any.whl
   name: six
   version: 1.17.0
