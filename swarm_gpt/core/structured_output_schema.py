@@ -251,13 +251,6 @@ def action_to_motion_primitive(action: dict[str, Any]) -> str:
             f"Structured choreography action must be an object, got {type(action).__name__}"
         )
     primitive = action.get("primitive")
-    if primitive == "PLAN":
-        # PLAN is no longer part of the schema. Tolerated only for legacy preset payloads.
-        params = action.get("params", {})
-        args = action.get("args", [])
-        if params or args:
-            raise LLMFormatError("PLAN does not accept params or args")
-        return "PLAN"
     if primitive not in _PRIMITIVE_ARG_ORDER:
         raise LLMFormatError(f"Unknown motion primitive '{primitive}' in structured output")
     ordered_arg_names = _PRIMITIVE_ARG_ORDER[primitive]  # used for expected arity messaging
