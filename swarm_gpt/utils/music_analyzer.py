@@ -25,7 +25,6 @@ try:
     import allin1
     import librosa
     import matplotlib.pyplot as plt
-    import natten.functional as nf
 
     from swarm_gpt.core.structured_output_schema import encode_key
 except ImportError as e:
@@ -40,15 +39,6 @@ SCHEMA_VERSION = 2
 # Match allin1.visualize's librosa params for consistency with its RMS trace.
 _FRAME_LENGTH = 4096
 _HOP_LENGTH = 1024
-
-
-def _apply_natten_compat() -> None:
-
-    if not hasattr(nf, "natten1dav"):
-        nf.natten1dav = nf.na1d_av
-        nf.natten2dav = nf.na2d_av
-        nf.natten1dqkrpb = lambda q, k, rpb, ks, d: nf.na1d_qk(q, k, ks, d, rpb=rpb)
-        nf.natten2dqkrpb = lambda q, k, rpb, ks, d: nf.na2d_qk(q, k, ks, d, rpb=rpb)
 
 
 @dataclass
@@ -563,8 +553,6 @@ def save_visualization(result: Any, viz_dir: Path, stem: str) -> Path:
     Returns:
         Path to the written PNG.
     """
-    _apply_natten_compat()
-
     fig = allin1.visualize(result, out_dir=None, multiprocess=False)
     viz_dir.mkdir(parents=True, exist_ok=True)
     out_path = viz_dir / f"{stem}.png"
@@ -594,8 +582,6 @@ def analyze_song(
     cache_path = cache_dir / f"{mp3_path.stem}.json"
     if cache_path.exists():
         return SongStructure.from_json(cache_path)
-
-    _apply_natten_compat()
 
     result = allin1.analyze(str(mp3_path), device=device)
     if isinstance(result, list):

@@ -185,7 +185,7 @@ find-links = [{ url = "https://whl.natten.org" }]
 [tool.pixi.feature.music.pypi-dependencies]
 torch = "==2.6.0+cu126"
 torchaudio = "==2.6.0+cu126"
-allin1 = "*"
+allin1 = { git = "https://github.com/govi218/all-in-one.git", branch = "gov/update-deprecated" }
 madmom = { git = "https://github.com/CPJKU/madmom.git" }
 
 natten = "==0.17.5+torch260cu126"
