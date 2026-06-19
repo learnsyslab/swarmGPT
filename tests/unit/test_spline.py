@@ -389,3 +389,58 @@ def test_high_degree_evaluate_matches_de_casteljau():
     for t in np.linspace(0.1, 0.9, 7):
         expected = _de_casteljau(cp, t)
         np.testing.assert_allclose(spline.evaluate(t), expected, atol=1e-9)
+
+
+# ---------------------------------------------------------------------------
+# Subdivision (de Casteljau split) — WS2
+# ---------------------------------------------------------------------------
+
+
+def test_subdivide_halves_reproduce_the_original_curve():
+    rng = np.random.default_rng(9)
+    spline = Spline(rng.standard_normal((5, 3)), t0=1.0, t1=4.0)
+    left, right = spline.subdivide(2.5)
+    assert (left.t0, left.t1) == (1.0, 2.5)
+    assert (right.t0, right.t1) == (2.5, 4.0)
+    for t in np.linspace(1.0, 2.5, 9):
+        np.testing.assert_allclose(left.evaluate(t), spline.evaluate(t), atol=1e-10)
+    for t in np.linspace(2.5, 4.0, 9):
+        np.testing.assert_allclose(right.evaluate(t), spline.evaluate(t), atol=1e-10)
+
+
+def test_subdivide_endpoints_and_join_match():
+    spline = Spline(np.array([[0.0, 0.0, 0.0], [3.0, 0.0, 0.0]]), t0=0.0, t1=3.0)
+    left, right = spline.subdivide(1.0)
+    np.testing.assert_allclose(left.evaluate(0.0), [0.0, 0.0, 0.0])
+    np.testing.assert_allclose(left.evaluate(1.0), [1.0, 0.0, 0.0])
+    np.testing.assert_allclose(right.evaluate(1.0), [1.0, 0.0, 0.0])
+    np.testing.assert_allclose(right.evaluate(3.0), [3.0, 0.0, 0.0])
+
+
+def test_subdivide_rejects_time_outside_interval():
+    spline = Spline(np.zeros((3, 3)), t0=0.0, t1=1.0)
+    with pytest.raises(ValueError, match="inside"):
+        spline.subdivide(1.0)
+
+
+def test_piecewise_subdivide_splits_inside_a_segment():
+    seg_a = Spline(np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]]), t0=0.0, t1=1.0)
+    seg_b = Spline(np.array([[1.0, 0.0, 0.0], [1.0, 2.0, 0.0]]), t0=1.0, t1=2.0)
+    pw = PiecewiseSpline([seg_a, seg_b])
+    left, right = pw.subdivide(1.5)
+    assert left.t0 == 0.0 and left.t1 == 1.5
+    assert right.t0 == 1.5 and right.t1 == 2.0
+    for t in np.linspace(0.0, 1.5, 9):
+        np.testing.assert_allclose(left.evaluate(t), pw.evaluate(t), atol=1e-10)
+    for t in np.linspace(1.5, 2.0, 9):
+        np.testing.assert_allclose(right.evaluate(t), pw.evaluate(t), atol=1e-10)
+
+
+def test_piecewise_subdivide_at_a_breakpoint_is_clean():
+    seg_a = Spline(np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]]), t0=0.0, t1=1.0)
+    seg_b = Spline(np.array([[1.0, 0.0, 0.0], [1.0, 2.0, 0.0]]), t0=1.0, t1=2.0)
+    pw = PiecewiseSpline([seg_a, seg_b])
+    left, right = pw.subdivide(1.0)
+    assert len(left.segments) == 1 and len(right.segments) == 1
+    np.testing.assert_allclose(left.end_state()[0], [1.0, 0.0, 0.0])
+    np.testing.assert_allclose(right.start_state()[0], [1.0, 0.0, 0.0])

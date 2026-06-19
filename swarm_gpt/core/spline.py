@@ -285,6 +285,35 @@ class Spline:
         """
         return self.control_points.min(axis=0), self.control_points.max(axis=0)
 
+    def subdivide(self, t: float) -> tuple[Spline, Spline]:
+        """Split the curve at time ``t`` into two splines via de Casteljau.
+
+        Both halves trace the same path as the original over their sub-intervals, exactly
+        (no approximation). Used by WS2 to trim a fragment's head or tail to free room for a
+        transition.
+
+        Args:
+            t: Split time, strictly inside ``(t0, t1)``.
+
+        Returns:
+            ``(left, right)`` splines over ``[t0, t]`` and ``[t, t1]``.
+
+        Raises:
+            ValueError: If ``t`` does not lie strictly inside the interval.
+        """
+        if not self.t0 < t < self.t1:
+            raise ValueError(f"subdivide time {t} must lie strictly inside [{self.t0}, {self.t1}]")
+        u = (t - self.t0) / self.duration
+        b = self.control_points.astype(float).copy()
+        left = [b[0].copy()]
+        right = [b[-1].copy()]
+        for _ in range(self.degree):
+            b = (1.0 - u) * b[:-1] + u * b[1:]
+            left.append(b[0].copy())
+            right.append(b[-1].copy())
+        right.reverse()
+        return Spline(np.array(left), self.t0, t), Spline(np.array(right), t, self.t1)
+
     def to_waypoints(self, freq: float) -> dict[str, NDArray]:
         """Sample the spline at ``freq`` Hz into a ``{time, pos, vel, acc}`` dict.
 
@@ -370,6 +399,11 @@ class PiecewiseSpline:
         """End time of the whole curve."""
         return self.segments[-1].t1
 
+    @property
+    def duration(self) -> float:
+        """Length of the whole time interval in seconds."""
+        return self.t1 - self.t0
+
     def _segment_at(self, t: float) -> Spline:
         """Return the segment whose interval contains ``t``.
 
@@ -413,6 +447,37 @@ class PiecewiseSpline:
             A new ``PiecewiseSpline`` of per-segment derivatives.
         """
         return PiecewiseSpline([segment.derivative() for segment in self.segments])
+
+    def subdivide(self, t: float) -> tuple[PiecewiseSpline, PiecewiseSpline]:
+        """Split the piecewise curve at time ``t`` into two piecewise curves.
+
+        Segments fully before ``t`` go left, fully after go right, and the segment containing
+        ``t`` is itself subdivided. A split exactly on a breakpoint is clean (no segment split).
+
+        Args:
+            t: Split time, strictly inside ``(t0, t1)``.
+
+        Returns:
+            ``(left, right)`` piecewise splines over ``[t0, t]`` and ``[t, t1]``.
+
+        Raises:
+            ValueError: If ``t`` does not lie strictly inside the interval.
+        """
+        if not self.t0 < t < self.t1:
+            raise ValueError(f"subdivide time {t} must lie strictly inside [{self.t0}, {self.t1}]")
+        eps = 1e-9
+        left: list[Spline] = []
+        right: list[Spline] = []
+        for seg in self.segments:
+            if seg.t1 <= t + eps:
+                left.append(seg)
+            elif seg.t0 >= t - eps:
+                right.append(seg)
+            else:
+                seg_left, seg_right = seg.subdivide(t)
+                left.append(seg_left)
+                right.append(seg_right)
+        return PiecewiseSpline(left), PiecewiseSpline(right)
 
     def start_state(self) -> tuple[NDArray, NDArray, NDArray]:
         """Return ``(position, velocity, acceleration)`` at the curve start.

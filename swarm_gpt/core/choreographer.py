@@ -16,6 +16,7 @@ import yaml
 
 from swarm_gpt.core.lighting import LightingTimeline, build_look, load_lighting_config
 from swarm_gpt.core.motion_primitives import _sanitize_drone_ids, primitive_by_name
+from swarm_gpt.core.blocks import constant_spline, spline_primitive_by_name
 from swarm_gpt.core.motion_primitives import motion_primitives as motion_primitives_collection
 from swarm_gpt.core.structured_output_schema import (
     KEY_PATTERN,
@@ -26,6 +27,7 @@ from swarm_gpt.core.structured_output_schema import (
     structured_payload_to_choreography,
     structured_payload_to_lighting,
 )
+from swarm_gpt.core.transitions import assemble_trajectory
 from swarm_gpt.exception import LLMFormatError, LLMPlanError, LLMResponseProcessingError
 from swarm_gpt.utils.llm_providers import (
     RESPONSES_TEMPERATURE,
@@ -44,8 +46,11 @@ if TYPE_CHECKING:
     from openai import OpenAI
 
     from swarm_gpt.core.lighting import LightingConfig, Look
+    from swarm_gpt.core.spline import PiecewiseSpline, Spline
     from swarm_gpt.utils.llm_providers import LLMProvider
     from swarm_gpt.utils.music_analyzer import SongStructure
+
+    _Curve = Spline | PiecewiseSpline
 
 logger = logging.getLogger(__name__)
 
@@ -568,7 +573,10 @@ class Choreographer:
     def response2waypoints(
         self, text: str, structure: SongStructure, strict: bool = True, t_rth: float = 3.0
     ) -> dict[str, NDArray]:
-        """Translate the LLM output into waypoints.
+        """Translate the raw-waypoint LLM output into waypoints.
+
+        Motion-primitive mode now produces continuous splines; call :meth:`response2splines`
+        instead. Spline execution (sampling for axswarm) lands in WS4.
 
         Returns "time" of shape (n_drones, T) plus "pos", "vel" and "acc" of shape (n_drones, T, 3).
         ``strict`` enables the proximity checks; ``t_rth`` is the return-to-home time.
@@ -711,13 +719,60 @@ class Choreographer:
             choreography[addr] = moves
         return choreography
 
-    def _choreo2waypoints(
-        self, choreography: dict[tuple[int, int, int], str], structure: SongStructure
-    ) -> dict[str, np.ndarray]:
-        """Translate a (seq, bar, beat)-keyed choreography into ``time``/``pos``/``vel``/``acc``.
+    def response2splines(self, text: str, structure: SongStructure) -> dict[int, list[_Curve]]:
+        """Translate the motion-primitive LLM output into per-drone spline-1 fragments.
 
-        Actions are sorted by their resolved time and renumbered 1..N as synthetic indices, which is
-        what the time-based primitive execution pipeline expects.
+        Args:
+            text: The output of the LLM, in the YAML-like form produced by the prompt.
+            structure: Hierarchical song structure used to resolve action keys to seconds.
+
+        Returns:
+            Drone id -> ordered list of block splines (spline 1), in cm. WS2 joins the
+            fragments with min-snap transitions and assembles the continuous per-drone curve.
+        """
+        logger.debug("Converting LLM output into spline-1 fragments")
+        choreo = self._response2choreo(text, structure)
+        return self._choreo2splines(choreo, structure)
+
+    def response2trajectory(
+        self, text: str, structure: SongStructure
+    ) -> dict[int, PiecewiseSpline]:
+        """Translate the LLM output into one continuous, C2 trajectory per drone.
+
+        Composes spline-1 fragments (:meth:`response2splines`) and joins them with min-snap
+        transitions (WS2): every seam is smoothed, formations land on their beat, and each
+        drone leads in from and returns to its hover home.
+
+        Args:
+            text: The output of the LLM, in the YAML-like form produced by the prompt.
+            structure: Hierarchical song structure used to resolve action keys to seconds.
+
+        Returns:
+            Drone id -> continuous C2 ``PiecewiseSpline`` (spline 1), in cm.
+        """
+        fragments_by_drone = self.response2splines(text, structure)
+        trajectories: dict[int, PiecewiseSpline] = {}
+        for drone_id, fragments in fragments_by_drone.items():
+            home = self.starting_pos[drone_id] * 100.0  # cm
+            home_state = (home, np.zeros(3), np.zeros(3))
+            trajectories[drone_id] = assemble_trajectory(fragments, home_state)
+        return trajectories
+
+    def _choreo2splines(
+        self, choreography: dict[tuple[int, int, int], str], structure: SongStructure
+    ) -> dict[int, list[_Curve]]:
+        """Translate a (seq, bar, beat)-keyed choreography into per-drone spline-1 fragments.
+
+        Resolves each hierarchical key to its absolute time via :meth:`SongStructure.time_of`,
+        sorts actions by time, parses them into blocks, and composes each block into one
+        spline per drone via the WS1 spline registry.
+
+        Args:
+            choreography: Action strings keyed by ``(seq, bar, beat)``.
+            structure: Song structure providing ``time_of`` and ``required_keys``.
+
+        Returns:
+            Drone id -> ordered list of block splines (spline 1).
         """
         required = set(structure.required_keys(self._bars_per_required))
         emitted = set(choreography)
@@ -771,8 +826,51 @@ class Choreographer:
         t_end = structure.segments[-1].end_s
         if t_end <= timestamps[-1]:
             t_end = float(timestamps[-1]) + 1.0  # guard against a zero-length final interval
-        t, pos = self._motion_primitives2time_and_pos(motion_primitives, timestamps, t_end)
-        return {"time": t, "pos": pos, "vel": np.zeros_like(pos), "acc": np.zeros_like(pos)}
+        return self._compose_blocks_to_splines(motion_primitives, timestamps, t_end)
+
+    def _compose_blocks_to_splines(
+        self, motion_primitives: dict, timestamps: NDArray, t_end: float
+    ) -> dict[int, list[_Curve]]:
+        """Compose ordered blocks into one spline-1 fragment per drone per block.
+
+        Each block plays ``[T_i, T_{i+1}]`` (the last to ``t_end``). Within a block, fns run
+        in order; ``swarm_pos``/``swarm_vel`` are threaded from each curve's real endpoint
+        state (no zeros, no finite differences). Multiple fns on one block merge by drone with
+        last-fn-wins; drones untouched by a block hold at their current position.
+
+        Args:
+            motion_primitives: ``{synth_idx: [{fn: args}, ...]}`` parsed actions.
+            timestamps: Resolved start time of each block, shape ``(n_blocks,)``.
+            t_end: End time of the final block in seconds.
+
+        Returns:
+            Drone id -> ordered list of block splines (spline 1), in cm.
+        """
+        swarm_pos = np.array(list(self.starting_pos.values())) * 100  # cm
+        swarm_vel = np.zeros_like(swarm_pos)  # drones start from hover
+        per_drone: dict[int, list[_Curve]] = {d: [] for d in range(self.num_drones)}
+        limits = {"lower": self.lim_lower, "upper": self.lim_upper}
+
+        timesteps = np.concatenate((timestamps, [t_end]))
+        blocks = self._merge_motion_primitives(motion_primitives, timesteps)
+        for block in blocks.values():
+            tstart, tend = float(block["tstart"]), float(block["tend"])
+            block_curves: dict[int, _Curve] = {}
+            for fn, args in zip(block["fn"], block["args"]):
+                curves = spline_primitive_by_name(fn)(
+                    args, swarm_pos, tstart, tend, limits, swarm_vel
+                )
+                for d, curve in curves.items():
+                    block_curves[d] = curve  # last-fn-wins on overlap
+                    pos, vel, _ = curve.end_state()
+                    swarm_pos[d], swarm_vel[d] = pos, vel
+            # Drones untouched this block hold at their current position (velocity -> 0).
+            for d in range(self.num_drones):
+                if d not in block_curves:
+                    block_curves[d] = constant_spline(swarm_pos[d], tstart, tend)
+                    swarm_vel[d] = 0.0
+                per_drone[d].append(block_curves[d])
+        return per_drone
 
     def _raw_response2waypoints(
         self, text: str, timestamps: NDArray, structure: SongStructure | None = None

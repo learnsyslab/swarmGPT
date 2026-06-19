@@ -115,8 +115,6 @@ user_initial: |
       time_to_finish_s: seconds to arrive in the star; same guidance as form_circle.
   - form_cone(delta_height 30-80, spacing 40-80, is_inverted 0|1, time_to_finish_s)
       time_to_finish_s: seconds to arrive in the cone; same guidance as form_circle.
-  - swap(id1, id2)
-  - move(x_cm, y_cm, z_cm, drone_id) — absolute position for one drone
 
   Multi-step (plays out across the interval; pick steps in [2, 3]):
   - spiral(steps, height_cm)

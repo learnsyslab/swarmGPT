@@ -13,15 +13,12 @@ from scipy.spatial.transform import Rotation as R
 from swarm_gpt.exception import LLMFormatError
 
 motion_primitives = {
-    "move": {"n_args": 4},
     "rotate": {"n_args": 2},
     "center": {"n_args": 1},
-    "swap": {"n_args": 2},
     "move_z": {"n_args": 2},
     "spiral": {"n_args": 2},
     "spiral_speed": {"n_args": 4},
     "helix": {"n_args": 3},
-    "plan": {"n_args": 1},
     "form_circle": {"n_args": 4},
     "zig_zag": {"n_args": 3},
     "wave": {"n_args": 2},
@@ -490,24 +487,6 @@ def form_circle(
     return pos, waypoints
 
 
-def swap(
-    params: tuple[int, int],
-    swarm_pos: NDArray,
-    tstart: float,
-    tend: float,
-    limits: dict[str, NDArray],
-    swarm_vel: NDArray | None = None,
-) -> tuple[NDArray, dict[float, dict[int, NDArray]]]:
-    """Swap the positions of two drones."""
-    drone1_id, drone2_id = params
-    drone1_id, drone2_id = drone1_id - 1, drone2_id - 1
-    waypoints = {}
-    pos = swarm_pos.copy()
-    waypoints[tend] = {drone1_id: pos[drone2_id].copy(), drone2_id: pos[drone1_id].copy()}
-    pos[drone1_id], pos[drone2_id] = pos[drone2_id].copy(), pos[drone1_id].copy()
-    return pos, waypoints
-
-
 def move_z(
     params: tuple[str | list[int], int],
     swarm_pos: NDArray,
@@ -529,21 +508,6 @@ def move_z(
         waypoints[t] = {i: swarm_pos[i].copy() for i in drone_ids}
 
     return swarm_pos, waypoints
-
-
-def move(
-    params: tuple[float, float, float, int],
-    swarm_pos: NDArray,
-    tstart: float,
-    tend: float,
-    limits: dict[str, NDArray],
-    swarm_vel: NDArray | None = None,
-) -> tuple[NDArray, dict[float, dict[int, NDArray]]]:
-    """Translate move function to waypoints."""
-    x, y, z, drone_id = params
-    drone_id = drone_id - 1
-    swarm_pos[drone_id] = np.array([x, y, z])
-    return swarm_pos, {tend: {drone_id: np.array([x, y, z])}}
 
 
 def _form_grid(
@@ -677,34 +641,51 @@ _MPC_HORIZON_S = 5.0
 _MINSNAP_A = 30240.0
 _MINSNAP_B = 7680.0
 _MINSNAP_C = -15120.0
+# Cross-term for non-zero target velocity (v0*vf). With v_f=0 the cost reduces to the
+# original three-constant form; see tests/unit/test_motion_primitives for the derivation.
+_MINSNAP_E = 14880.0
 
 
-def _minsnap_cost_matrix(pos: NDArray, des_pos: NDArray, vel: NDArray, T: float) -> NDArray:
+def _minsnap_cost_matrix(
+    pos: NDArray, des_pos: NDArray, vel: NDArray, T: float, target_vel: NDArray | None = None
+) -> NDArray:
     """Compute the per-pair minimum-snap trajectory cost matrix in closed form.
 
-    For each (drone i, target j) pair this is the exact minimum snap integral of
-    a two-waypoint trajectory from drone i's position and velocity to target j
-    with zero final velocity and acceleration, over a shared horizon T. Using a
-    common T makes costs directly comparable across pairs so the Hungarian
-    algorithm can rank them correctly.
+    For each (drone i, target j) pair this is the exact minimum-snap integral of a
+    two-waypoint trajectory from drone i's position and velocity to target j, over a shared
+    horizon T (zero acceleration at both ends). When ``target_vel`` is given, the target
+    velocity ``v_f`` is the velocity the drone should arrive with (e.g. tangential entry into a
+    rotating primitive); otherwise it is zero (arrival into a static hold). Using a common T
+    makes costs directly comparable across pairs so the Hungarian algorithm can rank them.
 
     Args:
         pos: Current drone positions in cm, shape (n, 3).
         des_pos: Desired target positions in cm, shape (m, 3).
         vel: Current drone velocities in cm/s, shape (n, 3).
         T: Shared time horizon in seconds for all pairs.
+        target_vel: Per-target arrival velocities in cm/s, shape (m, 3). ``None`` means zero.
 
     Returns:
         Cost matrix of shape (n, m).
     """
     d = des_pos[None, :, :] / 100.0 - pos[:, None, :] / 100.0  # (n, m, 3), meters
-    v = vel[:, None, :] / 100.0  # (n, 1, 3), m/s
-    cost = _MINSNAP_A * d**2 / T**7 + 2.0 * _MINSNAP_C * d * v / T**6 + _MINSNAP_B * v**2 / T**5
+    v0 = vel[:, None, :] / 100.0  # (n, 1, 3), m/s
+    vf = (np.zeros_like(des_pos) if target_vel is None else target_vel)[None, :, :] / 100.0
+    cost = (
+        _MINSNAP_A * d**2 / T**7
+        + 2.0 * _MINSNAP_C * d * (v0 + vf) / T**6
+        + _MINSNAP_B * (v0**2 + vf**2) / T**5
+        + _MINSNAP_E * v0 * vf / T**5
+    )
     return cost.sum(axis=-1)
 
 
 def _assign_positions(
-    pos: NDArray, des_pos: NDArray, swarm_vel: NDArray | None = None, T: float | None = None
+    pos: NDArray,
+    des_pos: NDArray,
+    swarm_vel: NDArray | None = None,
+    T: float | None = None,
+    target_vel: NDArray | None = None,
 ) -> NDArray:
     """Assign drones to the closest desired positions.
 
@@ -718,12 +699,14 @@ def _assign_positions(
             provided together with ``T``, per-pair minimum-snap cost is used.
         T: Shared time horizon in seconds. Required when ``swarm_vel`` is
             provided. Determines how long each drone has to reach its target.
+        target_vel: Per-target arrival velocities in cm/s, shape (m, 3). When the targets are
+            the start of a moving primitive, this penalises arriving with the wrong velocity.
 
     Returns:
         The assigned target indices as a numpy array of shape (n,).
     """
     if swarm_vel is not None and T is not None:
-        cost = _minsnap_cost_matrix(pos, des_pos, swarm_vel, T)
+        cost = _minsnap_cost_matrix(pos, des_pos, swarm_vel, T, target_vel=target_vel)
     else:
         cost = np.linalg.norm(pos[:, None, :] - des_pos[None, :, :], axis=-1)
     return linear_sum_assignment(cost)[1]

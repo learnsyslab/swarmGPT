@@ -160,6 +160,41 @@ def _assign(
     return homes[_assign_positions(swarm_pos[ids], homes, swarm_vel=v, T=t)]
 
 
+def _assign_to_motion(
+    swarm_pos: NDArray,
+    swarm_vel: NDArray | None,
+    layout: NDArray,
+    ids: list[int],
+    t0: float,
+    t1: float,
+    build: Callable[[NDArray], SplineDict],
+) -> SplineDict:
+    """Assign drones to moving-primitive slots, accounting for each slot's arrival velocity.
+
+    The motion ``build`` is evaluated once on the geometric ``layout`` (slot order), giving each
+    slot's curve and its start velocity ``v_f``. Drones are then assigned to slots with a
+    velocity-aware min-snap cost that includes ``v_f`` (so a drone already moving toward a slot's
+    motion is cheaper to place there), and each drone receives its assigned slot's curve.
+
+    Args:
+        swarm_pos: Current swarm positions in cm, shape ``(n, 3)``.
+        swarm_vel: Current per-drone velocities in cm/s, or ``None``.
+        layout: Slot start positions in cm, shape ``(m, 3)``.
+        ids: Drone ids to assign (rows of ``swarm_pos``).
+        t0: Block start time in seconds.
+        t1: Block end time in seconds.
+        build: Builds the per-slot motion curves from start positions; returns ``{row: curve}``.
+
+    Returns:
+        Drone id -> assigned motion curve.
+    """
+    slot_curves = build(layout)
+    vf = np.array([np.asarray(slot_curves[j].start_state()[1]) for j in range(len(layout))])
+    v0 = swarm_vel[ids] if swarm_vel is not None else None
+    perm = _assign_positions(swarm_pos[ids], layout, swarm_vel=v0, T=t1 - t0, target_vel=vf)
+    return {ids[i]: slot_curves[int(perm[i])] for i in range(len(ids))}
+
+
 def form_circle(params, swarm_pos, tstart, tend, limits, swarm_vel=None):  # noqa: ANN001, ANN201
     """Ring formation held on a circle of the given radius/height."""
     drone_ids, radius_cm, z_cm, _t = params
@@ -374,47 +409,45 @@ def spiral(
     n = swarm_pos.shape[0]
     r0 = _ring_radius_floor(60.0, n)
     r1 = min(growth * r0, limits["upper"][0] * 100)
-    homes = _assign(
-        swarm_pos, formations.ring(n, r0, float(height)), list(range(n)), swarm_vel, tend - tstart
-    )
-    arcs = _rotating_arcs(
-        homes, np.array([0.0, 0.0, height]), np.deg2rad(degrees), tstart, tend, "xy"
-    )
-    return _scale_in_plane(arcs, np.array([0.0, 0.0]), linear_scale(1.0, r1 / r0, tstart, tend))
+    layout = formations.ring(n, r0, float(height))
+
+    def build(pos: NDArray) -> SplineDict:
+        arcs = _rotating_arcs(
+            pos, np.array([0.0, 0.0, height]), np.deg2rad(degrees), tstart, tend, "xy"
+        )
+        return _scale_in_plane(arcs, np.array([0.0, 0.0]), linear_scale(1.0, r1 / r0, tstart, tend))
+
+    return _assign_to_motion(swarm_pos, swarm_vel, layout, list(range(n)), tstart, tend, build)
 
 
 def helix(params, swarm_pos, tstart, tend, limits, swarm_vel=None):  # noqa: ANN001, ANN201
     """Ring rotating about z while rising in z (arc(x,y) + z-ramp)."""
     _steps, delta_h, height = params
     n = swarm_pos.shape[0]
-    homes = _assign(
-        swarm_pos,
-        formations.ring(n, _ring_radius_floor(60.0, n), float(height)),
-        list(range(n)),
-        swarm_vel,
-        tend - tstart,
-    )
-    arcs = _rotating_arcs(homes, np.array([0.0, 0.0, height]), 2 * np.pi, tstart, tend, "xy")
-    return _add_translation(
-        arcs, linear_translate(np.zeros(3), np.array([0.0, 0.0, float(delta_h)]), tstart, tend)
-    )
+    layout = formations.ring(n, _ring_radius_floor(60.0, n), float(height))
+
+    def build(pos: NDArray) -> SplineDict:
+        arcs = _rotating_arcs(pos, np.array([0.0, 0.0, height]), 2 * np.pi, tstart, tend, "xy")
+        return _add_translation(
+            arcs, linear_translate(np.zeros(3), np.array([0.0, 0.0, float(delta_h)]), tstart, tend)
+        )
+
+    return _assign_to_motion(swarm_pos, swarm_vel, layout, list(range(n)), tstart, tend, build)
 
 
 def twister(params, swarm_pos, tstart, tend, limits, swarm_vel=None):  # noqa: ANN001, ANN201
     """Spinning skewed-helix layout, rotating about z by ``omega``."""
     _steps, omega, z_spacing = params
     n = swarm_pos.shape[0]
-    homes = _assign(
-        swarm_pos,
-        formations.helix_static(
-            n, min(400.0, limits["upper"][0] * 100), 100 * limits["lower"][2], float(z_spacing), 2.0
-        ),
-        list(range(n)),
-        swarm_vel,
-        tend - tstart,
+    layout = formations.helix_static(
+        n, min(400.0, limits["upper"][0] * 100), 100 * limits["lower"][2], float(z_spacing), 2.0
     )
     dphi = min(omega / 10.0, 2.0) * (tend - tstart)
-    return _rotating_arcs(homes, np.array([0.0, 0.0, homes[:, 2].mean()]), dphi, tstart, tend, "xy")
+
+    def build(pos: NDArray) -> SplineDict:
+        return _rotating_arcs(pos, np.array([0.0, 0.0, pos[:, 2].mean()]), dphi, tstart, tend, "xy")
+
+    return _assign_to_motion(swarm_pos, swarm_vel, layout, list(range(n)), tstart, tend, build)
 
 
 def orbit(params, swarm_pos, tstart, tend, limits, swarm_vel=None):  # noqa: ANN001, ANN201
@@ -451,6 +484,27 @@ def move_z(params, swarm_pos, tstart, tend, limits, swarm_vel=None):  # noqa: AN
             swarm_pos[d], swarm_pos[d] + np.array([0.0, 0.0, float(distance)]), tstart, tend
         )
         for d in ids
+    }
+
+
+def move(params, swarm_pos, tstart, tend, limits, swarm_vel=None):  # noqa: ANN001, ANN201
+    """Translate one drone to an absolute position ``(x, y, z)`` cm over the block.
+
+    ``drone_id`` is 1-indexed (the LLM-facing convention).
+    """
+    x, y, z, drone_id = params
+    d = int(drone_id) - 1
+    return {
+        d: linear_translate(swarm_pos[d], np.array([float(x), float(y), float(z)]), tstart, tend)
+    }
+
+
+def swap(params, swarm_pos, tstart, tend, limits, swarm_vel=None):  # noqa: ANN001, ANN201
+    """Exchange the positions of two drones over the block (ids are 1-indexed)."""
+    a, b = int(params[0]) - 1, int(params[1]) - 1
+    return {
+        a: linear_translate(swarm_pos[a], swarm_pos[b], tstart, tend),
+        b: linear_translate(swarm_pos[b], swarm_pos[a], tstart, tend),
     }
 
 
@@ -494,12 +548,14 @@ def zig_zag(params, swarm_pos, tstart, tend, limits, swarm_vel=None):  # noqa: A
     steps, delta, delta_h = params
     n = swarm_pos.shape[0]
     c = np.mean(swarm_pos, axis=0)
-    homes = _assign(
-        swarm_pos, formations.grid(n, 50.0, c[2], c[:2]), list(range(n)), swarm_vel, tend - tstart
-    )
+    layout = formations.grid(n, 50.0, c[2], c[:2])
     dxy = np.array([abs(delta), abs(delta), 0.0])
     dz = np.array([0.0, 0.0, float(delta_h)])
-    return {i: zigzag_translate(homes[i], int(steps), dxy, dz, tstart, tend) for i in range(n)}
+
+    def build(pos: NDArray) -> SplineDict:
+        return {i: zigzag_translate(pos[i], int(steps), dxy, dz, tstart, tend) for i in range(n)}
+
+    return _assign_to_motion(swarm_pos, swarm_vel, layout, list(range(n)), tstart, tend, build)
 
 
 def _field_block(
@@ -536,18 +592,16 @@ def wave(params, swarm_pos, tstart, tend, limits, swarm_vel=None):  # noqa: ANN0
     _steps, height = params
     n = swarm_pos.shape[0]
     c = np.mean(swarm_pos, axis=0)
-    homes = _assign(
-        swarm_pos,
-        formations.grid(n, 50.0, max(float(height), 150.0), c[:2]),
-        list(range(n)),
-        swarm_vel,
-        tend - tstart,
-    )
-    span = float(np.ptp(homes[:, 0])) or 1.0
-    spatial = np.sin(np.pi * (homes[:, 0] - homes[:, 0].min()) / span)
-    amp = np.zeros((n, 3))
-    amp[:, 2] = 25.0 * spatial
-    return _field_block(homes, list(range(n)), amp, np.zeros(n), 1, tstart, tend)
+    layout = formations.grid(n, 50.0, max(float(height), 150.0), c[:2])
+
+    def build(pos: NDArray) -> SplineDict:
+        span = float(np.ptp(pos[:, 0])) or 1.0
+        spatial = np.sin(np.pi * (pos[:, 0] - pos[:, 0].min()) / span)
+        amp = np.zeros((n, 3))
+        amp[:, 2] = 25.0 * spatial
+        return _field_block(pos, list(range(n)), amp, np.zeros(n), 1, tstart, tend)
+
+    return _assign_to_motion(swarm_pos, swarm_vel, layout, list(range(n)), tstart, tend, build)
 
 
 def ripple(params, swarm_pos, tstart, tend, limits, swarm_vel=None):  # noqa: ANN001, ANN201
@@ -635,6 +689,8 @@ SPLINE_PRIMITIVES: dict[str, Callable[..., SplineDict]] = {
     "orbit": orbit,
     "tumble": tumble,
     "move_z": move_z,
+    "move": move,
+    "swap": swap,
     "zig_zag": zig_zag,
     "translate": translate,
     "scale": scale,

@@ -17,6 +17,7 @@ from swarm_gpt.core.blocks import (
     helix,
     helix_form,
     line_form,
+    move,
     move_z,
     orbit,
     polygon_form,
@@ -27,6 +28,7 @@ from swarm_gpt.core.blocks import (
     shear,
     spiral,
     spline_primitive_by_name,
+    swap,
     translate,
     traveling_wave,
     tumble,
@@ -243,6 +245,28 @@ def test_twist_keeps_radius_per_drone():
         )
 
 
+# --- move / swap (LLM-allowed targets, ported for choreographer dispatch) -------------
+
+
+def test_move_translates_target_drone_to_position():
+    swarm = np.array([[0.0, 0.0, 100.0], [50.0, 0.0, 100.0]])
+    out = move((30.0, 40.0, 120.0, 1), swarm, 0.0, 2.0, {})  # drone_id 1 -> index 0
+    assert set(out) == {0}
+    np.testing.assert_allclose(out[0].evaluate(0.0), [0.0, 0.0, 100.0])
+    np.testing.assert_allclose(out[0].evaluate(2.0), [30.0, 40.0, 120.0])
+    assert np.any(np.abs(out[0].end_state()[1]) > 1e-6)  # real boundary velocity
+
+
+def test_swap_exchanges_two_drone_positions():
+    swarm = np.array([[0.0, 0.0, 100.0], [50.0, 0.0, 100.0], [99.0, 99.0, 99.0]])
+    out = swap((1, 2), swarm, 0.0, 2.0, {})  # drone ids 1,2 -> indices 0,1
+    assert set(out) == {0, 1}
+    np.testing.assert_allclose(out[0].evaluate(0.0), swarm[0])
+    np.testing.assert_allclose(out[0].evaluate(2.0), swarm[1])
+    np.testing.assert_allclose(out[1].evaluate(0.0), swarm[1])
+    np.testing.assert_allclose(out[1].evaluate(2.0), swarm[0])
+
+
 # --- Task 10: registry + dispatch ----------------------------------------------------
 
 
@@ -265,6 +289,8 @@ def test_registry_covers_the_full_set():
         "orbit",
         "tumble",
         "move_z",
+        "move",
+        "swap",
         "zig_zag",
         "translate",
         "scale",

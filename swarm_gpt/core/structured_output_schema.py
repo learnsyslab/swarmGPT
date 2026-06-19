@@ -280,10 +280,8 @@ def build_motion_primitive_response_schema(
 
 
 _PRIMITIVE_ARG_ORDER: dict[str, list[str]] = {
-    "move": ["x_cm", "y_cm", "z_cm", "drone_id"],
     "rotate": ["angle_deg", "axis"],
     "center": ["drone_ids"],
-    "swap": ["drone_id_1", "drone_id_2"],
     "move_z": ["drone_ids", "delta_cm"],
     "spiral": ["steps", "height_cm"],
     "spiral_speed": ["steps", "height_cm", "degrees", "radius_increase"],
