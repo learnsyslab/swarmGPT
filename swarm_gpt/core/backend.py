@@ -29,15 +29,6 @@ logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
-colors = [
-    [1.0, 0.0, 0.0],
-    [0.0, 1.0, 0.0],
-    [0.0, 0.0, 1.0],
-    [1.0, 0.7, 0.0],
-    [1.0, 0.0, 1.0],
-    [0.0, 1.0, 0.5],
-]
-
 P = ParamSpec("P")  # Represents arbitrary parameters
 R = TypeVar("R")  # Represents the return type
 

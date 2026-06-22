@@ -26,7 +26,10 @@ def virtual_crazyswarm_config(n_drones: int) -> Path:
     active_line = "active = [" + ", ".join(f'"{n}"' for n in names) + "]\n\n"
     drone_entries = ""
     for i, (name, pos) in enumerate(zip(names, positions)):
-        drone_entries += f"[{name}]\naddr = {i}\npos = {pos.astype(float).tolist()}\n\n"
+        channel = (i // 10) * 10
+        drone_entries += (
+            f"[{name}]\naddr = {i}\nchannel = {channel}\npos = {pos.astype(float).tolist()}\n\n"
+        )
 
     tmp_dir = Path("/tmp/swarm_gpt_test")
     tmp_dir.mkdir(exist_ok=True)

@@ -195,10 +195,10 @@ class DroneSwarm:
             color_bot: Bottom deck color cues in the form {uri: {time: wrgb}}.
         """
         self._validate_required_uris("choreography", choreography)
-        if color_top.empty() and color_bot.empty():
+        if not color_top and not color_bot:
             logger.warning("No colors provided for choreography.")
-        self._validate_known_uris("color_top", color_top.keys())
-        self._validate_known_uris("color_bot", color_bot.keys())
+        self._validate_known_uris("color_top", color_top)
+        self._validate_known_uris("color_bot", color_bot)
 
         async def _execute(uri: str) -> None:
             await self._change_commander_level(uri, "low")

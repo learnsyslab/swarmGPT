@@ -257,8 +257,8 @@ class Choreographer:
 
         The configuration file is a TOML file containing an ``active`` list of
         cf-names and one ``[cfXX]`` table per drone with ``addr`` (last radio
-        address byte) and ``pos`` (initial xyz position). URI and channel are
-        derived at load time; they are not stored in the file.
+        address byte), ``channel`` (radio channel), and ``pos`` (initial xyz
+        position). The URI is derived at load time; it is not stored in the file.
 
         Args:
             config_file: Path to the TOML config file. Defaults to
@@ -288,7 +288,7 @@ class Choreographer:
         for i, name in enumerate(active):
             entry = registry[name]
             addr: int = entry["addr"]
-            channel: int = (addr // 10) * 10
+            channel: int = entry["channel"]
             uri: str = uri_base.format(channel=channel, addr=addr)
             self.agents[i] = i
             self.starting_pos[i] = np.array(entry["pos"])

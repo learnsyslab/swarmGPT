@@ -28,11 +28,7 @@ logger = logging.getLogger(__name__)
 try:
     import allin1
 except ImportError as e:
-    allin1 = None
-    _ALLIN1_IMPORT_ERROR = e
     logger.error(f"{e} - please use the music env to analyze songs")
-else:
-    _ALLIN1_IMPORT_ERROR = None
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -557,10 +553,6 @@ def save_visualization(result: Any, viz_dir: Path, stem: str) -> Path:
     Returns:
         Path to the written PNG.
     """
-    if allin1 is None:
-        raise ImportError("allin1 is required to analyze songs; please use the music env") from (
-            _ALLIN1_IMPORT_ERROR
-        )
     fig = allin1.visualize(result, out_dir=None, multiprocess=False)
     viz_dir.mkdir(parents=True, exist_ok=True)
     out_path = viz_dir / f"{stem}.png"
@@ -591,10 +583,6 @@ def analyze_song(
     if cache_path.exists():
         return SongStructure.from_json(cache_path)
 
-    if allin1 is None:
-        raise ImportError("allin1 is required to analyze songs; please use the music env") from (
-            _ALLIN1_IMPORT_ERROR
-        )
     result = allin1.analyze(str(mp3_path), device=device)
     if isinstance(result, list):
         result = result[0]

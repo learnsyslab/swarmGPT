@@ -115,12 +115,12 @@ def test_form_star_hold_pruning_in_pipeline():
 
 
 def test_load_drone_config_uses_active_list(tmp_path: Path) -> None:
-    """Loader must respect active list order and derive uri from addr."""
+    """Loader must respect active list order and build uri from addr and channel."""
     cfg = tmp_path / "drones.toml"
     cfg.write_text(
         'active = ["cf41", "cf31"]\n'
-        "[cf31]\naddr = 0x1F\npos = [0.0, 0.0, 0.0]\n"
-        "[cf41]\naddr = 0x29\npos = [1.0, 0.0, 0.0]\n"
+        "[cf31]\naddr = 0x1F\nchannel = 30\npos = [0.0, 0.0, 0.0]\n"
+        "[cf41]\naddr = 0x29\nchannel = 40\npos = [1.0, 0.0, 0.0]\n"
     )
     import yaml
 
