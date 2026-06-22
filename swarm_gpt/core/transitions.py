@@ -1,8 +1,8 @@
 """Min-snap transition generation and trajectory assembly (WS2).
 
 Joins WS1's per-drone spline-1 fragments into one continuous, C2 ``PiecewiseSpline`` per
-drone. A degree-8 min-snap Bezier smooths every seam; each transition's duration is borrowed
-from the tail of the preceding fragment so formations land on their beat.
+drone. A degree-8 min-snap Bezier fills the explicit gap each ``TRANSITION`` marker leaves
+between consecutive fragments; the lead-in from and return-to hover are added automatically.
 """
 
 from __future__ import annotations
@@ -135,51 +135,51 @@ def _segments(curve: _Curve) -> list[Spline]:
 def assemble_trajectory(fragments: list[_Curve], home_state: State) -> PiecewiseSpline:
     """Join per-drone spline-1 fragments into one continuous, C2 trajectory.
 
-    Every seam is smoothed by a min-snap transition whose duration is borrowed from the tail of
-    the preceding fragment (so formations land on their beat). The first transition borrows from
-    the head of fragment 0 (nothing precedes it), leading in from ``home_state``; a
-    return-to-home transition is appended after the last fragment.
+    The fragments are non-contiguous: an explicit ``TRANSITION`` marker upstream leaves a real
+    time gap ``[prev.t1, frag.t0]`` between every consecutive pair. Each gap is filled by one
+    min-snap transition connecting ``prev.end_state()`` to ``frag.start_state()`` over that
+    window. The lead-in from hover stays automatic: a ``delta`` is carved from the head of
+    fragment 0 (nothing precedes it) and a min-snap transition leads in from ``home_state``; a
+    return-to-home transition is appended after the last fragment. Lead-in and return use
+    :func:`_transition_duration`.
 
     Args:
-        fragments: Ordered, time-contiguous spline-1 fragments for one drone (cm).
+        fragments: Ordered, non-contiguous spline-1 fragments for one drone (cm). Consecutive
+            fragments must have a gap (an explicit ``TRANSITION`` window) between them.
         home_state: The drone's hover state ``(home, 0, 0)`` to lead in from and return to.
 
     Returns:
         One continuous C2 ``PiecewiseSpline`` over ``[fragments[0].t0, last.t1 + return]``.
 
     Raises:
-        ValueError: If ``fragments`` is empty.
+        ValueError: If ``fragments`` is empty, or if consecutive fragments are contiguous
+            (``frag.t0 <= prev.t1``), which means an upstream ``TRANSITION`` is missing.
     """
     if not fragments:
         raise ValueError("assemble_trajectory needs at least one fragment")
     home_pos = np.asarray(home_state[0], dtype=float)
 
     out: list[Spline] = []
-    # First fragment: lead in from hover, borrowing from its head.
+    # First fragment: lead in from hover, carving delta from its head.
     first = fragments[0]
     delta = min(_transition_duration(first.start_state()[0] - home_pos), 0.9 * first.duration)
     kept = first.subdivide(first.t0 + delta)[1]
     out += _segments(transition_spline(home_state, kept.start_state(), first.t0, first.t0 + delta))
-    pending = kept
+    prev = kept
 
     for frag in fragments[1:]:
-        # Borrow delta from the pending fragment's tail; transition into frag.
-        delta = min(
-            _transition_duration(frag.start_state()[0] - pending.end_state()[0]),
-            0.9 * pending.duration,
-        )
-        cut = pending.t1 - delta
-        kept_prev = pending.subdivide(cut)[0]
-        out += _segments(kept_prev)
-        out += _segments(
-            transition_spline(kept_prev.end_state(), frag.start_state(), cut, pending.t1)
-        )
-        pending = frag
+        # The gap [prev.t1, frag.t0] is the explicit transition window.
+        if frag.t0 <= prev.t1:
+            raise ValueError(
+                f"fragments are contiguous over [{prev.t1}, {frag.t0}]: a TRANSITION must "
+                "separate consecutive primitives so a transition window exists between them"
+            )
+        out += _segments(prev)
+        out += _segments(transition_spline(prev.end_state(), frag.start_state(), prev.t1, frag.t0))
+        prev = frag
 
-    out += _segments(pending)
+    out += _segments(prev)
     # Return to hover after the last fragment (appended; nothing follows it).
-    ret_delta = _transition_duration(home_pos - pending.end_state()[0])
-    out += _segments(
-        transition_spline(pending.end_state(), home_state, pending.t1, pending.t1 + ret_delta)
-    )
+    ret_delta = _transition_duration(home_pos - prev.end_state()[0])
+    out += _segments(transition_spline(prev.end_state(), home_state, prev.t1, prev.t1 + ret_delta))
     return PiecewiseSpline(out)

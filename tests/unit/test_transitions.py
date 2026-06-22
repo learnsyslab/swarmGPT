@@ -49,11 +49,20 @@ def test_transition_rejects_empty_interval():
 
 
 def test_assembly_is_contiguous_and_c2_for_formations():
-    fragments = [_hold([100.0, 0.0, 100.0], 0.0, 3.0), _hold([0.0, 150.0, 120.0], 3.0, 6.0)]
+    # Consecutive fragments have a gap [3, 4] that is the explicit transition window.
+    fragments = [_hold([100.0, 0.0, 100.0], 0.0, 3.0), _hold([0.0, 150.0, 120.0], 4.0, 6.0)]
     home = (np.array([0.0, 0.0, 100.0]), np.zeros(3), np.zeros(3))
     traj = assemble_trajectory(fragments, home)
     assert isinstance(traj, PiecewiseSpline)
     _assert_continuous(traj, order=2)
+
+
+def test_assembly_rejects_contiguous_fragments_missing_transition():
+    # Gapless fragments mean an upstream TRANSITION is missing; assembly must reject them.
+    fragments = [_hold([100.0, 0.0, 100.0], 0.0, 3.0), _hold([0.0, 150.0, 120.0], 3.0, 6.0)]
+    home = (np.array([0.0, 0.0, 100.0]), np.zeros(3), np.zeros(3))
+    with pytest.raises(ValueError, match="TRANSITION must"):
+        assemble_trajectory(fragments, home)
 
 
 def test_assembly_leads_in_from_home_and_returns_home():

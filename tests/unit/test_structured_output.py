@@ -157,6 +157,35 @@ def test_structured_payload_to_choreography_uses_hierarchical_keys():
     }
 
 
+def test_schema_action_anyof_includes_transition_variant():
+    schema = build_motion_primitive_response_schema(
+        all_keys=[(1, 1, 1)], required_keys=[(1, 1, 1)], num_drones=5
+    )
+    variants = schema["$defs"]["action"]["anyOf"]
+    transition_variant = next(
+        v for v in variants if v["properties"]["primitive"]["enum"] == ["TRANSITION"]
+    )
+    assert transition_variant["properties"]["params"]["properties"] == {}
+    assert transition_variant["properties"]["params"]["required"] == []
+    assert transition_variant["properties"]["params"]["additionalProperties"] is False
+
+
+def test_structured_payload_to_choreography_renders_transition_token():
+    config_path = virtual_crazyswarm_config(n_drones=4)
+    choreographer = Choreographer(
+        config_file=config_path, llm_provider="openai", use_motion_primitives=True
+    )
+    payload = {
+        "song_mood": "calm",
+        "choreography_plan": "simple",
+        "choreography": [{"key": "s1b1t4", "actions": [{"primitive": "TRANSITION", "params": {}}]}],
+    }
+
+    choreography = choreographer._structured_payload_to_choreography(payload)
+
+    assert choreography == {(1, 1, 4): "TRANSITION"}
+
+
 def test_structured_payload_to_choreography_rejects_unexpected_named_params():
     config_path = virtual_crazyswarm_config(n_drones=4)
     choreographer = Choreographer(

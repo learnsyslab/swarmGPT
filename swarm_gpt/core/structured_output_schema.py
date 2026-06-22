@@ -133,11 +133,29 @@ def _action_variant_schema(primitive: str, num_drones: int) -> dict[str, Any]:
     }
 
 
+def _transition_variant_schema() -> dict[str, Any]:
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "primitive": {"type": "string", "enum": ["TRANSITION"]},
+            "params": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {},
+                "required": [],
+            },
+        },
+        "required": ["primitive", "params"],
+    }
+
+
 def _action_schema(num_drones: int) -> dict[str, Any]:
     return {
         "anyOf": [
             _action_variant_schema(primitive, num_drones) for primitive in _PRIMITIVE_ARG_ORDER
         ]
+        + [_transition_variant_schema()]
     }
 
 
@@ -349,6 +367,8 @@ def action_to_motion_primitive(action: dict[str, Any]) -> str:
             f"Structured choreography action must be an object, got {type(action).__name__}"
         )
     primitive = action.get("primitive")
+    if primitive == "TRANSITION":
+        return "TRANSITION"
     if primitive not in _PRIMITIVE_ARG_ORDER:
         raise LLMFormatError(f"Unknown motion primitive '{primitive}' in structured output")
     ordered_arg_names = _PRIMITIVE_ARG_ORDER[primitive]
