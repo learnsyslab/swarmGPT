@@ -1,24 +1,49 @@
 [cf0]
-name = "cf31"
-uri = "radio://0/73/2M/ABAD1DEA11"
-pos = [0.0, 0.0, 0.0]
+name = "cf11"
+uri = "radio://0/10/2M/E7E7E7E70B"
+pos = [1.5, -1.0, 0.0]
 
 [cf1]
-name = "cf32"
-uri = "radio://0/73/2M/ABAD1DEA13"
-pos = [0.94, 0.54, 0.0]
+name = "cf12"
+uri = "radio://0/10/2M/E7E7E7E70C"
+pos = [0.75, -1.0, 0.0]
 
 [cf2]
-name = "cf33"
-uri = "radio://0/73/2M/ABAD1DEA12"
-pos = [0.9, -0.3, 0.0]
+name = "cf13"
+uri = "radio://0/10/2M/E7E7E7E70D"
+pos = [0.0, -1.0, 0.0]
 
 [cf3]
-name = "cf34"
-uri = "radio://0/73/2M/ABAD1DEA14"
-pos = [-0.87, 0.55, 0.0]
+name = "cf14"
+uri = "radio://0/10/2M/E7E7E7E70E"
+pos = [-0.75, -1.0, 0.0]
 
 [cf4]
-name = "cf35"
-uri = "radio://0/73/2M/ABAD1DEA15"
-pos = [-0.83, -0.5, 0.0]
+name = "cf15"
+uri = "radio://0/10/2M/E7E7E7E70F"
+pos = [-1.5, -1.0, 0.0]
+
+[cf5]
+name = "cf21"
+uri = "radio://1/20/2M/E7E7E7E715"
+pos = [1.5, 1.0, 0.0]
+
+[cf6]
+name = "cf22"
+uri = "radio://1/20/2M/E7E7E7E716"
+pos = [0.75, 1.0, 0.0]
+
+[cf7]
+name = "cf23"
+uri = "radio://1/20/2M/E7E7E7E717"
+pos = [0.0, 1.0, 0.0]
+
+[cf8]
+name = "cf24"
+uri = "radio://1/20/2M/E7E7E7E718"
+pos = [-0.75, 1.0, 0.0]
+
+[cf9]
+name = "cf25"
+uri = "radio://1/20/2M/E7E7E7E719"
+pos = [-1.5, 1.0, 0.0]
