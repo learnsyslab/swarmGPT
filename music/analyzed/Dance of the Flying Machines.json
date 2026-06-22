@@ -1,0 +1,415 @@
+{
+  "schema_version": 2,
+  "source_path": "music/songs/Dance of the Flying Machines.mp3",
+  "song_sha256": "e85f0baed9e9740509927214dd5783070828d1c7fe630ea070db9eaf87069086",
+  "analyzer": "allin1@unknown",
+  "bpm": 113,
+  "segments": [
+    {
+      "id": 1,
+      "label": "intro",
+      "start_s": 0.0,
+      "end_s": 20.01,
+      "bars": [
+        {
+          "id": 1,
+          "start_s": 0.36,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 0.36,
+              "position_in_bar": 4
+            }
+          ]
+        },
+        {
+          "id": 2,
+          "start_s": 0.89,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 0.89,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 1.42,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 1.95,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 2.49,
+              "position_in_bar": 4
+            }
+          ]
+        },
+        {
+          "id": 3,
+          "start_s": 3.02,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 3.02,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 3.55,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 4.08,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 4.61,
+              "position_in_bar": 4
+            }
+          ]
+        },
+        {
+          "id": 4,
+          "start_s": 5.14,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 5.14,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 5.67,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 6.2,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 6.73,
+              "position_in_bar": 4
+            }
+          ]
+        },
+        {
+          "id": 5,
+          "start_s": 7.27,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 7.27,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 7.8,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 8.33,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 8.86,
+              "position_in_bar": 4
+            }
+          ]
+        },
+        {
+          "id": 6,
+          "start_s": 9.39,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 9.39,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 9.92,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 10.45,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 10.97,
+              "position_in_bar": 4
+            }
+          ]
+        },
+        {
+          "id": 7,
+          "start_s": 11.51,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 11.51,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 12.05,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 12.58,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 13.11,
+              "position_in_bar": 4
+            }
+          ]
+        },
+        {
+          "id": 8,
+          "start_s": 13.64,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 13.64,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 14.17,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 14.7,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 15.23,
+              "position_in_bar": 4
+            }
+          ]
+        },
+        {
+          "id": 9,
+          "start_s": 15.76,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 15.76,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 16.29,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 16.83,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 17.36,
+              "position_in_bar": 4
+            }
+          ]
+        },
+        {
+          "id": 10,
+          "start_s": 17.88,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 17.88,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 18.41,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 18.95,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 19.48,
+              "position_in_bar": 4
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "label": "intro",
+      "start_s": 20.01,
+      "end_s": 30.06,
+      "bars": [
+        {
+          "id": 1,
+          "start_s": 20.01,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 20.01,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 20.54,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 21.07,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 21.61,
+              "position_in_bar": 4
+            }
+          ]
+        },
+        {
+          "id": 2,
+          "start_s": 22.14,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 22.14,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 22.67,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 23.2,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 23.72,
+              "position_in_bar": 4
+            }
+          ]
+        },
+        {
+          "id": 3,
+          "start_s": 24.26,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 24.26,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 24.79,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 25.32,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 25.86,
+              "position_in_bar": 4
+            }
+          ]
+        },
+        {
+          "id": 4,
+          "start_s": 26.39,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 26.39,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 26.92,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 27.44,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 27.97,
+              "position_in_bar": 4
+            }
+          ]
+        },
+        {
+          "id": 5,
+          "start_s": 28.51,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 28.51,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 29.04,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 29.57,
+              "position_in_bar": 3
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "rms_per_2bar": [
+    0.14,
+    0.23,
+    0.24,
+    0.27,
+    0.42,
+    0.93,
+    0.91,
+    1.0
+  ],
+  "centroid_per_2bar": [
+    0.72,
+    0.96,
+    1.0,
+    0.95,
+    0.25,
+    0.61,
+    0.61,
+    0.59
+  ]
+}

@@ -215,6 +215,9 @@ export function Player({ playback, onClose }: PlayerProps) {
     () => playback.timestamps[playback.timestamps.length - 1] ?? 0,
     [playback.timestamps]
   );
+  // Songs are cropped to a window of the full MP3; the trajectory timeline is rebased to 0,
+  // so audio playback is shifted by this offset (seconds into the full file).
+  const audioOffset = playback.audioOffset ?? 0;
 
   useEffect(() => {
     const mount = mountRef.current;
@@ -334,7 +337,16 @@ export function Player({ playback, onClose }: PlayerProps) {
       if (!active) {
         return;
       }
-      const time = audio && !audio.paused ? Math.min(audio.currentTime, duration) : playheadRef.current;
+      let time = playheadRef.current;
+      if (audio && !audio.paused) {
+        time = audio.currentTime - audioOffset;
+        if (time >= duration) {
+          // Reached the end of the crop window: stop here instead of letting the full song play on.
+          time = duration;
+          audio.pause();
+          setPlaying(false);
+        }
+      }
       playheadRef.current = time;
       renderAt(time);
       const now = performance.now();
@@ -363,7 +375,7 @@ export function Player({ playback, onClose }: PlayerProps) {
     playheadRef.current = nextTime;
     setPlayhead(nextTime);
     if (audioRef.current) {
-      audioRef.current.currentTime = nextTime;
+      audioRef.current.currentTime = nextTime + audioOffset;
     }
   };
 
@@ -373,7 +385,11 @@ export function Player({ playback, onClose }: PlayerProps) {
       return;
     }
     if (audio.paused) {
-      audio.currentTime = playheadRef.current;
+      // Restart from the window start if we're sitting at the end.
+      if (playheadRef.current >= duration) {
+        setTime(0);
+      }
+      audio.currentTime = playheadRef.current + audioOffset;
       await audio.play();
       setPlaying(true);
     } else {
@@ -387,13 +403,13 @@ export function Player({ playback, onClose }: PlayerProps) {
     if (!audio) {
       return;
     }
-    audio.currentTime = 0;
+    audio.currentTime = audioOffset;
     audio.play().then(() => {
       setPlaying(true);
     }).catch(() => {
       setPlaying(false);
     });
-  }, [playback.audioUrl]);
+  }, [playback.audioUrl, audioOffset]);
 
   const restart = () => {
     setTime(0);

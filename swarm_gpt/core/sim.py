@@ -91,6 +91,11 @@ def simulate_axswarm(
     )
     n_steps = int(waypoints["time"][0, -1] * sim.control_freq)
     solve_every_n_steps = sim.control_freq // solver_settings.freq
+    logger.debug(
+        f"[sim] waypoints T={waypoints['time'].shape[1]} columns, "
+        f"n_drones={waypoints['pos'].shape[0]}, "
+        f"duration={waypoints['time'][0, -1]:.1f}s"
+    )
     assert sim.freq % sim.control_freq == 0, (
         "control freq {sim.control_freq} must be divisible by sim.freq {sim.freq}"
     )
@@ -122,6 +127,10 @@ def simulate_axswarm(
             solve_times.append(time.perf_counter() - t_solve)
             if not all(success):
                 logger.info("Solve failed")
+            if len(solve_times) == 20:
+                logger.debug(
+                    f"[sim] mean solve time (first 20 calls): {sum(solve_times) / 20 * 1000:.1f}ms"
+                )
 
             solver_data = solver_data.step(solver_data)
             pos, vel = solver_data.u_pos[:, 0], solver_data.u_vel[:, 0]

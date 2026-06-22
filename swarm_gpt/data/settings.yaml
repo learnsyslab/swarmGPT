@@ -1,6 +1,34 @@
+radio:
+  uri_base: "radio://0/{channel}/2M/E7E7E7E7{addr:02X}"
+
 starting_height: 1.0  # Starting height for all drones
 lighthouse: false  # Whether to use lighthouse or mocap for localization
 land_on_docks: true
+
+# Choreography
+choreography:
+  bars_per_required: 4  # Stride (in bars) between REQUIRED downbeats the LLM must choreograph.
+                        # 1 = every bar; 4 = first bar of each segment + every 4th bar after.
+                        # Beats in between stay addressable as encouraged-but-optional accents.
+
+# Per-song crop window [start_s, end_s] in seconds. Songs are analyzed in full, but only this
+# window is choreographed and played back (the snippet). Times are rebased so the window starts
+# at 0:00. Falls back to `default` for any song without an explicit entry.
+song_crops:
+  default: [0, 60]
+  "Chopin - Nocturne Op. 9 No. 2": [0, 60]
+  "Crazyflie Drones Theme": [0, 60]
+  "Crazyflie Drones Theme (short)": [0, 60]
+  "Dance of the Flying Machines": [0, 60]
+  "Debussy - Clair de Lune": [0, 60]
+  "J. Strauss I - Radetzky March": [0, 60]
+  "J. Strauss II - The Blue Danube Op. 314": [64, 124]
+  "Mozart - Eine kleine Nachtmusik": [0, 60]
+  "On & On": [52, 82]
+  "Vivaldi - Summer": [0, 60]
+  "We Wish You a Merry Christmas": [0, 60]
+  "Fearless2": [35, 70]
+  "Mortals": [0, 60]
 
 # Simulation
 sim_freq: 500 # Frequency for the crazyflow simulation
@@ -32,7 +60,7 @@ axswarm:
   pos_max: [2.0, 2.0, 1.7]  # Maximum position of the AMSwarm drones
   vel_max: 1.73  # Maximum velocity of the AMSwarm drones
   acc_max: 1.0  # Maximum force of the AMSwarm drones (0.75 gs)
-  collision_envelope: [0.35, 0.35, 0.6]  # Collision envelope width in x, y, z
+  collision_envelope: [0.25, 0.25, 0.6]  # Collision envelope width in x, y, z
 
   # MPC
   K: 50  # Number of timesteps in the optimization horizon

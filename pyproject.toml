@@ -77,7 +77,10 @@ markers = ["unit", "integration"]
 
 [tool.pixi.workspace]
 channels = ["conda-forge"]
-platforms = ["linux-64"]
+platforms = ["linux-64", "osx-arm64"]
+
+[tool.pixi.system-requirements]
+cuda = "12"
 
 [tool.pixi.activation]
 scripts = ["openai_api_key.sh", "tools/frontend_install.sh"]
@@ -88,6 +91,9 @@ default = { features = ["sim"], solve-group = "default" }
 deploy = { features = ["sim", "kilted", "deploy"] }
 docs = { features = ["docs"] }
 tests = { features = ["tests", "sim", "kilted", "deploy"] }
+# Music analysis env — isolated from sim/ROS so allin1's deps don't conflict
+# with ros-kilted's fmt/spdlog pins. Run analyzer with: pixi run -e music <cmd>
+music = { features = ["music"] }
 
 [tool.pixi.dependencies]
 # Environment packages
@@ -104,6 +110,9 @@ maturin = ">=1.13.3,<2"
 api = { cmd = "python swarm_gpt/launch.py", description = "Serve the SwarmGPT browser API and built frontend", depends-on = ["web-build"] }
 web-dev = { cmd = "npm --prefix web run dev", description = "Serve the browser frontend with Vite" }
 web-build = { cmd = "npm --prefix web run build", description = "Build the browser frontend" }
+
+[tool.pixi.feature.music.tasks]
+analyze = { cmd = "python tools/analyze_songs.py", description = "Analyze every un-analyzed song in music/ (use --test for a console-only smoke test)" }
 
 [tool.pixi.pypi-dependencies]
 swarmgpt = { path = ".", editable = true }
@@ -159,6 +168,27 @@ mkdocs-section-index = "*"
 [tool.pixi.feature.docs.tasks]
 docs-serve = { cmd = "mkdocs serve", description = "Serve docs locally" }
 docs-build = { cmd = "mkdocs build", description = "Build docs" }
+
+
+[tool.pixi.feature.music]
+
+platforms = ["linux-64"]
+
+[tool.pixi.feature.music.dependencies]
+ffmpeg = "*"
+
+[tool.pixi.feature.music.pypi-options]
+
+extra-index-urls = ["https://download.pytorch.org/whl/cu126"]
+find-links = [{ url = "https://whl.natten.org" }]
+
+[tool.pixi.feature.music.pypi-dependencies]
+torch = "==2.6.0+cu126"
+torchaudio = "==2.6.0+cu126"
+allin1 = { git = "https://github.com/govi218/all-in-one.git", branch = "gov/update-deprecated" }
+madmom = { git = "https://github.com/CPJKU/madmom.git" }
+
+natten = "==0.17.5+torch260cu126"
 
 ########################
 # ruff Settings

@@ -30,6 +30,8 @@ openai_api_key.sh
 
 .cursor
 docs/ui-previews
+docs/specs/
+docs/superpowers
 test-results
 playwright-report
 web/dist
@@ -38,3 +40,10 @@ web/tsconfig.tsbuildinfo
 
 /log/
 /install/
+
+# all-in-one analysis byproducts
+/demix/
+/spec/
+
+CLAUDE.md
+memory

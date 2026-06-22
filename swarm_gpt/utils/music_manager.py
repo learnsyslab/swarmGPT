@@ -103,12 +103,21 @@ class MusicManager:
             return False
         return True
 
-    def play(self, *, wait: bool = False, timeout: float = 2.0) -> bool:
+    def play(
+        self,
+        *,
+        wait: bool = False,
+        timeout: float = 2.0,
+        start_s: float = 0.0,
+        end_s: float | None = None,
+    ) -> bool:
         """Play the song with VLC.
 
         Args:
             wait: If True, block briefly until VLC reports active playback.
             timeout: Maximum time to wait for playback to start.
+            start_s: Seek to this offset in seconds before playback begins.
+            end_s: Stop playback at this offset in seconds. ``None`` plays to the end of the file.
 
         Returns:
             True if VLC accepted the play request and, when ``wait`` is set, started playback.
@@ -120,22 +129,33 @@ class MusicManager:
             self._music_player.stop()
             self._music_player.release()
             self._music_player = None
+        media = inst.media_new(media_path)
+        if start_s > 0:
+            media.add_option(f":start-time={start_s:g}")
+        if end_s is not None:
+            media.add_option(f":stop-time={end_s:g}")
         self._music_player = inst.media_player_new()
-        self._music_player.set_media(inst.media_new(media_path))
+        self._music_player.set_media(media)
         self._music_player.audio_set_volume(100)
         result = self._music_player.play()
         if result == -1:
             logger.error("VLC failed to start playback for %s", media_path)
             return False
         if not wait:
+            if start_s > 0:
+                self._music_player.set_time(int(start_s * 1000))
             return True
 
         deadline = time.perf_counter() + timeout
         while time.perf_counter() < deadline:
             if self.is_playing:
+                if start_s > 0:
+                    self._music_player.set_time(int(start_s * 1000))
                 return True
             time.sleep(0.01)
         logger.warning("Timed out waiting for VLC playback to start for %s", media_path)
+        if self.is_playing and start_s > 0:
+            self._music_player.set_time(int(start_s * 1000))
         return self.is_playing
 
     def stop(self):

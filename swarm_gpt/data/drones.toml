@@ -1,49 +1,101 @@
-[cf0]
-name = "cf11"
-uri = "radio://0/10/2M/E7E7E7E70B"
+active = ["cf11", "cf12", "cf13", "cf14", "cf15", "cf21", "cf22", "cf23", "cf24", "cf25"]
+
+[cf11]
+addr = 11
+channel = 10
 pos = [1.5, -1.0, 0.0]
 
-[cf1]
-name = "cf12"
-uri = "radio://0/10/2M/E7E7E7E70C"
+[cf12]
+addr = 12
+channel = 10
 pos = [0.75, -1.0, 0.0]
 
-[cf2]
-name = "cf13"
-uri = "radio://0/10/2M/E7E7E7E70D"
+[cf13]
+addr = 13
+channel = 10
 pos = [0.0, -1.0, 0.0]
 
-[cf3]
-name = "cf14"
-uri = "radio://0/10/2M/E7E7E7E70E"
+[cf14]
+addr = 14
+channel = 10
 pos = [-0.75, -1.0, 0.0]
 
-[cf4]
-name = "cf15"
-uri = "radio://0/10/2M/E7E7E7E70F"
+[cf15]
+addr = 15
+channel = 10
 pos = [-1.5, -1.0, 0.0]
 
-[cf5]
-name = "cf21"
-uri = "radio://1/20/2M/E7E7E7E715"
+[cf21]
+addr = 21
+channel = 20
 pos = [1.5, 1.0, 0.0]
 
-[cf6]
-name = "cf22"
-uri = "radio://1/20/2M/E7E7E7E716"
+[cf22]
+addr = 22
+channel = 20
 pos = [0.75, 1.0, 0.0]
 
-[cf7]
-name = "cf23"
-uri = "radio://1/20/2M/E7E7E7E717"
+[cf23]
+addr = 23
+channel = 20
 pos = [0.0, 1.0, 0.0]
 
-[cf8]
-name = "cf24"
-uri = "radio://1/20/2M/E7E7E7E718"
+[cf24]
+addr = 24
+channel = 20
 pos = [-0.75, 1.0, 0.0]
 
-[cf9]
-name = "cf25"
-uri = "radio://1/20/2M/E7E7E7E719"
+[cf25]
+addr = 25
+channel = 20
 pos = [-1.5, 1.0, 0.0]
+
+[cf31]
+addr = 31
+channel = 30
+pos = [1.1, -2.0, 0.0]
+
+[cf32]
+addr = 32
+channel = 30
+pos = [1.1, -1.0, 0.0]
+
+[cf33]
+addr = 33
+channel = 30
+pos = [1.1, 0.0, 0.0]
+
+[cf34]
+addr = 34
+channel = 30
+pos = [1.1, 1.0, 0.0]
+
+[cf35]
+addr = 35
+channel = 30
+pos = [1.1, 2.0, 0.0]
+
+[cf41]
+addr = 41
+channel = 40
+pos = [-1.1, -2.0, 0.0]
+
+[cf42]
+addr = 42
+channel = 40
+pos = [-1.1, -1.0, 0.0]
+
+[cf43]
+addr = 43
+channel = 40
+pos = [-1.1, 0.0, 0.0]
+
+[cf44]
+addr = 44
+channel = 40
+pos = [-1.1, 1.0, 0.0]
+
+[cf45]
+addr = 45
+channel = 40
+pos = [-1.1, 2.0, 0.0]

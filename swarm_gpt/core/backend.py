@@ -18,6 +18,7 @@ from swarm_gpt.core import Choreographer
 from swarm_gpt.core.sim import replay_sim_states, simulate_axswarm
 from swarm_gpt.exception import LLMException
 from swarm_gpt.utils import MusicManager, generate_default_colors
+from swarm_gpt.utils.music_analyzer import SongStructure
 
 if TYPE_CHECKING:
     from numpy.typing import NDArray as Array
@@ -27,15 +28,6 @@ if TYPE_CHECKING:
 logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
-
-colors = [
-    [1.0, 0.0, 0.0],
-    [0.0, 1.0, 0.0],
-    [0.0, 0.0, 1.0],
-    [1.0, 0.7, 0.0],
-    [1.0, 0.0, 1.0],
-    [0.0, 1.0, 0.5],
-]
 
 P = ParamSpec("P")  # Represents arbitrary parameters
 R = TypeVar("R")  # Represents the return type
@@ -85,12 +77,12 @@ class AppBackend:
     def __init__(
         self,
         *,
-        music_dir: Path = Path(__file__).parents[2] / "music",
+        music_dir: Path = Path(__file__).parents[2] / "music" / "songs",
         preset_dir: Path | None = None,
         config_file: Path | None = None,
         strict_processing: bool = True,
         strict_drone_match: bool = True,
-        model_id: str = "gpt-4o",
+        model_id: str = "gpt-5.4-nano",
         use_motion_primitives: bool = True,
         llm_provider: LLMProvider = "openai",
     ):
@@ -192,9 +184,9 @@ class AppBackend:
         """
         logger.info(f"Generating initial choreography for song: {song}")
         song_name = self._load_song(song)
-        music_info = self.music_manager.extract_song_info()
+        structure = self._load_structure(song_name)
         self.choreographer.reset_history()
-        prompt = self.choreographer.format_initial_prompt(song_name, music_info)
+        prompt = self.choreographer.format_initial_prompt(song_name, structure)
 
         fixed_response = response is not None
         if preset := song in self.presets:  # Preset was provided
@@ -205,13 +197,11 @@ class AppBackend:
             self.choreographer.messages.append({"role": "assistant", "content": response})
         else:  # Use LLM to generate the choreography
             logger.debug(f"Using LLM to generate choreography for song: {song_name}")
-            response = self.choreographer.generate_choreography(
-                prompt, num_beats=len(music_info["beat_times"])
-            )
+            response = self.choreographer.generate_choreography(prompt, structure=structure)
 
         try:
             self.waypoints = self.choreographer.response2waypoints(
-                response, music_info=music_info, strict=self._strict_processing
+                response, structure, strict=self._strict_processing
             )
         except LLMException as e:
             # We do not want to retry if we are using a preset or a fixed response. This
@@ -238,12 +228,10 @@ class AppBackend:
             logger.warning("No message provided, returning current history")
             return self.choreographer.messages
         prompt = self.choreographer.format_reprompt(message)
-        music_info = self.music_manager.extract_song_info()
-        response = self.choreographer.generate_choreography(
-            prompt, num_beats=len(music_info["beat_times"])
-        )
+        structure = self._load_structure(self.music_manager.song)
+        response = self.choreographer.generate_choreography(prompt, structure=structure)
         self.waypoints = self.choreographer.response2waypoints(
-            response, music_info=music_info, strict=self._strict_processing
+            response, structure, strict=self._strict_processing
         )
         logger.info("Successfully generated choreography")
         return self.choreographer.messages
@@ -304,12 +292,7 @@ class AppBackend:
         logger.info("Deploying drones")
         assert self.splines, "Please run the simulation first!"
 
-        # If a deploy version of the song is present, play it
-        original_song = self.music_manager.song
-        try:
-            self.music_manager.song = original_song + "[deploy]"
-        except AssertionError:
-            ...
+        play_start_s, play_end_s = self.crop_window(self.music_manager.song)
 
         if not self.music_manager.verify_libvlc():
             logger.error("VLC/libvlc is not available. Install VLC (see README) before deploying.")
@@ -381,7 +364,7 @@ class AppBackend:
                     taken_off = False
                     logger.warning(f"Drone {uri} has not taken off yet: z={z:.2f}m, qw={qw:.2f}")
             if taken_off:
-                if not self.music_manager.play(wait=True):
+                if not self.music_manager.play(wait=True, start_s=play_start_s, end_s=play_end_s):
                     logger.error(
                         "VLC could not start playback; skipping choreography (drones will land)."
                     )
@@ -393,13 +376,13 @@ class AppBackend:
                         color_top=color_top,
                         color_bot=color_bot,
                     )
+            self.music_manager.stop()
             swarm.goto(final_pos_dict, duration=2.0)  # Transition from ideal point to hover pos
             if self.settings["land_on_docks"]: # Commented out for demo
                 swarm.goto(final_pos_dict, duration=3.0)  # Hovering
             swarm.land(duration=1.5)  # Landing
         finally:
             swarm.close()
-        self.music_manager.song = original_song
         logger.info("Deployment successful")
         return True
 
@@ -508,3 +491,39 @@ class AppBackend:
             song = self.parse_preset_id(song)["song"]
         self.music_manager.song = song
         return song
+
+    def crop_window(self, song_name: str) -> tuple[float, float]:
+        """Return the ``(start_s, end_s)`` crop window for a song, in seconds.
+
+        Reads ``song_crops`` from settings, falling back to ``song_crops.default`` for any song
+        without an explicit entry.
+
+        Args:
+            song_name: Stem of the MP3 file (no extension).
+
+        Returns:
+            The ``(start_s, end_s)`` window the song is cropped to.
+        """
+        crops = self.settings["song_crops"]
+        window = crops.get(song_name, crops["default"])
+        return float(window[0]), float(window[1])
+
+    def _load_structure(self, song_name: str) -> SongStructure:
+        """Load the cached SongStructure JSON for a song, cropped to its window.
+
+        The full-song analysis is loaded from disk and then cropped to the song's
+        ``song_crops`` window (see :meth:`crop_window`); only that window is choreographed.
+
+        Args:
+            song_name: Stem of the MP3 file (no extension).
+
+        Raises:
+            FileNotFoundError: If no analysis JSON exists yet for the song.
+        """
+        json_path = self.root_path / "music" / "analyzed" / f"{song_name}.json"
+        if not json_path.exists():
+            raise FileNotFoundError(
+                f"No analysis found for '{song_name}'. Run `pixi run -e music analyze` first."
+            )
+        start_s, end_s = self.crop_window(song_name)
+        return SongStructure.from_json(json_path).crop(start_s, end_s)

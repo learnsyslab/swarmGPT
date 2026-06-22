@@ -35,7 +35,7 @@ from swarm_gpt.utils.llm_providers import (
 logger = logging.getLogger(__name__)
 
 ROOT = Path(__file__).resolve().parents[2]
-MUSIC_DIR = ROOT / "music"
+MUSIC_DIR = ROOT / "music" / "songs"
 WEB_DIST_DIR = ROOT / "web" / "dist"
 SWARM_BACKGROUND = ROOT / "swarm_gpt" / "ui" / "swarm.png"
 DRONE_ASSET_DIR = Path(drone_models.__file__).resolve().parent / "data" / "assets"
@@ -51,7 +51,7 @@ class ApiConfig:
     preset_dir: Path | None = None
     strict_processing: bool = True
     strict_drone_match: bool = True
-    model_id: str = "gpt-4o"
+    model_id: str = "gpt-5.4-nano"
     llm_provider: LLMProvider = "openai"
     use_motion_primitives: bool = True
 
@@ -247,6 +247,7 @@ def normalize_playback(sim_data: dict[str, Any], backend: AppBackend) -> dict[st
     return {
         "schemaVersion": 1,
         "audioUrl": _audio_url(backend.music_manager.song),
+        "audioOffset": backend.crop_window(backend.music_manager.song)[0],
         "song": backend.music_manager.song,
         "numDrones": num_drones,
         "timestamps": timestamps.tolist(),
@@ -389,7 +390,13 @@ def create_app(config: ApiConfig | None = None) -> FastAPI:
 
     @app.get("/api/media/music/{song}")
     def music(song: str) -> FileResponse:
-        return FileResponse(_safe_music_path(config, song), media_type="audio/mpeg")
+        # no-cache forces the browser to revalidate (cheap 304 via ETag/Last-Modified) so a
+        # swapped-out MP3 at the same URL is never served stale from the browser cache.
+        return FileResponse(
+            _safe_music_path(config, song),
+            media_type="audio/mpeg",
+            headers={"Cache-Control": "no-cache"},
+        )
 
     @app.post("/api/jobs", status_code=202)
     def create_job(request: JobRequest) -> dict[str, Any]:

@@ -1,0 +1,1745 @@
+{
+  "schema_version": 2,
+  "source_path": "music/songs/J. Strauss I - Radetzky March.mp3",
+  "song_sha256": "17639064feb259fc90d225906b9827fccf781c8903b51a2eb5b5f2b0aa84c457",
+  "analyzer": "allin1@unknown",
+  "bpm": 102,
+  "segments": [
+    {
+      "id": 1,
+      "label": "intro",
+      "start_s": 0.96,
+      "end_s": 23.69,
+      "bars": [
+        {
+          "id": 1,
+          "start_s": 0.96,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 0.96,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 1.55,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 2.13,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 2.73,
+              "position_in_bar": 4
+            }
+          ]
+        },
+        {
+          "id": 2,
+          "start_s": 3.31,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 3.31,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 3.88,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 4.48,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 5.04,
+              "position_in_bar": 4
+            }
+          ]
+        },
+        {
+          "id": 3,
+          "start_s": 5.64,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 5.64,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 6.2,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 6.76,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 7.33,
+              "position_in_bar": 4
+            }
+          ]
+        },
+        {
+          "id": 4,
+          "start_s": 7.9,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 7.9,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 8.46,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 9.03,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 9.6,
+              "position_in_bar": 4
+            }
+          ]
+        },
+        {
+          "id": 5,
+          "start_s": 10.17,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 10.17,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 10.77,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 11.34,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 11.91,
+              "position_in_bar": 4
+            }
+          ]
+        },
+        {
+          "id": 6,
+          "start_s": 12.5,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 12.5,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 13.09,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 13.69,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 14.3,
+              "position_in_bar": 4
+            }
+          ]
+        },
+        {
+          "id": 7,
+          "start_s": 14.91,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 14.91,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 15.51,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 16.08,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 16.64,
+              "position_in_bar": 4
+            }
+          ]
+        },
+        {
+          "id": 8,
+          "start_s": 17.23,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 17.23,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 17.81,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 18.38,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 18.96,
+              "position_in_bar": 4
+            }
+          ]
+        },
+        {
+          "id": 9,
+          "start_s": 19.55,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 19.55,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 20.13,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 20.75,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 21.34,
+              "position_in_bar": 4
+            }
+          ]
+        },
+        {
+          "id": 10,
+          "start_s": 21.95,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 21.95,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 22.54,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 23.12,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 23.7,
+              "position_in_bar": 4
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "label": "intro",
+      "start_s": 23.69,
+      "end_s": 40.61,
+      "bars": [
+        {
+          "id": 1,
+          "start_s": 24.29,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 24.29,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 24.87,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 25.43,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 26.02,
+              "position_in_bar": 4
+            }
+          ]
+        },
+        {
+          "id": 2,
+          "start_s": 26.6,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 26.6,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 27.18,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 27.74,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 28.32,
+              "position_in_bar": 4
+            }
+          ]
+        },
+        {
+          "id": 3,
+          "start_s": 28.93,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 28.93,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 29.5,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 30.11,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 30.67,
+              "position_in_bar": 4
+            }
+          ]
+        },
+        {
+          "id": 4,
+          "start_s": 31.25,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 31.25,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 31.85,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 32.41,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 33.0,
+              "position_in_bar": 4
+            }
+          ]
+        },
+        {
+          "id": 5,
+          "start_s": 33.59,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 33.59,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 34.17,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 34.77,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 35.36,
+              "position_in_bar": 4
+            }
+          ]
+        },
+        {
+          "id": 6,
+          "start_s": 35.94,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 35.94,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 36.53,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 37.11,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 37.7,
+              "position_in_bar": 4
+            }
+          ]
+        },
+        {
+          "id": 7,
+          "start_s": 38.29,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 38.29,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 38.88,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 39.47,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 40.04,
+              "position_in_bar": 4
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "label": "intro",
+      "start_s": 40.61,
+      "end_s": 64.2,
+      "bars": [
+        {
+          "id": 1,
+          "start_s": 40.62,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 40.62,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 41.19,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 41.79,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 42.37,
+              "position_in_bar": 4
+            }
+          ]
+        },
+        {
+          "id": 2,
+          "start_s": 42.98,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 42.98,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 43.56,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 44.14,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 44.73,
+              "position_in_bar": 4
+            }
+          ]
+        },
+        {
+          "id": 3,
+          "start_s": 45.31,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 45.31,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 45.88,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 46.45,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 47.04,
+              "position_in_bar": 4
+            }
+          ]
+        },
+        {
+          "id": 4,
+          "start_s": 47.62,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 47.62,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 48.2,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 48.8,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 49.38,
+              "position_in_bar": 4
+            }
+          ]
+        },
+        {
+          "id": 5,
+          "start_s": 49.96,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 49.96,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 50.55,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 51.15,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 51.76,
+              "position_in_bar": 4
+            }
+          ]
+        },
+        {
+          "id": 6,
+          "start_s": 52.36,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 52.36,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 52.95,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 53.55,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 54.13,
+              "position_in_bar": 4
+            }
+          ]
+        },
+        {
+          "id": 7,
+          "start_s": 54.7,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 54.7,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 55.3,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 55.87,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 56.45,
+              "position_in_bar": 4
+            }
+          ]
+        },
+        {
+          "id": 8,
+          "start_s": 57.05,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 57.05,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 57.64,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 58.26,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 58.85,
+              "position_in_bar": 4
+            }
+          ]
+        },
+        {
+          "id": 9,
+          "start_s": 59.46,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 59.46,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 60.06,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 60.65,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 61.24,
+              "position_in_bar": 4
+            }
+          ]
+        },
+        {
+          "id": 10,
+          "start_s": 61.85,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 61.85,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 62.42,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 63.03,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 63.62,
+              "position_in_bar": 4
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "label": "intro",
+      "start_s": 64.2,
+      "end_s": 93.64,
+      "bars": [
+        {
+          "id": 1,
+          "start_s": 64.21,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 64.21,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 64.8,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 65.38,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 65.97,
+              "position_in_bar": 4
+            }
+          ]
+        },
+        {
+          "id": 2,
+          "start_s": 66.55,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 66.55,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 67.15,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 67.75,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 68.33,
+              "position_in_bar": 4
+            }
+          ]
+        },
+        {
+          "id": 3,
+          "start_s": 68.9,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 68.9,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 69.49,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 70.08,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 70.65,
+              "position_in_bar": 4
+            }
+          ]
+        },
+        {
+          "id": 4,
+          "start_s": 71.25,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 71.25,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 71.83,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 72.41,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 72.99,
+              "position_in_bar": 4
+            }
+          ]
+        },
+        {
+          "id": 5,
+          "start_s": 73.57,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 73.57,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 74.16,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 74.75,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 75.33,
+              "position_in_bar": 4
+            }
+          ]
+        },
+        {
+          "id": 6,
+          "start_s": 75.93,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 75.93,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 76.52,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 77.11,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 77.7,
+              "position_in_bar": 4
+            }
+          ]
+        },
+        {
+          "id": 7,
+          "start_s": 78.3,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 78.3,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 78.89,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 79.48,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 80.07,
+              "position_in_bar": 4
+            }
+          ]
+        },
+        {
+          "id": 8,
+          "start_s": 80.67,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 80.67,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 81.26,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 81.83,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 82.41,
+              "position_in_bar": 4
+            }
+          ]
+        },
+        {
+          "id": 9,
+          "start_s": 83.0,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 83.0,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 83.58,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 84.18,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 84.78,
+              "position_in_bar": 4
+            }
+          ]
+        },
+        {
+          "id": 10,
+          "start_s": 85.4,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 85.4,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 86.0,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 86.59,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 87.18,
+              "position_in_bar": 4
+            }
+          ]
+        },
+        {
+          "id": 11,
+          "start_s": 87.77,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 87.77,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 88.36,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 88.95,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 89.53,
+              "position_in_bar": 4
+            }
+          ]
+        },
+        {
+          "id": 12,
+          "start_s": 90.13,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 90.13,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 90.71,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 91.29,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 91.87,
+              "position_in_bar": 4
+            }
+          ]
+        },
+        {
+          "id": 13,
+          "start_s": 92.47,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 92.47,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 93.06,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 93.68,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 94.25,
+              "position_in_bar": 4
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "label": "solo",
+      "start_s": 93.64,
+      "end_s": 112.6,
+      "bars": [
+        {
+          "id": 1,
+          "start_s": 94.85,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 94.85,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 95.44,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 96.03,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 96.61,
+              "position_in_bar": 4
+            }
+          ]
+        },
+        {
+          "id": 2,
+          "start_s": 97.22,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 97.22,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 97.81,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 98.4,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 98.99,
+              "position_in_bar": 4
+            }
+          ]
+        },
+        {
+          "id": 3,
+          "start_s": 99.59,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 99.59,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 100.18,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 100.77,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 101.34,
+              "position_in_bar": 4
+            }
+          ]
+        },
+        {
+          "id": 4,
+          "start_s": 101.93,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 101.93,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 102.52,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 103.12,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 103.72,
+              "position_in_bar": 4
+            }
+          ]
+        },
+        {
+          "id": 5,
+          "start_s": 104.35,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 104.35,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 104.95,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 105.54,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 106.13,
+              "position_in_bar": 4
+            }
+          ]
+        },
+        {
+          "id": 6,
+          "start_s": 106.71,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 106.71,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 107.31,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 107.9,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 108.49,
+              "position_in_bar": 4
+            }
+          ]
+        },
+        {
+          "id": 7,
+          "start_s": 109.08,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 109.08,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 109.67,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 110.24,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 110.84,
+              "position_in_bar": 4
+            }
+          ]
+        },
+        {
+          "id": 8,
+          "start_s": 111.42,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 111.42,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 112.01,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 112.61,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 113.21,
+              "position_in_bar": 4
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "label": "solo",
+      "start_s": 112.6,
+      "end_s": 126.95,
+      "bars": [
+        {
+          "id": 1,
+          "start_s": 113.82,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 113.82,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 114.41,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 115.01,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 115.6,
+              "position_in_bar": 4
+            }
+          ]
+        },
+        {
+          "id": 2,
+          "start_s": 116.2,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 116.2,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 116.79,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 117.39,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 117.99,
+              "position_in_bar": 4
+            }
+          ]
+        },
+        {
+          "id": 3,
+          "start_s": 118.6,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 118.6,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 119.19,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 119.78,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 120.36,
+              "position_in_bar": 4
+            }
+          ]
+        },
+        {
+          "id": 4,
+          "start_s": 120.96,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 120.96,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 121.55,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 122.14,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 122.75,
+              "position_in_bar": 4
+            }
+          ]
+        },
+        {
+          "id": 5,
+          "start_s": 123.38,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 123.38,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 123.98,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 124.57,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 125.17,
+              "position_in_bar": 4
+            }
+          ]
+        },
+        {
+          "id": 6,
+          "start_s": 125.77,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 125.77,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 126.34,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 126.95,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 127.52,
+              "position_in_bar": 4
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "label": "solo",
+      "start_s": 126.95,
+      "end_s": 146.48,
+      "bars": [
+        {
+          "id": 1,
+          "start_s": 128.13,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 128.13,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 128.7,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 129.27,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 129.86,
+              "position_in_bar": 4
+            }
+          ]
+        },
+        {
+          "id": 2,
+          "start_s": 130.44,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 130.44,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 131.02,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 131.6,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 132.18,
+              "position_in_bar": 4
+            }
+          ]
+        },
+        {
+          "id": 3,
+          "start_s": 132.78,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 132.78,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 133.36,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 133.94,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 134.53,
+              "position_in_bar": 4
+            }
+          ]
+        },
+        {
+          "id": 4,
+          "start_s": 135.12,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 135.12,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 135.73,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 136.32,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 136.93,
+              "position_in_bar": 4
+            }
+          ]
+        },
+        {
+          "id": 5,
+          "start_s": 137.54,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 137.54,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 138.14,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 138.73,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 139.32,
+              "position_in_bar": 4
+            }
+          ]
+        },
+        {
+          "id": 6,
+          "start_s": 139.9,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 139.9,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 140.49,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 141.08,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 141.66,
+              "position_in_bar": 4
+            }
+          ]
+        },
+        {
+          "id": 7,
+          "start_s": 142.26,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 142.26,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 142.85,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 143.48,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 144.08,
+              "position_in_bar": 4
+            }
+          ]
+        },
+        {
+          "id": 8,
+          "start_s": 144.7,
+          "beats": [
+            {
+              "id": 1,
+              "time_s": 144.7,
+              "position_in_bar": 1
+            },
+            {
+              "id": 2,
+              "time_s": 145.29,
+              "position_in_bar": 2
+            },
+            {
+              "id": 3,
+              "time_s": 145.87,
+              "position_in_bar": 3
+            },
+            {
+              "id": 4,
+              "time_s": 146.49,
+              "position_in_bar": 4
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "rms_per_2bar": [
+    0.88,
+    0.22,
+    0.37,
+    0.74,
+    0.9,
+    0.5,
+    0.25,
+    0.37,
+    0.93,
+    0.26,
+    0.25,
+    0.55,
+    0.8,
+    0.84,
+    0.37,
+    0.31,
+    0.31,
+    0.29,
+    0.45,
+    0.68,
+    0.74,
+    0.32,
+    0.31,
+    0.77,
+    0.73,
+    0.3,
+    0.3,
+    0.94,
+    0.22,
+    0.35,
+    0.8,
+    1.0
+  ],
+  "centroid_per_2bar": [
+    0.92,
+    0.55,
+    0.55,
+    0.94,
+    0.93,
+    0.7,
+    0.56,
+    0.64,
+    0.91,
+    0.61,
+    0.54,
+    0.76,
+    0.94,
+    0.87,
+    0.55,
+    0.46,
+    0.45,
+    0.48,
+    0.62,
+    0.84,
+    0.84,
+    0.46,
+    0.53,
+    0.9,
+    0.9,
+    0.45,
+    0.54,
+    0.93,
+    0.62,
+    0.58,
+    1.0,
+    0.97
+  ]
+}

@@ -1,132 +1,193 @@
-# Prompts for motion-primitive choreography. user_initial is .format()-expanded in choreographer.
+# Prompts for motion-primitive choreography keyed by hierarchical (segment, bar, beat).
+# user_initial is .format()-expanded in choreographer._format_initial_user_prompt.
 # Coordinates use integer cm (z=100 is 1 m) for fewer tokenizer splits than floats.
 system_initial: |
-  You choreograph drone swarms using motion primitives. Choose primitives that match the music;
-  respect timing, collision, and step limits. Coordinates are integer cm.
+  You choreograph drone swarms using motion primitives. Choose primitives that match the song's
+  structural sections; respect timing, collision, and bounds. Coordinates are integer cm.
 
-user_initial: >
-  Plan a beat-by-beat choreography for {num_drones} drones to "{song}".
+  You have creative freedom over WHEN the swarm moves. You do NOT need to choreograph every bar
+  or beat — that produces busy, repetitive motion. Instead vary the rhythm of your choreography:
+  cluster moves where the music is active, let the swarm hold a pose and breathe through calmer
+  passages, and avoid a predictable "something every bar" cadence. Uneven, musically-motivated
+  spacing reads as intentional and expressive; mechanical regularity does not.
 
-  <song>
-  beats: {num_beats}
-  beat_times_100ms: {beat_times}
-  beat_intervals_100ms: {beat_intervals}
-  amplitude_dbfs: {dbfs}
-  novelty_pct: {beat_novelty}
-  chords: {chords}
-  </song>
+user_initial: |
+  Plan a choreography for {num_drones} drones to "{song}" at {bpm} BPM.
+
+  <song_structure>
+  {segments_table}
+  Total addressable beats: {n_total_beats}.
+  Keys take the form s<seg>b<bar>t<beat> (1-indexed): segment, then bar within that segment,
+  then beat within that bar. Any specific keys shown in the example below illustrate FORMAT
+  ONLY — choose keys from THIS song's actual segment/bar/beat counts above.
+  </song_structure>
+
+  <song_dynamics>
+  Per-2-bar audio features. Each line is "key: rms / centroid", both normalized to [0, 1].
+  The key is the FIRST beat of the 2-bar window in s#b#t# notation.
+  - rms      ~ loudness (1.0 = song's loudest moment)
+  - centroid ~ brightness (1.0 = brightest; high = treble cymbals/vocals/leads, low = bass/kicks)
+  Use the contrast to choose primitives that match the moment. Examples:
+  - rising rms across adjacent windows → a build-up; favor accumulating motion
+  - high rms + low centroid → bass-driven; bigger vertical moves, slow rotations
+  - high rms + high centroid → treble-driven; fast rotations, helices, waves
+  - low rms regardless of centroid → hold, breathe, minimal new primitives
+  - BEAT DROP → the first downbeat of a NEW segment (a s<seg>b1t1 key) whose rms AND centroid
+    are high — usually a jump up from the bars just before it. The segment boundary matters more
+    than the raw peak: a build-up can spike rms/centroid too, but the real drop lands on the
+    downbeat where the new section begins. Treat these as the biggest moments in the show.
+  {dynamics_table}
+  </song_dynamics>
 
   <drones>
   count: {num_drones}
   start_cm: {starting_pos}
-  max_step_cm_per_beat: {max_distances}
   bounds_cm: lower={lim_lower} upper={lim_upper}
   </drones>
 
   <rules>
-  - Exactly {num_waypoints} beats (keys 1..{num_beats}); one choreography line per beat; end with END.
-  - No two drones share the same position at the same beat.
-  - Respect max_step_cm_per_beat and bounds_cm; z > 0.
-  - Tie motion to music: louder/novel beats -> bolder primitives; all drones move on loud+novel beats when possible.
-  - Prefer symmetric formations and varied 3D motion (altitude changes, geometric shapes).
-  - At most 4 multi-beat primitives per song; prefer spiral, helix, zig_zag, wave over trivial moves.
-  - Use enough PLAN beats for readable motion: after a formation/rotate/height change, insert PLAN before the next different primitive unless beats are very scarce.
-  - Multi-beat primitives are exclusive: a primitive with steps=S must be followed immediately by S-1 PLAN beats before any other primitive.
-  - One beat = one line. Multiple calls on one beat: separate with "; " (e.g. center([1,2]); move_z([3], 10)).
-  - Each drone touched at most once per beat (except separate move() per drone).
+  - REQUIRED keys (must emit one action list at each): {required_keys_csv}
+    These are a SPARSE skeleton — roughly one anchor every few bars plus each segment's
+    opening — not every bar. They are the floor, not the target.
+  - OPTIONAL keys: every other s<seg>b<bar>t<beat> in the song's address space. Add them only
+    where the music genuinely calls for an accent — a build, a hit, a section change. It is good
+    and expected to leave many bars with no action: do NOT try to cover every bar. Vary the
+    spacing between actions so the motion feels phrased, not metronomic.
+  - Drones hold or continue the previous primitive between emitted actions. Holding a pose
+    through a calm passage is a valid, expressive choice — not a gap to be filled.
+  - Formation primitives (form_circle, form_star, form_cone) snap into shape quickly and then
+    sit still. A long hold after a formation reads as lifeless on energetic passages — prefer
+    to follow up on a later bar (often the next bar or two later) with a continuation that
+    keeps the swarm alive: rotate preserves the formation while turning it, move_z lifts or
+    lowers it, twister/helix/spiral_speed evolve it into something new. Omit the follow-up
+    only when the music genuinely wants stillness (intro/outro tails, breakdowns).
+  - No two drones occupy the same position at the same moment.
+  - Stay within bounds_cm; z > 0.
+  - Match motion to music: dense, energetic sections (chorus, drop, bridge) get bolder
+    primitives; intros and outros stay sparse and gentle.
+  - AT A BEAT DROP (see song_dynamics), do NOT answer with a static formation — a drop that
+    resolves into the swarm quietly gathering into a circle is the most underwhelming thing you
+    can do. The drop is the payoff: hit it with big, FAST, full-swarm MOTION. Favor high-speed
+    multi-step primitives — spiral_speed with a large degrees (270-360) and radius_increase 2-3,
+    a fast twister (omega_times_ten 14-20), a tall helix, or a large-angle rotate (90+ deg) —
+    so the swarm visibly explodes into movement on the downbeat. If the section needs a shape,
+    snap it in a bar or two BEFORE the drop so the drop itself is spent on motion, not arriving.
+  - One entry's "actions" array can hold ONE or MORE actions. Two valid stacking patterns:
+    1. Disjoint drone subsets — different drones, different shapes, coexisting.
+       IMPORTANT: the two subsets MUST end up at different points in space or they will
+       collide. Separating by height alone needs a LARGE gap: the vertical collision
+       envelope is 60cm, so stacked formations must differ in z by at least 70cm, preferably larger to allow for movement.
+       A smaller gap (or same x/y footprint) makes the drones jitter. Otherwise separate
+       by radius or x/y center.
+    2. Formation + motion on overlapping drones — formation snaps in, motion takes over.
+       The system handles the handoff automatically.
+    Do NOT stack two formations on overlapping drones (e.g. form_star + form_circle on the
+    same drones); the result is undefined.
+    Do NOT stack two formations in the same point in space on different subsets 
+    (e.g. form_circle with different radii but same center); the result is a collision.
   </rules>
 
   <primitives>
-  Single-beat (usually followed by PLAN before switching primitive):
+  Single-shot (executes once over the interval until the next emitted action):
   - rotate(angle_deg, axis) — all drones; axis usually 'z'
   - center([ids]) — listed drones to formation around their centroid
-  - move_z([ids], delta_cm) — vertical shift
-  - form_circle([ids], height_cm) — circle at height; radius from count
-  - form_star(height_cm, spacing 40-80, delta_radius 50-100)
-  - form_cone(delta_height 30-80, spacing 40-80, is_inverted 0|1)
-  - swap(id1, id2) — swap two drones (only one swap pair per beat)
+  - move_z([ids], delta_cm) — vertical shift; aim for |delta_cm| ~{move_z_typical_cm} so the motion is visibly noticeable
+  - form_circle([ids], radius_cm, z_coord_cm, time_to_finish_s)
+      radius_cm: circle radius; the system enforces a minimum based on drone count and spacing.
+      z_coord_cm: height of the circle in cm (e.g. 80, 100, 120).
+      time_to_finish_s: seconds to arrive; pick ~1s for snappy hits, ≥half the interval for slow blooms.
+      The system clamps to physics minimum if your value is too small.
+      When stacking two disjoint form_circle calls vertically, their z_coord_cm values MUST differ
+      by at least 60 (e.g. 80 and 140): a smaller gap puts the drones inside each other's collision
+      envelope and they will jitter instead of holding the rings.
+  - form_star(height_cm, spacing 40-80, delta_radius 50-100, time_to_finish_s)
+      time_to_finish_s: seconds to arrive in the star; same guidance as form_circle.
+  - form_cone(delta_height 30-80, spacing 40-80, is_inverted 0|1, time_to_finish_s)
+      time_to_finish_s: seconds to arrive in the cone; same guidance as form_circle.
+  - swap(id1, id2)
   - move(x_cm, y_cm, z_cm, drone_id) — absolute position for one drone
 
-  Multi-beat (steps in [2,3]; follow immediately with steps-1 PLAN lines; start by beat s-steps+1 so it finishes before END):
+  Multi-step (plays out across the interval; pick steps in [2, 3]):
   - spiral(steps, height_cm)
-  - spiral_speed(steps, height_cm, angle_deg 0-360, radius_increase 1-3)
-  - helix(steps, delta_h_cm 0-100, height_cm 50-100)
-  - twister(steps, omega_x10 2-20, z_spacing_cm 5-30)
+  - spiral_speed(steps, height_cm, degrees 0-360, radius_increase 1-3)
+  - helix(steps, delta_height_cm 0-100, height_cm 50-100)
+  - twister(steps, omega_times_ten 2-20, z_spacing_cm 5-30)
   - zig_zag(steps, delta_xy_cm, delta_z_cm)
-  - wave(steps, height, mu_pairs, a_coeffs, b_coeffs) — 2D wave surface; equation:
-  {wave_eqn}
-
-  PLAN — hold positions for one beat, add breathing room, and fill multi-beat tails. Never end the song on a multi-beat primitive without trailing PLANs.
+  - wave(steps, height_cm) — 2D standing-wave surface; drones first form a grid then oscillate.
   </primitives>
 
   <process>
   1) song_mood — brief mood for "{song}".
-  2) cord_analysis — chords, major/minor, emotional effect.
-  3) choreography_plan — sections, primitives, and why; scale intensity to dbfs/novelty/intervals.
-  4) choreography — full beat list 1..{num_beats}, no "..." placeholders.
+  2) choreography_plan — sections, primitives chosen, and intensity rationale per segment.
+  3) choreography — sparse map of action keys to action lists.
   </process>
 
 example: |
   <example>
-  Input: song=rêverie, drones=3, beats=22 (quiet dbfs ~-50..-30; novelty peak ~98 at beat 6).
+  Input: song=Sample, drones=3, bpm=120, structure:
+    segment 1: "intro" (0.00s - 4.00s) — 2 bars x 4 beats
+    segment 2: "chorus" (4.00s - 12.00s) — 4 bars x 4 beats
+  Required keys: s1b1t1, s2b1t1.
   Output:
-  song_mood: Dreamy, contemplative Debussy; gentle fluid motion.
-  cord_analysis: Cm, A#m, F, Gm mix — wistful, not dramatic.
-  choreography_plan: Beats 1-5: slow spiral inward (low novelty). Beat 6+: rotate and move_z on peak. Mid song: second spiral + zig_zag. Use PLAN between primitive changes; keep steps small for quiet dynamics.
+  song_mood: Steady, building from a soft intro to a confident chorus.
+  choreography_plan: Intro begins with a gentle inward spiral. Chorus opens with a bold
+    form_circle on the downbeat, accents the third beat of bar 1 with a rotation, then
+    sweeps through a helix at the start of bar 2.
   choreography:
-    1: spiral(5, 100)
-    2: PLAN
-    3: PLAN
-    4: PLAN
-    5: PLAN
-    6: PLAN
-    7: rotate(60, 'z')
-    8: PLAN
-    9: rotate(-90, 'z')
-    10: PLAN
-    11: move_z([1, 2, 3], 30)
-    12: PLAN
-    13: spiral(4, 100)
-    14: PLAN
-    15: PLAN
-    16: PLAN
-    17: PLAN
-    18: zig_zag(5, 20, 20)
-    19: PLAN
-    20: PLAN
-    21: PLAN
-    22: PLAN
+    s1b1t1: spiral(3, 100)
+    s2b1t1: form_circle([1, 2, 3], 120, 100, 1.5)
+    s2b1t3: rotate(60, 'z')
+    s2b2t1: helix(2, 40, 90)
     END
   </example>
 
 output_format: |
-  Return one ```yaml``` block:
+  Return one ```yaml``` block.
 
   song_mood: <string>
-  cord_analysis: <string>
   choreography_plan: <string>
   choreography:
-    1: <primitive calls or PLAN>
+    s<seg>b<bar>t<beat>: <single primitive call>
     ...
-    N: <primitive calls or PLAN>
     END
 
-  Every beat 1..N present. Use "; " for multiple calls on one beat. No ellipsis rows. Multi-beat primitives must include trailing PLAN lines.
+  All REQUIRED keys must be present. Add OPTIONAL keys sparingly, only where the music calls
+  for an accent — leaving bars unchoreographed is expected. Do not invent keys that are not in
+  the song's address space.
 
 output_format_structured: |
-  Return JSON only (no markdown). Schema enforces exactly num_beats beats and named primitive params.
-  Rules still apply: musically coherent choices, immediate PLAN tails for multi-beat primitives, transition PLAN between different primitives, at most 4 multi-beat primitives, respect bounds and step limits.
-  Each choreography action must be an object: {"primitive":"name","params":{...}}.
-  Use exactly the parameter names from the primitive signature. PLAN uses empty params: {"primitive":"PLAN","params":{}}.
+  Return JSON only (no markdown). The schema enforces:
+  - "choreography" is an array of entries, each {"key":"s<seg>b<bar>t<beat>","actions":[...]}.
+  - Every key matches the pattern s<seg>b<bar>t<beat> and is one of the song's valid addresses.
+  - All REQUIRED keys are present (as entries); add OPTIONAL keys only where musically warranted,
+    leaving many bars empty. Do not repeat a key.
+  - "actions" is a list of one or more action objects: {"primitive":"name","params":{...}}.
+    Two valid multi-action patterns (both in a single entry's "actions" array):
+    1. Disjoint drone subsets — different drones at different positions in space:
+         "actions": [
+           {"primitive":"form_circle","params":{"drone_ids":[1,2,3,4,5],"radius_cm":100,"z_coord_cm":80,"time_to_finish_s":2.0}},
+           {"primitive":"form_circle","params":{"drone_ids":[6,7,8,9,10],"radius_cm":100,"z_coord_cm":150,"time_to_finish_s":2.0}}
+         ]
+       Subsets MUST occupy different regions to avoid collision. Stacking by z requires a gap of
+       at least 60cm (vertical collision envelope); otherwise separate by radius or x/y center.
+    2. Formation + motion on overlapping drones — formation arrives, then motion takes over:
+         "actions": [
+           {"primitive":"form_star","params":{"height_cm":100,"min_spacing_cm":60,"delta_radius_cm":80,"time_to_finish_s":2.0}},
+           {"primitive":"rotate","params":{"angle_deg":60,"axis":"z"}}
+         ]
+       The system suppresses form_* hold waypoints automatically — no extra timing needed.
+    Do NOT stack two formations on overlapping drones.
+  Use exactly the parameter names from the primitive signature.
 
   Correct JSON param examples:
   - center([ids]) -> {"primitive":"center","params":{"drone_ids":[1,2,3,4]}}
   - move_z([ids], delta_cm) -> {"primitive":"move_z","params":{"drone_ids":[1,2,3,4],"delta_cm":30}}
-  - form_cone(delta_height_cm, spacing_cm, is_inverted) -> {"primitive":"form_cone","params":{"delta_height_cm":60,"spacing_cm":60,"is_inverted":0}}
+  - form_cone(delta_height_cm, spacing_cm, is_inverted) -> {"primitive":"form_cone","params":{"delta_height_cm":60,"spacing_cm":60,"is_inverted":0,"time_to_finish_s":2.0}}
   - spiral_speed(steps, height_cm, degrees, radius_increase) -> {"primitive":"spiral_speed","params":{"steps":3,"height_cm":100,"degrees":180,"radius_increase":1}}
-  - wave(steps, height_cm, mu_pairs, a_mu, b_mu) -> {"primitive":"wave","params":{"steps":2,"height_cm":80,"mu_pairs":[[0,0],[1,0]],"a_mu":[0.5,0.25],"b_mu":[0.2,0.1]}}
+  - wave(steps, height_cm) -> {"primitive":"wave","params":{"steps":2,"height_cm":80}}
 
   Common mistakes that will fail syntax checks:
-  - Wrong: {"primitive":"form_cone","params":{"drone_ids":[1,2,3],"delta_height_cm":60,"spacing_cm":60,"is_inverted":0}} because form_cone has no drone_ids param.
-  - Wrong: {"primitive":"spiral_speed","params":{"steps":3,"height_cm":100,"angle_deg":90,"degrees":180,"radius_increase":1}} because spiral_speed has no angle_deg param.
+  - Wrong: {"primitive":"form_cone","params":{"drone_ids":[1,2,3],...}} because form_cone has no drone_ids param.
+  - Wrong: {"primitive":"spiral_speed","params":{"steps":3,"angle_deg":90,...}} because spiral_speed uses 'degrees', not 'angle_deg'.
   - Wrong: {"primitive":"move_z","params":{"delta_cm":30}} because move_z also needs drone_ids.
+  - Wrong: {"primitive":"form_star","params":{"height_cm":100,"min_spacing_cm":60,"delta_radius_cm":80}} because form_star also needs time_to_finish_s.

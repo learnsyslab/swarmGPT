@@ -191,8 +191,8 @@ class DroneSwarm:
         choreography: dict[str, BSpline],
         t_end: float,
         *,
-        color_top: dict[str, dict[float, Array]] | None = None,
-        color_bot: dict[str, dict[float, Array]] | None = None,
+        color_top: dict[str, dict[float, Array]] = {},
+        color_bot: dict[str, dict[float, Array]] = {},
     ):
         """Execute a choreography with position, orientation, and light commands.
 
@@ -203,10 +203,10 @@ class DroneSwarm:
             color_bot: Bottom deck color cues in the form {uri: {time: wrgb}}.
         """
         self._validate_required_uris("choreography", choreography)
-        if color_top is None and color_bot is None:
+        if not color_top and not color_bot:
             logger.warning("No colors provided for choreography.")
-        self._validate_known_uris("color_top", color_top or {})
-        self._validate_known_uris("color_bot", color_bot or {})
+        self._validate_known_uris("color_top", color_top)
+        self._validate_known_uris("color_bot", color_bot)
 
         async def _execute(uri: str) -> None:
             await self._change_commander_level(uri, "low")
@@ -214,8 +214,8 @@ class DroneSwarm:
                 uri,
                 t_end,
                 lambda t: np.asarray([*choreography[uri](t), 0.0], dtype=float),
-                (color_top or {}).get(uri, {}),
-                (color_bot or {}).get(uri, {}),
+                color_top.get(uri, {}),
+                color_bot.get(uri, {}),
             )
 
         self._run(
@@ -448,7 +448,7 @@ class DroneSwarm:
 
         if failures:
             raise RuntimeError(
-                "Lighthouse deck check failed. Expected "
+                "Lighthouse deck check failed. Are you using lighthouse? Expected "
                 f"{_LIGHTHOUSE_DECK_PARAM}=1 for every drone: {'; '.join(failures)}"
             )
 

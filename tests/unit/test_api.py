@@ -14,6 +14,7 @@ def test_normalize_playback_schema():
     backend = SimpleNamespace(
         settings={"axswarm": {"pos_min": [-1, -1, 0], "pos_max": [1, 1, 2]}},
         music_manager=SimpleNamespace(song="Example Song"),
+        crop_window=lambda song: (0.0, 60.0),
     )
     states = np.zeros((2, 3, 13))
     states[:, :, 3:7] = [0, 0, 0, 1]
@@ -22,6 +23,7 @@ def test_normalize_playback_schema():
     )
     assert payload["schemaVersion"] == 1
     assert payload["audioUrl"] == "/api/media/music/Example%20Song"
+    assert payload["audioOffset"] == 0.0
     assert payload["numDrones"] == 3
     assert payload["fields"]["pos"] == [0, 3]
     assert len(payload["states"]) == len(payload["timestamps"])
@@ -42,11 +44,11 @@ def test_normalize_playback_rejects_mismatched_states():
 def test_app_and_library_metadata_build(tmp_path: Path):
     (tmp_path / "Test Song.mp3").write_bytes(b"")
     app = create_app(ApiConfig(music_dir=tmp_path))
-    backend = _backend_from_config(ApiConfig(music_dir=tmp_path), "openai", "gpt-4o")
+    backend = _backend_from_config(ApiConfig(music_dir=tmp_path), "openai", "gpt-5.4-nano")
 
     assert app.title == "SwarmGPT Browser API"
     assert backend.songs == ["Test Song"]
-    assert DEFAULT_OPENAI_MODEL_CHOICES[0] == "gpt-4o"
+    assert DEFAULT_OPENAI_MODEL_CHOICES[0] == "gpt-5.4-nano"
 
 
 def test_library_returns_preset_display_metadata_and_delete(tmp_path: Path):

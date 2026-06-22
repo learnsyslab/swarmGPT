@@ -21,12 +21,12 @@ motion_primitives = {
     "spiral_speed": {"n_args": 4},
     "helix": {"n_args": 3},
     "plan": {"n_args": 1},
-    "form_circle": {"n_args": 2},
+    "form_circle": {"n_args": 4},
     "zig_zag": {"n_args": 3},
-    "wave": {"n_args": 5},
+    "wave": {"n_args": 2},
     "twister": {"n_args": 3},
-    "form_star": {"n_args": 3},
-    "form_cone": {"n_args": 3},
+    "form_star": {"n_args": 4},
+    "form_cone": {"n_args": 4},
 }
 
 
@@ -52,7 +52,7 @@ def rotate(
     """Rotate all drones by angle theta."""
     angle, axis = params
     angle = np.deg2rad(float(angle))
-    steps = int(tend - tstart)  # Number of steps to rotate
+    steps = max(1, min(int(tend - tstart), 2))  # Number of steps to rotate
     # override rotation to be around z axis atm
     if "z" in axis:
         axis = np.array([0, 0, 1])
@@ -126,7 +126,7 @@ def spiral_speed(
     steps, height, degrees, increase = params
     n_drones = swarm_pos.shape[0]
     min_spacing = 60  # Minimum distance between drones in cm
-    steps = int(tend - tstart)
+    steps = max(1, min(int(tend - tstart), 2))
 
     # Calculate the circumference needed to place all drones with at least the minimum spacing
     start_radius = min_spacing / (2 * np.sin(np.pi / n_drones))
@@ -228,7 +228,7 @@ def helix(
 
 
 def wave(
-    params: tuple[int, int, list[tuple[float, float]], list[float], list[float]],
+    params: tuple[int, int],
     swarm_pos: NDArray,
     tstart: float,
     tend: float,
@@ -237,13 +237,13 @@ def wave(
     """Specific wave pattern.
 
     Args:
-        params: [steps, height, µ_pairs, aµ1µ2, bµ1µ2]
+        params: [steps, height_cm]
         swarm_pos: Current positions of the drones.
         tstart: Start time of the primitive.
         tend: End time of the primitive.
         limits: Spatial limits for the drones.
     """
-    steps, height, mu_pairs, a_mu, b_mu = params
+    steps, height = params
     steps = int(steps)
     # TODO: Tune default values
     a = 100.0  # Rectangle length
@@ -284,14 +284,14 @@ def wave(
 
 
 def form_star(
-    params: tuple[int, int, int],
+    params: tuple[int, int, int, float],
     swarm_pos: NDArray,
     tstart: float,
     tend: float,
     limits: dict[str, NDArray],
 ) -> tuple[NDArray, dict[float, dict[int, NDArray]]]:
     """Form a star shape with the drones with {n_drones}//2 spokes."""
-    height, min_spacing, delta_radius = params
+    height, min_spacing, delta_radius, time_to_finish_s = params
     min_spacing = max(min_spacing, 40)
     delta_radius = max(delta_radius, 40)
     n_drones = swarm_pos.shape[0]
@@ -318,21 +318,20 @@ def form_star(
         des_pos = np.vstack([des_pos, np.array([0, 0, height]).T])
 
     assignment = _assign_positions(swarm_pos, des_pos)
-
-    waypoints = {}
-    waypoints[tend] = {i: p.copy() for i, p in enumerate(des_pos[assignment])}
-    return des_pos[assignment], waypoints
+    target = des_pos[assignment]
+    waypoints = _formation_waypoints(target, swarm_pos, tstart, tend, time_to_finish_s)
+    return target, waypoints
 
 
 def form_cone(
-    params: tuple[int, int, bool],
+    params: tuple[int, int, bool, float],
     swarm_pos: NDArray,
     tstart: float,
     tend: float,
     limits: dict[str, NDArray],
 ) -> tuple[NDArray, dict[float, dict[int, NDArray]]]:
     """Form a cone with the drones."""
-    delta_height, spacing, is_inverted = params
+    delta_height, spacing, is_inverted, time_to_finish_s = params
     n_drones = swarm_pos.shape[0]
 
     # Define limits
@@ -365,10 +364,9 @@ def form_cone(
         des_pos = np.vstack([des_pos, np.array([x, y, [z] * drones_in_layer]).T])
 
     assignment = _assign_positions(swarm_pos, des_pos)
-
-    waypoints = {}
-    waypoints[tend] = {i: p.copy() for i, p in enumerate(des_pos[assignment])}
-    return des_pos[assignment], waypoints
+    target = des_pos[assignment]
+    waypoints = _formation_waypoints(target, swarm_pos, tstart, tend, time_to_finish_s)
+    return target, waypoints
 
 
 def twister(
@@ -441,21 +439,21 @@ def center(
 
 
 def form_circle(
-    params: tuple[list[int], int],
+    params: tuple[list[int], int, int, float],
     swarm_pos: NDArray,
     tstart: float,
     tend: float,
     limits: dict[str, NDArray],
 ) -> tuple[NDArray, dict[float, dict[int, NDArray]]]:
-    """Position drones around the circumference of a circle at height z with at least {min_spacing} cm apart."""
-    drone_ids, z_coord = params
+    """Position drones around the circumference of a circle at a given radius and height."""
+    drone_ids, radius_cm, z_coord_cm, time_to_finish_s = params
     drone_ids = _sanitize_drone_ids(drone_ids, swarm_pos.shape[0])
     n_drones = len(drone_ids)
-    z_coord = int(z_coord)  # z coordinate in cm
+    z_coord = int(z_coord_cm)
     min_spacing = 80  # Minimum distance between drones in cm
-    # Calculate the circumference needed to place all drones with at least the minimum spacing
-    # If radius is bigger than the limits, make concentric circles
-    radius = min_spacing / (2 * np.sin(np.pi / n_drones))
+    min_radius = min_spacing / (2 * np.sin(np.pi / n_drones))
+    # Respect LLM-specified radius but enforce minimum safe spacing
+    radius = max(float(radius_cm), min_radius)
     lim_upper, lim_lower = limits["upper"], limits["lower"]
     max_diameter = min(lim_upper[0] - lim_lower[0], lim_upper[1] - lim_lower[1])
     max_radius = max_diameter * 100 / 2
@@ -481,10 +479,12 @@ def form_circle(
             des_pos = np.vstack([des_pos, np.array([x, y, [z_coord] * n]).T])
 
     assignment = _assign_positions(swarm_pos[drone_ids], des_pos)
-    waypoints = {}
-    waypoints[tend] = {i: p.copy() for i, p in enumerate(des_pos[assignment])}
+    target = des_pos[assignment]
+    waypoints = _formation_waypoints(
+        target, swarm_pos[drone_ids], tstart, tend, time_to_finish_s, drone_ids=drone_ids
+    )
     pos = swarm_pos.copy()
-    pos[drone_ids] = des_pos[assignment]
+    pos[drone_ids] = target
     return pos, waypoints
 
 
@@ -515,11 +515,13 @@ def move_z(
     """Move the drones along the z-axis."""
     drone_ids, distance = params
     drone_ids = _sanitize_drone_ids(drone_ids, swarm_pos.shape[0])
-    steps = int(tend - tstart)
+    steps = max(1, min(int(tend - tstart), 2))
 
+    z_min = limits["lower"][2] * 100
+    z_max = limits["upper"][2] * 100
     waypoints = {}
     for t in np.linspace(tstart, tend, steps + 1)[1:]:
-        swarm_pos[drone_ids, 2] = np.clip(swarm_pos[drone_ids, 2] + distance / steps, 100, 200)
+        swarm_pos[drone_ids, 2] = np.clip(swarm_pos[drone_ids, 2] + distance / steps, z_min, z_max)
         waypoints[t] = {i: swarm_pos[i].copy() for i in drone_ids}
 
     return swarm_pos, waypoints
@@ -595,3 +597,84 @@ def _assign_positions(pos: NDArray, des_pos: NDArray) -> NDArray:
     dist = np.linalg.norm(pos[:, None, :] - des_pos[None, :, :], axis=-1)
     # Use the Hungarian algorithm to find the optimal assignment
     return linear_sum_assignment(dist)[1]
+
+
+# Effective speed cap used when scheduling formation arrivals. Held below axswarm's
+# vel_max=1.73 m/s to leave the MPC headroom; matches the convention used by `rotate`
+# and `spiral`. HEADROOM is a multiplicative buffer for the solver's smoothness and
+# input-continuity penalties; T_MIN prevents trivially small moves from scheduling
+# zero-duration arrivals that the MPC can't track cleanly.
+_FORMATION_V_EFF_MPS = 1.0
+_FORMATION_HEADROOM = 1.3
+_FORMATION_T_MIN_S = 0.5
+# MPC lookahead window length (K=50 timesteps at freq=10 Hz). Hold waypoints are
+# only emitted when the remaining interval exceeds this, so the axswarm lookahead
+# is never empty without flooding the waypoints array for normal-length intervals.
+_MPC_HORIZON_S = 5.0
+
+
+def _formation_arrival_time(
+    target_pos: NDArray, current_pos: NDArray, tstart: float, tend: float
+) -> float:
+    """Estimate the earliest feasible arrival time for a formation primitive.
+
+    Sizes the interval to the bottleneck drone's displacement at an effective max
+    velocity (with headroom for MPC smoothness), then clamps to ``[tstart, tend]``.
+
+    Args:
+        target_pos: Desired post-assignment drone positions in cm, shape (n, 3).
+        current_pos: Current positions of the same drones in cm, shape (n, 3).
+        tstart: Interval start time in seconds.
+        tend: Interval end time in seconds.
+
+    Returns:
+        Arrival time in seconds, in ``[tstart, tend]``.
+    """
+    max_travel_m = float(np.linalg.norm(target_pos - current_pos, axis=-1).max()) / 100
+    travel_time = max(max_travel_m / _FORMATION_V_EFF_MPS * _FORMATION_HEADROOM, _FORMATION_T_MIN_S)
+    return min(tstart + travel_time, tend)
+
+
+def _formation_waypoints(
+    target_pos: NDArray,
+    current_pos: NDArray,
+    tstart: float,
+    tend: float,
+    time_to_finish_s: float,
+    drone_ids: list[int] | None = None,
+) -> dict[float, dict[int, NDArray]]:
+    """Schedule a formation arrival at the LLM-chosen time (clamped to physics + interval).
+
+    The physics floor is the existing ``_formation_arrival_time`` duration; ``time_to_finish_s``
+    is clamped between that floor and the full interval. Hold waypoints are emitted only when
+    the remaining interval exceeds ``_MPC_HORIZON_S`` — i.e. only when axswarm's lookahead
+    would otherwise be empty — spaced ``_MPC_HORIZON_S`` apart. For typical inter-beat
+    intervals (< 5s) no hold waypoints are emitted, keeping the waypoints array small.
+
+    Args:
+        target_pos: Desired post-assignment drone positions in cm, shape (n, 3).
+        current_pos: Current positions of the same drones in cm, shape (n, 3).
+        tstart: Interval start time in seconds.
+        tend: Interval end time in seconds.
+        time_to_finish_s: LLM-requested arrival duration in seconds. Clamped to
+            ``[physics_min_duration, tend - tstart]``.
+        drone_ids: Global 0-indexed drone IDs corresponding to rows of ``target_pos``.
+            When ``None``, indices 0..n-1 are used (full-swarm primitives).
+
+    Returns:
+        ``{time: {drone_id: pos}}`` waypoints covering ``[arrival, tend]``.
+    """
+    ids = drone_ids if drone_ids is not None else list(range(len(target_pos)))
+    physics_min_duration = _formation_arrival_time(target_pos, current_pos, tstart, tend) - tstart
+    duration = float(np.clip(time_to_finish_s, physics_min_duration, tend - tstart))
+    arrival = tstart + duration
+    entry = {d: p.copy() for d, p in zip(ids, target_pos)}
+    waypoints: dict[float, dict[int, NDArray]] = {arrival: entry}
+    # Only emit holds when the lookahead window would otherwise be empty.
+    t = arrival + _MPC_HORIZON_S
+    while t < tend:
+        waypoints[t] = {d: p.copy() for d, p in zip(ids, target_pos)}
+        t += _MPC_HORIZON_S
+    if arrival < tend:
+        waypoints[tend] = {d: p.copy() for d, p in zip(ids, target_pos)}
+    return waypoints
