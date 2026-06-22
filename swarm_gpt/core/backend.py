@@ -324,7 +324,7 @@ class AppBackend:
             landing_pos = obs["pos"] if self.settings["land_on_docks"] else d["pos"]
             # TODO fix hard coded yaw
             init_pos_dict[uri] = np.array([*init_pos, 0.0])
-            final_pos_dict[uri] = np.array([*landing_pos + np.array([0.0, 0.0, 0.8]), 0.0])
+            final_pos_dict[uri] = np.array([*landing_pos + np.array([0.0, 0.0, 0.5]), 0.0])
             landing_pos_dict[uri] = np.array([*landing_pos - np.array([0.0, 0.0, 0.2]), 0.0])
             choreography_dict[uri] = self.splines[i]
             color_top[uri] = {
@@ -349,22 +349,27 @@ class AppBackend:
                     taken_off = False
                     continue
                 try:
-                    z = swarm.get_obs(uri)["pos"][2]
+                    logger.debug(f"Trying to get obs for {uri}")
+                    obs = swarm.get_obs(uri)
+                    logger.debug(f"got obs for {uri}")
+                    z = obs["pos"][2]
+                    qw = np.abs(obs["quat"][-1])
                 # Demo fix: If the drone is disconnected, we cannot get its position. We assume it has not taken off.
                 # TODO: Replace the general exception catch with the specific cflib2 exception.
                 except Exception as e:
                     logger.warning(f"Could not get position for drone {uri} after takeoff: {e}")
                     taken_off = False
                     continue
-                if z < 0.2:
+                if z < 0.2 or qw < 0.8:
                     taken_off = False
-                    logger.warning(f"Drone {uri} has not taken off yet: z={z:.2f}m")
+                    logger.warning(f"Drone {uri} has not taken off yet: z={z:.2f}m, qw={qw:.2f}")
             if taken_off:
                 if not self.music_manager.play(wait=True, start_s=play_start_s, end_s=play_end_s):
                     logger.error(
                         "VLC could not start playback; skipping choreography (drones will land)."
                     )
                 else:
+                    logger.debug("Starting choreography execution")
                     swarm.execute_choreography(
                         choreography_dict,
                         self.waypoints["time"][0, -1],
@@ -373,9 +378,9 @@ class AppBackend:
                     )
             self.music_manager.stop()
             swarm.goto(final_pos_dict, duration=2.0)  # Transition from ideal point to hover pos
-            # if self.settings["land_on_docks"]: # Commented out for demo
-            #     swarm.goto(final_pos_dict, duration=5.0)  # Hovering
-            swarm.goto(landing_pos_dict, duration=1.5)  # Landing
+            if self.settings["land_on_docks"]: # Commented out for demo
+                swarm.goto(final_pos_dict, duration=3.0)  # Hovering
+            swarm.land(duration=1.5)  # Landing
         finally:
             swarm.close()
         logger.info("Deployment successful")
