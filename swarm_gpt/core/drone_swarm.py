@@ -40,8 +40,8 @@ class DroneSwarm:
     def __init__(
         self,
         drones: dict[str, dict[str, Array]],
-        ctrl_freq: float = 100,
-        update_freq: float = 50,
+        ctrl_freq: float = 50,
+        update_freq: float = 20,
         col_freq: float = 10,
         lighthouse: bool = True,
     ):
