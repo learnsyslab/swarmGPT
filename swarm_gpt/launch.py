@@ -2,7 +2,6 @@
 
 import logging
 import os
-import signal
 import sys
 from pathlib import Path
 from types import FrameType
@@ -55,21 +54,21 @@ def main(
         )
     )
     server = uvicorn.Server(uvicorn.Config(app, host=host, port=port))
-    # uvicorn's own SIGINT handler only triggers a graceful shutdown, which waits on the
-    # open events WebSocket and lets the deploy thread keep streaming setpoints. Take over
-    # SIGINT in the main thread to cut the motors immediately before shutting down.
-    server.install_signal_handlers = lambda: None
+    # uvicorn captures SIGINT/SIGTERM itself (Server.capture_signals installs self.handle_exit)
+    # and only starts a graceful shutdown, which waits on the open events WebSocket while the
+    # deploy thread keeps flying. Wrap handle_exit so the first Ctrl+C cuts the motors before
+    # uvicorn begins draining. capture_signals installs whatever self.handle_exit is at call time.
+    uvicorn_handle_exit = server.handle_exit
 
-    def _emergency_shutdown(_signum: int, _frame: FrameType | None) -> None:
+    def handle_exit(sig: int, frame: FrameType | None) -> None:
         logging.warning("Ctrl+C received: emergency-stopping all active swarms.")
         try:
             app.state.store.emergency_stop_all()
         except Exception:
             logging.exception("Emergency stop during shutdown failed")
-        server.should_exit = True
+        uvicorn_handle_exit(sig, frame)
 
-    signal.signal(signal.SIGINT, _emergency_shutdown)
-    signal.signal(signal.SIGTERM, _emergency_shutdown)
+    server.handle_exit = handle_exit
     try:
         server.run()
     finally:
