@@ -166,6 +166,18 @@ class JobStore:
             job = self.get(job_id)
             return [event for event in job.events if event["id"] > after_id]
 
+    def emergency_stop_all(self) -> None:
+        """Emergency-stop every job that currently has an active deployment swarm."""
+        with self._lock:
+            jobs = list(self._jobs.values())
+        for job in jobs:
+            try:
+                job.backend.emergency_stop_active_swarm()
+            except RuntimeError:
+                continue  # No active deployment swarm for this job.
+            except Exception:
+                logger.exception("Emergency stop failed for job %s", job.id)
+
 
 def _backend_from_config(config: ApiConfig, provider: LLMProvider, model_id: str) -> AppBackend:
     return AppBackend(
@@ -342,6 +354,7 @@ def create_app(config: ApiConfig | None = None) -> FastAPI:
     config = config or ApiConfig()
     store = JobStore()
     app = FastAPI(title="SwarmGPT Browser API", lifespan=_app_lifespan)
+    app.state.store = store
 
     @app.get("/api/library")
     def library() -> dict[str, Any]:

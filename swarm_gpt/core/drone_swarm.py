@@ -34,8 +34,11 @@ logger.setLevel(logging.INFO)
 _DISCONNECT_ERRORS = (DisconnectedError, LinkError, TimeoutError)
 _LIGHTHOUSE_DECK_PARAM = "deck.bcLighthouse4"
 _POWER_CYCLE_BOOT_WAIT = 3.0
-_EMERGENCY_STOP_TIMEOUT = 0.5
 _CommanderLevel = Literal["low", "high"]
+
+
+class EmergencyStopActive(RuntimeError):
+    """Raised when a motion command is issued after the emergency-stop latch is set."""
 
 
 class DroneSwarm:
@@ -76,6 +79,7 @@ class DroneSwarm:
         self._estimator_stop_event: Event | None = None
         self._estimator_future: Future[None] | None = None
         self._closed = False
+        self._estop = threading.Event()
 
         if not lighthouse:
             from drone_estimators.ros_nodes.ros2_connector import ROSConnector
@@ -126,6 +130,7 @@ class DroneSwarm:
 
     def takeoff(self, height: float = 1.5, duration: float = 3.0):
         """Take off the drones to a given height over a given duration."""
+        self._ensure_not_estopped()
 
         async def _takeoff(uri: str) -> None:
             cf = self._cf(uri)
@@ -137,6 +142,7 @@ class DroneSwarm:
 
     def land(self, height: float = 0.0, duration: float = 3.0):
         """Land the drones at a given height over a given duration."""
+        self._ensure_not_estopped()
 
         async def _land(uri: str) -> None:
             cf = self._cf(uri)
@@ -155,6 +161,7 @@ class DroneSwarm:
             target: Position+Yaw references in the form {'uri1': [target], ...}.
             duration: Duration of the motion in seconds.
         """
+        self._ensure_not_estopped()
         self._validate_required_uris("pos", target)
         for uri, setpoint in target.items():
             if len(setpoint) != 4:
@@ -176,6 +183,7 @@ class DroneSwarm:
         Args:
             target: Position+Yaw references in the form {'uri1': [target], ...}.
         """
+        self._ensure_not_estopped()
         self._validate_required_uris("pos", target)
         for uri, setpoint in target.items():
             if len(setpoint) != 4:
@@ -202,7 +210,11 @@ class DroneSwarm:
             t_end: End time of the choreography.
             color_top: Top deck color cues in the form {uri: {time: wrgb}}.
             color_bot: Bottom deck color cues in the form {uri: {time: wrgb}}.
+
+        Raises:
+            EmergencyStopActive: If the emergency-stop latch is set before or during playback.
         """
+        self._ensure_not_estopped()
         self._validate_required_uris("choreography", choreography)
         if not color_top and not color_bot:
             logger.warning("No colors provided for choreography.")
@@ -224,6 +236,7 @@ class DroneSwarm:
                 "Choreography execution", self.uris, _execute, timeout=t_end + 1.0
             )
         )
+        self._ensure_not_estopped()
 
     def apply_colors(self, color_top: dict[str, Array] | None, color_bot: dict[str, Array] | None):
         """Apply colors to the drones.
@@ -263,13 +276,24 @@ class DroneSwarm:
         )
 
     def emergency_stop(self, uri: str | None = None):
-        """Send an emergency stop signal to one URI or all drones (default)."""
+        """Send an emergency stop signal to one URI or all drones (default).
+
+        Sets a latch that halts the choreography stream and blocks further motion
+        commands so fresh setpoints cannot override the motor cut.
+        """
+        self._estop.set()
         if uri is None:
             uris = self.uris
         else:
             self._validate_known_uris("uri", {uri: None})
             uris = [uri]
-        self._run(self._emergency_stop_many(uris))
+        try:
+            self._run(
+                self._parallel_by_uri("Emergency stop", uris, self._emergency_stop, timeout=0.5)
+            )
+        except Exception as exc:
+            # Best-effort: one unreachable drone must not stop the others from being cut.
+            logger.error(f"Emergency stop encountered errors: {exc}")
 
     def reset(self):
         """Reset all active drones."""
@@ -313,10 +337,12 @@ class DroneSwarm:
             await self._apply_drone_color(uri, np.zeros(4), "both")
 
         async def _close() -> None:
-            active_uris = [uri for uri in self.uris if uri in self.cfs]
+            active_uris = [uri for uri in self.uris if uri in self.active_uris]
             if active_uris:
                 try:
-                    await self._emergency_stop_many(active_uris)
+                    await self._parallel_by_uri(
+                        "Emergency stop", active_uris, self._emergency_stop, timeout=0.5
+                    )
                     await asyncio.sleep(0.1)
                     await self._parallel_by_uri(
                         "Shutdown LEDs", active_uris, _shutdown_leds, timeout=0.5
@@ -344,23 +370,21 @@ class DroneSwarm:
             if self.ros_connector is not None:
                 self.ros_connector.close()
 
-    def _run(self, coroutine: Awaitable[Any]) -> Any:
-        """Run a cflib2 coroutine on the swarm event loop."""
-        if self._loop_thread is not None or self._loop.is_running():
-            future = asyncio.run_coroutine_threadsafe(coroutine, self._loop)
-            try:
-                return future.result()
-            except BaseException:
-                future.cancel()
-                raise
+    def _ensure_not_estopped(self) -> None:
+        """Block forward-motion commands once the emergency-stop latch is set."""
+        if self._estop.is_set():
+            raise EmergencyStopActive("Swarm is emergency-stopped; motion commands are blocked.")
 
-        task = self._loop.create_task(coroutine)
-        try:
-            return self._loop.run_until_complete(task)
-        except BaseException:
-            task.cancel()
-            self._loop.run_until_complete(asyncio.gather(task, return_exceptions=True))
-            raise
+    def _run(self, coroutine: Awaitable[Any]) -> Any:
+        """Run a cflib2 coroutine on the swarm event loop.
+
+        Dispatches across threads when the loop is owned by another thread (the estimator
+        updater) or already running (a deployment driving it), so emergency stops issued
+        from the request or signal-handler threads still reach the swarm.
+        """
+        if self._loop_thread is not None or self._loop.is_running():
+            return asyncio.run_coroutine_threadsafe(coroutine, self._loop).result()
+        return self._loop.run_until_complete(coroutine)
 
     def _start_estimator_updater(self) -> None:
         """Start continuous mocap updates after the radio links are connected."""
@@ -488,26 +512,8 @@ class DroneSwarm:
                 logger.error(f"{action_name} failed for {uri}: {result}")
         return results
 
-    async def _emergency_stop_many(self, uris: Iterable[str]) -> None:
-        """Best-effort emergency stop for every connected URI without cross-drone blocking."""
-        target_uris = [uri for uri in uris if uri in self.cfs]
-
-        async def _stop_one(uri: str) -> None:
-            try:
-                await asyncio.wait_for(self._emergency_stop(uri), timeout=_EMERGENCY_STOP_TIMEOUT)
-                self._commander_levels[uri] = None
-            except Exception as exc:
-                if isinstance(exc, _DISCONNECT_ERRORS):
-                    self.active_uris.discard(uri)
-                    self._commander_levels[uri] = None
-                    logger.error(f"{uri} disconnected or unreachable. Emergency stop failed: {exc}")
-                else:
-                    logger.error(f"Emergency stop failed for {uri}: {exc}")
-
-        await asyncio.gather(*[_stop_one(uri) for uri in target_uris])
-
     async def _emergency_stop(self, uri: str) -> None:
-        await self.cfs[uri].localization().emergency().send_emergency_stop()
+        await self._cf(uri).localization().emergency().send_emergency_stop()
 
     async def _change_commander_level(self, uri: str, level: _CommanderLevel) -> None:
         """Switch commander level only when local state expects a different mode."""
@@ -635,6 +641,8 @@ class DroneSwarm:
         t_col = -np.inf
 
         while (t_cur := asyncio.get_running_loop().time() - start_time) < duration:
+            if self._estop.is_set():
+                return
             await commander.send_setpoint_position(*reference(t_cur))
 
             if t_cur - t_col >= color_period:

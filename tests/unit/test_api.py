@@ -153,3 +153,23 @@ def test_emergency_stop_endpoint_runs_while_deploy_is_active(
 
     assert stop_response.json() == {"jobId": job_id, "emergencyStopped": True}
     assert backend.emergency_stop_calls == 1
+
+
+def test_emergency_stop_all_stops_active_swarms_and_skips_idle_jobs() -> None:
+    calls: list[str] = []
+
+    class ActiveBackend:
+        def emergency_stop_active_swarm(self) -> None:
+            calls.append("active")
+
+    class IdleBackend:
+        def emergency_stop_active_swarm(self) -> None:
+            raise RuntimeError("No active deployment swarm to emergency stop.")
+
+    store = server.JobStore()
+    store.create(ActiveBackend())  # type: ignore[arg-type]
+    store.create(IdleBackend())  # type: ignore[arg-type]
+
+    store.emergency_stop_all()
+
+    assert calls == ["active"]

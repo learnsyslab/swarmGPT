@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 from cflib2.error import DisconnectedError
 
-from swarm_gpt.core.drone_swarm import DroneSwarm
+from swarm_gpt.core.drone_swarm import DroneSwarm, EmergencyStopActive
 
 
 class FakeParam:
@@ -90,48 +90,8 @@ def make_swarm(uris: list[str]) -> DroneSwarm:
     swarm._commander_levels = dict.fromkeys(uris)
     swarm._loop = asyncio.new_event_loop()
     swarm._loop_thread = None
+    swarm._estop = threading.Event()
     return swarm
-
-
-def test_run_cancels_threadsafe_command_when_keyboard_interrupt_escapes(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    class InterruptingFuture:
-        def __init__(self) -> None:
-            self.cancelled = False
-
-        def result(self) -> None:
-            raise KeyboardInterrupt
-
-        def cancel(self) -> None:
-            self.cancelled = True
-
-    future = InterruptingFuture()
-    captured: dict[str, Any] = {}
-    swarm = make_swarm([])
-    swarm._loop_thread = threading.Thread()
-
-    async def command() -> None:
-        return None
-
-    def run_coroutine_threadsafe(
-        coroutine: Any, loop: asyncio.AbstractEventLoop
-    ) -> InterruptingFuture:
-        captured["coroutine"] = coroutine
-        captured["loop"] = loop
-        return future
-
-    monkeypatch.setattr(asyncio, "run_coroutine_threadsafe", run_coroutine_threadsafe)
-
-    try:
-        with pytest.raises(KeyboardInterrupt):
-            swarm._run(command())
-    finally:
-        captured["coroutine"].close()
-        swarm._loop.close()
-
-    assert captured["loop"] is swarm._loop
-    assert future.cancelled
 
 
 def test_run_schedules_threadsafe_when_loop_is_already_running():
@@ -186,6 +146,41 @@ def test_emergency_stop_one_hung_drone_does_not_block_others():
         swarm._loop.close()
 
     assert stopped == [uris[1]]
+
+
+def test_emergency_stop_sets_latch_and_blocks_motion():
+    uris = ["radio://0/80/2M/E7E7E7E701"]
+    swarm = make_swarm(uris)
+
+    async def emergency_stop(uri: str) -> None:
+        return None
+
+    swarm._emergency_stop = emergency_stop
+
+    try:
+        swarm.emergency_stop()
+        assert swarm._estop.is_set()
+        with pytest.raises(EmergencyStopActive):
+            swarm.goto({uris[0]: [0.0, 0.0, 1.0, 0.0]})
+        with pytest.raises(EmergencyStopActive):
+            swarm.land()
+    finally:
+        swarm._loop.close()
+
+
+def test_stream_reference_stops_immediately_when_estopped():
+    uris = ["radio://0/80/2M/E7E7E7E701"]
+    swarm = make_swarm(uris)
+    swarm.ctrl_freq = 50
+    swarm.col_freq = 10
+    swarm._estop.set()
+
+    try:
+        swarm._loop.run_until_complete(swarm._stream_reference(uris[0], 5.0, lambda t: np.zeros(4)))
+    finally:
+        swarm._loop.close()
+
+    assert swarm.cfs[uris[0]].fake_commander.setpoints == []
 
 
 def test_estimator_updater_copies_batch_and_skips_inactive_drones():
