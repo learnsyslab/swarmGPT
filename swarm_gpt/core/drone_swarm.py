@@ -211,9 +211,6 @@ class DroneSwarm:
             t_end: End time of the choreography.
             color_top: Top deck color cues in the form {uri: {time: wrgb}}.
             color_bot: Bottom deck color cues in the form {uri: {time: wrgb}}.
-
-        Raises:
-            EmergencyStopActive: If the emergency-stop latch is set before or during playback.
         """
         self._ensure_not_estopped()
         self._validate_required_uris("choreography", choreography)
@@ -237,7 +234,6 @@ class DroneSwarm:
                 "Choreography execution", self.uris, _execute, timeout=t_end + 1.0
             )
         )
-        self._ensure_not_estopped()
 
     def apply_colors(self, color_top: dict[str, Array] | None, color_bot: dict[str, Array] | None):
         """Apply colors to the drones.
@@ -288,17 +284,15 @@ class DroneSwarm:
         else:
             self._validate_known_uris("uri", {uri: None})
             uris = [uri]
+        # In-flight loop coroutines self-cut on the latch; this also sends the packet directly
+        # to cover idle windows. Bounded so the caller never blocks on a loop that has stopped.
         coro = self._parallel_by_uri("Emergency stop", uris, self._emergency_stop, timeout=0.5)
         try:
             if self._loop_thread is not None or self._loop.is_running():
-                # The latch already makes in-flight loop coroutines cut their own motors; this
-                # is a bounded fallback so the caller (signal handler / request) never blocks
-                # waiting on a loop that may have stopped after the self-cut.
                 asyncio.run_coroutine_threadsafe(coro, self._loop).result(timeout=1.0)
             else:
                 self._loop.run_until_complete(coro)
         except Exception as exc:
-            # Best-effort: one unreachable drone must not stop the others from being cut.
             logger.error(f"Emergency stop encountered errors: {exc}")
 
     def reset(self):
@@ -382,18 +376,9 @@ class DroneSwarm:
             raise EmergencyStopActive("Swarm is emergency-stopped; motion commands are blocked.")
 
     async def _estop_guarded_sleep(self, uri: str, duration: float) -> bool:
-        """Wait up to ``duration``, cutting this drone's motors at once if the latch trips.
+        """Wait up to ``duration``, cutting ``uri``'s motors from the loop if the latch trips.
 
-        Sends the emergency-stop packet from inside the swarm event loop so the motor cut
-        does not depend on cross-thread scheduling, then returns. Polls finely so an
-        in-flight high-level move is aborted within a control tick of the latch being set.
-
-        Args:
-            uri: The drone to guard and, if latched, stop.
-            duration: Total time to wait when the latch is not set.
-
-        Returns:
-            ``True`` if the latch tripped and the motors were cut, ``False`` otherwise.
+        Returns True if the latch tripped (motors cut), False if it slept the full duration.
         """
         loop = asyncio.get_running_loop()
         deadline = loop.time() + duration
@@ -407,9 +392,8 @@ class DroneSwarm:
     def _run(self, coroutine: Awaitable[Any]) -> Any:
         """Run a cflib2 coroutine on the swarm event loop.
 
-        Dispatches across threads when the loop is owned by another thread (the estimator
-        updater) or already running (a deployment driving it), so emergency stops issued
-        from the request or signal-handler threads still reach the swarm.
+        Dispatches cross-thread when the loop runs in another thread or is already running,
+        so emergency stops from the request or signal-handler threads still reach the swarm.
         """
         if self._loop_thread is not None or self._loop.is_running():
             return asyncio.run_coroutine_threadsafe(coroutine, self._loop).result()
