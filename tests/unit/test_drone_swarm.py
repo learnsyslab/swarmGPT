@@ -33,12 +33,24 @@ class FakeExternalPose:
         self.sent.append((pos, quat))
 
 
+class FakeEmergency:
+    def __init__(self) -> None:
+        self.stops = 0
+
+    async def send_emergency_stop(self) -> None:
+        self.stops += 1
+
+
 class FakeLocalization:
     def __init__(self) -> None:
         self.fake_external_pose = FakeExternalPose()
+        self.fake_emergency = FakeEmergency()
 
     def external_pose(self) -> FakeExternalPose:
         return self.fake_external_pose
+
+    def emergency(self) -> FakeEmergency:
+        return self.fake_emergency
 
 
 class FakeCrazyflie:
@@ -168,7 +180,7 @@ def test_emergency_stop_sets_latch_and_blocks_motion():
         swarm._loop.close()
 
 
-def test_stream_reference_stops_immediately_when_estopped():
+def test_stream_reference_cuts_motors_immediately_when_estopped():
     uris = ["radio://0/80/2M/E7E7E7E701"]
     swarm = make_swarm(uris)
     swarm.ctrl_freq = 50
@@ -180,7 +192,36 @@ def test_stream_reference_stops_immediately_when_estopped():
     finally:
         swarm._loop.close()
 
-    assert swarm.cfs[uris[0]].fake_commander.setpoints == []
+    cf = swarm.cfs[uris[0]]
+    assert cf.fake_commander.setpoints == []  # no setpoints streamed
+    assert cf.fake_localization.fake_emergency.stops == 1  # motors cut from the loop
+
+
+def test_estop_guarded_sleep_cuts_motors_when_latched():
+    uris = ["radio://0/80/2M/E7E7E7E701"]
+    swarm = make_swarm(uris)
+    swarm._estop.set()
+
+    try:
+        cut = swarm._loop.run_until_complete(swarm._estop_guarded_sleep(uris[0], 5.0))
+    finally:
+        swarm._loop.close()
+
+    assert cut is True
+    assert swarm.cfs[uris[0]].fake_localization.fake_emergency.stops == 1
+
+
+def test_estop_guarded_sleep_returns_false_without_latch():
+    uris = ["radio://0/80/2M/E7E7E7E701"]
+    swarm = make_swarm(uris)
+
+    try:
+        cut = swarm._loop.run_until_complete(swarm._estop_guarded_sleep(uris[0], 0.0))
+    finally:
+        swarm._loop.close()
+
+    assert cut is False
+    assert swarm.cfs[uris[0]].fake_localization.fake_emergency.stops == 0
 
 
 def test_estimator_updater_copies_batch_and_skips_inactive_drones():

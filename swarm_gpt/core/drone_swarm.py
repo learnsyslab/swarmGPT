@@ -136,7 +136,7 @@ class DroneSwarm:
             cf = self._cf(uri)
             await self._change_commander_level(uri, "high")
             await cf.high_level_commander().take_off(height, None, duration, None)
-            await asyncio.sleep(duration)
+            await self._estop_guarded_sleep(uri, duration)
 
         self._run(self._parallel_by_uri("Taking off", self.uris, _takeoff, timeout=duration + 1.0))
 
@@ -149,7 +149,8 @@ class DroneSwarm:
             await self._change_commander_level(uri, "high")
             high_level_commander = cf.high_level_commander()
             await high_level_commander.land(height, None, duration, None)
-            await asyncio.sleep(duration)
+            if await self._estop_guarded_sleep(uri, duration):
+                return
             await high_level_commander.stop(None)
 
         self._run(self._parallel_by_uri("Landing", self.uris, _land, timeout=duration + 1.0))
@@ -173,7 +174,7 @@ class DroneSwarm:
             await cf.high_level_commander().go_to(
                 *target[uri], duration, relative=False, linear=True, group_mask=None
             )
-            await asyncio.sleep(duration)
+            await self._estop_guarded_sleep(uri, duration)
 
         self._run(self._parallel_by_uri("Goto", self.uris, _goto, timeout=duration + 1.0))
 
@@ -287,10 +288,15 @@ class DroneSwarm:
         else:
             self._validate_known_uris("uri", {uri: None})
             uris = [uri]
+        coro = self._parallel_by_uri("Emergency stop", uris, self._emergency_stop, timeout=0.5)
         try:
-            self._run(
-                self._parallel_by_uri("Emergency stop", uris, self._emergency_stop, timeout=0.5)
-            )
+            if self._loop_thread is not None or self._loop.is_running():
+                # The latch already makes in-flight loop coroutines cut their own motors; this
+                # is a bounded fallback so the caller (signal handler / request) never blocks
+                # waiting on a loop that may have stopped after the self-cut.
+                asyncio.run_coroutine_threadsafe(coro, self._loop).result(timeout=1.0)
+            else:
+                self._loop.run_until_complete(coro)
         except Exception as exc:
             # Best-effort: one unreachable drone must not stop the others from being cut.
             logger.error(f"Emergency stop encountered errors: {exc}")
@@ -374,6 +380,29 @@ class DroneSwarm:
         """Block forward-motion commands once the emergency-stop latch is set."""
         if self._estop.is_set():
             raise EmergencyStopActive("Swarm is emergency-stopped; motion commands are blocked.")
+
+    async def _estop_guarded_sleep(self, uri: str, duration: float) -> bool:
+        """Wait up to ``duration``, cutting this drone's motors at once if the latch trips.
+
+        Sends the emergency-stop packet from inside the swarm event loop so the motor cut
+        does not depend on cross-thread scheduling, then returns. Polls finely so an
+        in-flight high-level move is aborted within a control tick of the latch being set.
+
+        Args:
+            uri: The drone to guard and, if latched, stop.
+            duration: Total time to wait when the latch is not set.
+
+        Returns:
+            ``True`` if the latch tripped and the motors were cut, ``False`` otherwise.
+        """
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + duration
+        while (remaining := deadline - loop.time()) > 0:
+            if self._estop.is_set():
+                await self._emergency_stop(uri)
+                return True
+            await asyncio.sleep(min(0.02, remaining))
+        return False
 
     def _run(self, coroutine: Awaitable[Any]) -> Any:
         """Run a cflib2 coroutine on the swarm event loop.
@@ -642,6 +671,7 @@ class DroneSwarm:
 
         while (t_cur := asyncio.get_running_loop().time() - start_time) < duration:
             if self._estop.is_set():
+                await self._emergency_stop(uri)
                 return
             await commander.send_setpoint_position(*reference(t_cur))
 
