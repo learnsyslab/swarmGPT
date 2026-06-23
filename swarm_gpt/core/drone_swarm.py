@@ -348,8 +348,20 @@ class DroneSwarm:
     def _run(self, coroutine: Awaitable[Any]) -> Any:
         """Run a cflib2 coroutine on the swarm event loop."""
         if self._loop_thread is not None:
-            return asyncio.run_coroutine_threadsafe(coroutine, self._loop).result()
-        return self._loop.run_until_complete(coroutine)
+            future = asyncio.run_coroutine_threadsafe(coroutine, self._loop)
+            try:
+                return future.result()
+            except BaseException:
+                future.cancel()
+                raise
+
+        task = self._loop.create_task(coroutine)
+        try:
+            return self._loop.run_until_complete(task)
+        except BaseException:
+            task.cancel()
+            self._loop.run_until_complete(asyncio.gather(task, return_exceptions=True))
+            raise
 
     def _start_estimator_updater(self) -> None:
         """Start continuous mocap updates after the radio links are connected."""

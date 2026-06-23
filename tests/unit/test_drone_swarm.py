@@ -93,6 +93,47 @@ def make_swarm(uris: list[str]) -> DroneSwarm:
     return swarm
 
 
+def test_run_cancels_threadsafe_command_when_keyboard_interrupt_escapes(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class InterruptingFuture:
+        def __init__(self) -> None:
+            self.cancelled = False
+
+        def result(self) -> None:
+            raise KeyboardInterrupt
+
+        def cancel(self) -> None:
+            self.cancelled = True
+
+    future = InterruptingFuture()
+    captured: dict[str, Any] = {}
+    swarm = make_swarm([])
+    swarm._loop_thread = threading.Thread()
+
+    async def command() -> None:
+        return None
+
+    def run_coroutine_threadsafe(
+        coroutine: Any, loop: asyncio.AbstractEventLoop
+    ) -> InterruptingFuture:
+        captured["coroutine"] = coroutine
+        captured["loop"] = loop
+        return future
+
+    monkeypatch.setattr(asyncio, "run_coroutine_threadsafe", run_coroutine_threadsafe)
+
+    try:
+        with pytest.raises(KeyboardInterrupt):
+            swarm._run(command())
+    finally:
+        captured["coroutine"].close()
+        swarm._loop.close()
+
+    assert captured["loop"] is swarm._loop
+    assert future.cancelled
+
+
 def test_setpoint_sends_once_and_returns():
     uris = ["radio://0/80/2M/E7E7E7E701", "radio://0/80/2M/E7E7E7E702"]
     swarm = make_swarm(uris)

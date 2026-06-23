@@ -378,9 +378,19 @@ class AppBackend:
                     )
             self.music_manager.stop()
             swarm.goto(final_pos_dict, duration=2.0)  # Transition from ideal point to hover pos
-            if self.settings["land_on_docks"]: # Commented out for demo
+            if self.settings["land_on_docks"]:  # Commented out for demo
                 swarm.goto(final_pos_dict, duration=3.0)  # Hovering
             swarm.land(duration=1.5)  # Landing
+        except BaseException:
+            try:
+                swarm.emergency_stop()
+            except Exception as e:
+                logger.error(f"Emergency stop after deployment interrupt failed: {e}")
+            try:
+                self.music_manager.stop()
+            except Exception as e:
+                logger.error(f"Stopping music after deployment interrupt failed: {e}")
+            raise
         finally:
             swarm.close()
         logger.info("Deployment successful")
