@@ -671,6 +671,42 @@ def twist(params, swarm_pos, tstart, tend, limits, swarm_vel=None):  # noqa: ANN
     )
 
 
+SPLINE_PRIMITIVE_N_ARGS: dict[str, int] = {
+    # formations (held)
+    "form_circle": 4,   # drone_ids, radius_cm, z_cm, time_to_finish_s
+    "form_star": 4,     # height_cm, min_spacing_cm, delta_radius_cm, time_to_finish_s
+    "form_cone": 4,     # delta_height_cm, spacing_cm, is_inverted, time_to_finish_s
+    "center": 1,        # drone_ids
+    "line": 1,          # length_cm
+    "grid": 1,          # spacing_cm
+    "vee": 2,           # spread_deg, spacing_cm
+    "polygon": 3,       # n_sides, radius_cm, height_cm
+    "helix_static": 3,  # radius_cm, pitch_cm, turns
+    # motions
+    "rotate": 2,        # angle_deg, axis
+    "spiral": 2,        # steps, height_cm
+    "spiral_speed": 4,  # steps, height_cm, degrees, radius_increase
+    "helix": 3,         # steps, delta_height_cm, height_cm
+    "twister": 3,       # steps, omega_times_ten, z_spacing_cm
+    "orbit": 2,         # angle_deg, radius_cm
+    "tumble": 2,        # angle_deg, axis
+    "move_z": 2,        # drone_ids, delta_cm
+    "move": 4,          # x_cm, y_cm, z_cm, drone_id
+    "swap": 2,          # drone_id_1, drone_id_2
+    "translate": 3,     # dx_cm, dy_cm, dz_cm
+    "scale": 1,         # factor
+    "shear": 2,         # k, axis_pair
+    "zig_zag": 3,       # steps, delta_xy_cm, delta_z_cm
+    # fields
+    "wave": 2,          # steps, height_cm
+    "ripple": 2,        # amp_cm, periods
+    "traveling_wave": 2,  # amp_cm, periods
+    "pulse": 2,         # amp_cm, periods
+    "cascade": 2,       # amp_cm, periods
+    "breathe": 2,       # max_factor, periods
+    "twist": 1,         # angle_deg
+}
+
 SPLINE_PRIMITIVES: dict[str, Callable[..., SplineDict]] = {
     "form_circle": form_circle,
     "form_star": form_star,
