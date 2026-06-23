@@ -134,6 +134,24 @@ def test_run_cancels_threadsafe_command_when_keyboard_interrupt_escapes(
     assert future.cancelled
 
 
+def test_run_schedules_threadsafe_when_loop_is_already_running():
+    swarm = make_swarm([])
+    swarm._loop_thread = None
+
+    async def command() -> str:
+        return "stopped"
+
+    thread = threading.Thread(target=swarm._loop.run_forever)
+    thread.start()
+
+    try:
+        assert swarm._run(command()) == "stopped"
+    finally:
+        swarm._loop.call_soon_threadsafe(swarm._loop.stop)
+        thread.join()
+        swarm._loop.close()
+
+
 def test_setpoint_sends_once_and_returns():
     uris = ["radio://0/80/2M/E7E7E7E701", "radio://0/80/2M/E7E7E7E702"]
     swarm = make_swarm(uris)
@@ -148,6 +166,26 @@ def test_setpoint_sends_once_and_returns():
         cf = swarm.cfs[uri]
         assert cf.fake_commander.setpoints == [tuple(target[uri])]
         assert cf.fake_param.values == [("commander.enHighLevel", 0)]
+
+
+def test_emergency_stop_one_hung_drone_does_not_block_others():
+    uris = ["radio://0/80/2M/E7E7E7E701", "radio://0/80/2M/E7E7E7E702"]
+    swarm = make_swarm(uris)
+    stopped: list[str] = []
+
+    async def emergency_stop(uri: str) -> None:
+        if uri == uris[0]:
+            await asyncio.sleep(1)
+        stopped.append(uri)
+
+    swarm._emergency_stop = emergency_stop
+
+    try:
+        swarm.emergency_stop()
+    finally:
+        swarm._loop.close()
+
+    assert stopped == [uris[1]]
 
 
 def test_estimator_updater_copies_batch_and_skips_inactive_drones():

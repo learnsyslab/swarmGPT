@@ -34,6 +34,7 @@ logger.setLevel(logging.INFO)
 _DISCONNECT_ERRORS = (DisconnectedError, LinkError, TimeoutError)
 _LIGHTHOUSE_DECK_PARAM = "deck.bcLighthouse4"
 _POWER_CYCLE_BOOT_WAIT = 3.0
+_EMERGENCY_STOP_TIMEOUT = 0.5
 _CommanderLevel = Literal["low", "high"]
 
 
@@ -268,7 +269,7 @@ class DroneSwarm:
         else:
             self._validate_known_uris("uri", {uri: None})
             uris = [uri]
-        self._run(self._parallel_by_uri("Emergency stop", uris, self._emergency_stop, timeout=0.5))
+        self._run(self._emergency_stop_many(uris))
 
     def reset(self):
         """Reset all active drones."""
@@ -312,12 +313,10 @@ class DroneSwarm:
             await self._apply_drone_color(uri, np.zeros(4), "both")
 
         async def _close() -> None:
-            active_uris = [uri for uri in self.uris if uri in self.active_uris]
+            active_uris = [uri for uri in self.uris if uri in self.cfs]
             if active_uris:
                 try:
-                    await self._parallel_by_uri(
-                        "Emergency stop", active_uris, self._emergency_stop, timeout=0.5
-                    )
+                    await self._emergency_stop_many(active_uris)
                     await asyncio.sleep(0.1)
                     await self._parallel_by_uri(
                         "Shutdown LEDs", active_uris, _shutdown_leds, timeout=0.5
@@ -347,7 +346,7 @@ class DroneSwarm:
 
     def _run(self, coroutine: Awaitable[Any]) -> Any:
         """Run a cflib2 coroutine on the swarm event loop."""
-        if self._loop_thread is not None:
+        if self._loop_thread is not None or self._loop.is_running():
             future = asyncio.run_coroutine_threadsafe(coroutine, self._loop)
             try:
                 return future.result()
@@ -489,8 +488,26 @@ class DroneSwarm:
                 logger.error(f"{action_name} failed for {uri}: {result}")
         return results
 
+    async def _emergency_stop_many(self, uris: Iterable[str]) -> None:
+        """Best-effort emergency stop for every connected URI without cross-drone blocking."""
+        target_uris = [uri for uri in uris if uri in self.cfs]
+
+        async def _stop_one(uri: str) -> None:
+            try:
+                await asyncio.wait_for(self._emergency_stop(uri), timeout=_EMERGENCY_STOP_TIMEOUT)
+                self._commander_levels[uri] = None
+            except Exception as exc:
+                if isinstance(exc, _DISCONNECT_ERRORS):
+                    self.active_uris.discard(uri)
+                    self._commander_levels[uri] = None
+                    logger.error(f"{uri} disconnected or unreachable. Emergency stop failed: {exc}")
+                else:
+                    logger.error(f"Emergency stop failed for {uri}: {exc}")
+
+        await asyncio.gather(*[_stop_one(uri) for uri in target_uris])
+
     async def _emergency_stop(self, uri: str) -> None:
-        await self._cf(uri).localization().emergency().send_emergency_stop()
+        await self.cfs[uri].localization().emergency().send_emergency_stop()
 
     async def _change_commander_level(self, uri: str, level: _CommanderLevel) -> None:
         """Switch commander level only when local state expects a different mode."""

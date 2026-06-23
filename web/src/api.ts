@@ -59,6 +59,13 @@ export function deployJob(jobId: string) {
   return request<{ jobId: string }>(`/api/jobs/${jobId}/deploy`, { method: "POST" });
 }
 
+export function emergencyStopJob(jobId: string) {
+  return request<{ jobId: string; emergencyStopped: boolean }>(
+    `/api/jobs/${jobId}/emergency-stop`,
+    { method: "POST" }
+  );
+}
+
 export function savePreset(jobId: string) {
   return request<{ preset: LibraryItem }>(`/api/jobs/${jobId}/preset`, { method: "POST" });
 }

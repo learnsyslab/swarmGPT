@@ -315,3 +315,51 @@ test("deploy failure returns to ready controls", async ({ page }) => {
   await expect(page.getByRole("button", { name: "Refine" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Deploy" })).toBeVisible();
 });
+
+test("deploying state shows e-stop button that sends emergency stop", async ({ page }) => {
+  await page.setViewportSize({ width: 1024, height: 768 });
+  await configurePage(page);
+  let emergencyStopRequested = false;
+  await page.route("**/api/jobs/job/deploy", async (route) => {
+    await route.fulfill({
+      status: 202,
+      contentType: "application/json",
+      body: JSON.stringify({ jobId: "job" })
+    });
+    await page.evaluate(() => {
+      setTimeout(() => {
+        window.__emitJobEvent({
+          id: 6,
+          type: "deploy_started",
+          createdAt: new Date().toISOString(),
+          payload: {}
+        });
+      }, 10);
+    });
+  });
+  await page.route("**/api/jobs/job/emergency-stop", async (route) => {
+    emergencyStopRequested = true;
+    await route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({ jobId: "job", emergencyStopped: true })
+    });
+    await page.evaluate(() => {
+      window.__emitJobEvent({
+        id: 7,
+        type: "emergency_stop_sent",
+        createdAt: new Date().toISOString(),
+        payload: {}
+      });
+    });
+  });
+
+  await page.goto("http://127.0.0.1:5173/", { waitUntil: "networkidle" });
+  await page.getByRole("heading", { name: "Select a song" }).waitFor();
+  await page.locator(".song-card").filter({ hasText: "Harness" }).first().getByRole("button", { name: "Select" }).click();
+  await page.getByRole("button", { name: "Deploy" }).waitFor();
+  await page.getByRole("button", { name: "Deploy" }).click();
+  await page.getByRole("button", { name: "E-stop" }).click();
+
+  expect(emergencyStopRequested).toBeTruthy();
+  await expect(page.getByText("Emergency stop sent.")).toBeVisible();
+});

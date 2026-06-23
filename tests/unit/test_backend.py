@@ -104,3 +104,24 @@ def test_deploy_emergency_stops_before_close_on_keyboard_interrupt(
 
     swarm = InterruptingSwarm.instances[0]
     assert swarm.calls == ["goto", "execute_choreography", "emergency_stop", "close"]
+
+
+def test_emergency_stop_active_swarm_stops_live_swarm_and_music() -> None:
+    class ActiveSwarm:
+        def __init__(self) -> None:
+            self.calls: list[str] = []
+
+        def emergency_stop(self) -> None:
+            self.calls.append("emergency_stop")
+
+    config_path = virtual_crazyswarm_config(n_drones=1)
+    app = AppBackend(config_file=config_path)
+    swarm = ActiveSwarm()
+    music_calls: list[str] = []
+    app._active_swarm = swarm
+    app.music_manager.stop = lambda: music_calls.append("stop")
+
+    app.emergency_stop_active_swarm()
+
+    assert swarm.calls == ["emergency_stop"]
+    assert music_calls == ["stop"]

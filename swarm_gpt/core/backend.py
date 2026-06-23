@@ -119,6 +119,7 @@ class AppBackend:
         self._preset: None | str = None
         self._strict_processing = strict_processing
         self._strict_drone_match = strict_drone_match
+        self._active_swarm: Any | None = None
         if set(self.songs) & set(self.presets):
             raise ValueError("Songs and presets must have unique names")
 
@@ -299,6 +300,7 @@ class AppBackend:
             return False
 
         swarm = DroneSwarm(self.choreographer.drones, lighthouse=self.settings["lighthouse"])
+        self._active_swarm = swarm
         logger.info("Swarm connected...")
 
         # generate references
@@ -392,9 +394,20 @@ class AppBackend:
                 logger.error(f"Stopping music after deployment interrupt failed: {e}")
             raise
         finally:
-            swarm.close()
+            try:
+                swarm.close()
+            finally:
+                self._active_swarm = None
         logger.info("Deployment successful")
         return True
+
+    def emergency_stop_active_swarm(self) -> None:
+        """Emergency-stop the currently active deployment swarm, if one exists."""
+        swarm = self._active_swarm
+        if swarm is None:
+            raise RuntimeError("No active deployment swarm to emergency stop.")
+        swarm.emergency_stop()
+        self.music_manager.stop()
 
     def load_preset(self, preset_id: str) -> str:
         """Load a preset response.
