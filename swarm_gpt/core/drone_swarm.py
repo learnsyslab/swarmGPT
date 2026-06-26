@@ -37,10 +37,6 @@ _POWER_CYCLE_BOOT_WAIT = 3.0
 _CommanderLevel = Literal["low", "high"]
 
 
-class EmergencyStopActive(RuntimeError):
-    """Raised when a motion command is issued after the emergency-stop latch is set."""
-
-
 class DroneSwarm:
     """Connects, configures, and commands a Crazyflie swarm with cflib2."""
 
@@ -79,7 +75,6 @@ class DroneSwarm:
         self._estimator_stop_event: Event | None = None
         self._estimator_future: Future[None] | None = None
         self._closed = False
-        self._estop = threading.Event()
 
         if not lighthouse:
             from drone_estimators.ros_nodes.ros2_connector import ROSConnector
@@ -130,27 +125,24 @@ class DroneSwarm:
 
     def takeoff(self, height: float = 1.5, duration: float = 3.0):
         """Take off the drones to a given height over a given duration."""
-        self._ensure_not_estopped()
 
         async def _takeoff(uri: str) -> None:
             cf = self._cf(uri)
             await self._change_commander_level(uri, "high")
             await cf.high_level_commander().take_off(height, None, duration, None)
-            await self._estop_guarded_sleep(uri, duration)
+            await asyncio.sleep(duration)
 
         self._run(self._parallel_by_uri("Taking off", self.uris, _takeoff, timeout=duration + 1.0))
 
     def land(self, height: float = 0.0, duration: float = 3.0):
         """Land the drones at a given height over a given duration."""
-        self._ensure_not_estopped()
 
         async def _land(uri: str) -> None:
             cf = self._cf(uri)
             await self._change_commander_level(uri, "high")
             high_level_commander = cf.high_level_commander()
             await high_level_commander.land(height, None, duration, None)
-            if await self._estop_guarded_sleep(uri, duration):
-                return
+            await asyncio.sleep(duration)
             await high_level_commander.stop(None)
 
         self._run(self._parallel_by_uri("Landing", self.uris, _land, timeout=duration + 1.0))
@@ -162,7 +154,6 @@ class DroneSwarm:
             target: Position+Yaw references in the form {'uri1': [target], ...}.
             duration: Duration of the motion in seconds.
         """
-        self._ensure_not_estopped()
         self._validate_required_uris("pos", target)
         for uri, setpoint in target.items():
             if len(setpoint) != 4:
@@ -174,7 +165,7 @@ class DroneSwarm:
             await cf.high_level_commander().go_to(
                 *target[uri], duration, relative=False, linear=True, group_mask=None
             )
-            await self._estop_guarded_sleep(uri, duration)
+            await asyncio.sleep(duration)
 
         self._run(self._parallel_by_uri("Goto", self.uris, _goto, timeout=duration + 1.0))
 
@@ -184,7 +175,6 @@ class DroneSwarm:
         Args:
             target: Position+Yaw references in the form {'uri1': [target], ...}.
         """
-        self._ensure_not_estopped()
         self._validate_required_uris("pos", target)
         for uri, setpoint in target.items():
             if len(setpoint) != 4:
@@ -212,7 +202,6 @@ class DroneSwarm:
             color_top: Top deck color cues in the form {uri: {time: wrgb}}.
             color_bot: Bottom deck color cues in the form {uri: {time: wrgb}}.
         """
-        self._ensure_not_estopped()
         self._validate_required_uris("choreography", choreography)
         if not color_top and not color_bot:
             logger.warning("No colors provided for choreography.")
@@ -273,27 +262,13 @@ class DroneSwarm:
         )
 
     def emergency_stop(self, uri: str | None = None):
-        """Send an emergency stop signal to one URI or all drones (default).
-
-        Sets a latch that halts the choreography stream and blocks further motion
-        commands so fresh setpoints cannot override the motor cut.
-        """
-        self._estop.set()
+        """Send an emergency stop signal to one URI or all drones (default)."""
         if uri is None:
             uris = self.uris
         else:
             self._validate_known_uris("uri", {uri: None})
             uris = [uri]
-        # In-flight loop coroutines self-cut on the latch; this also sends the packet directly
-        # to cover idle windows. Bounded so the caller never blocks on a loop that has stopped.
-        coro = self._parallel_by_uri("Emergency stop", uris, self._emergency_stop, timeout=0.5)
-        try:
-            if self._loop_thread is not None or self._loop.is_running():
-                asyncio.run_coroutine_threadsafe(coro, self._loop).result(timeout=1.0)
-            else:
-                self._loop.run_until_complete(coro)
-        except Exception as exc:
-            logger.error(f"Emergency stop encountered errors: {exc}")
+        self._run(self._parallel_by_uri("Emergency stop", uris, self._emergency_stop, timeout=0.5))
 
     def reset(self):
         """Reset all active drones."""
@@ -370,30 +345,12 @@ class DroneSwarm:
             if self.ros_connector is not None:
                 self.ros_connector.close()
 
-    def _ensure_not_estopped(self) -> None:
-        """Block forward-motion commands once the emergency-stop latch is set."""
-        if self._estop.is_set():
-            raise EmergencyStopActive("Swarm is emergency-stopped; motion commands are blocked.")
-
-    async def _estop_guarded_sleep(self, uri: str, duration: float) -> bool:
-        """Wait up to ``duration``, cutting ``uri``'s motors from the loop if the latch trips.
-
-        Returns True if the latch tripped (motors cut), False if it slept the full duration.
-        """
-        loop = asyncio.get_running_loop()
-        deadline = loop.time() + duration
-        while (remaining := deadline - loop.time()) > 0:
-            if self._estop.is_set():
-                await self._emergency_stop(uri)
-                return True
-            await asyncio.sleep(min(0.02, remaining))
-        return False
-
     def _run(self, coroutine: Awaitable[Any]) -> Any:
         """Run a cflib2 coroutine on the swarm event loop.
 
-        Dispatches cross-thread when the loop runs in another thread or is already running,
-        so emergency stops from the request or signal-handler threads still reach the swarm.
+        Dispatches cross-thread when the loop runs in another thread or is already running
+        (e.g. a deployment driving it), so an emergency stop from the request thread that
+        handles the frontend button still reaches the swarm mid-performance.
         """
         if self._loop_thread is not None or self._loop.is_running():
             return asyncio.run_coroutine_threadsafe(coroutine, self._loop).result()
@@ -654,9 +611,6 @@ class DroneSwarm:
         t_col = -np.inf
 
         while (t_cur := asyncio.get_running_loop().time() - start_time) < duration:
-            if self._estop.is_set():
-                await self._emergency_stop(uri)
-                return
             await commander.send_setpoint_position(*reference(t_cur))
 
             if t_cur - t_col >= color_period:

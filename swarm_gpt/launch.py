@@ -4,7 +4,6 @@ import logging
 import os
 import sys
 from pathlib import Path
-from types import FrameType
 
 import fire
 import uvicorn
@@ -53,24 +52,8 @@ def main(
             use_motion_primitives=use_motion_primitives,
         )
     )
-    server = uvicorn.Server(uvicorn.Config(app, host=host, port=port))
-    # uvicorn captures SIGINT/SIGTERM itself (Server.capture_signals installs self.handle_exit)
-    # and only starts a graceful shutdown, which waits on the open events WebSocket while the
-    # deploy thread keeps flying. Wrap handle_exit so the first Ctrl+C cuts the motors before
-    # uvicorn begins draining. capture_signals installs whatever self.handle_exit is at call time.
-    uvicorn_handle_exit = server.handle_exit
-
-    def handle_exit(sig: int, frame: FrameType | None) -> None:
-        logging.warning("Ctrl+C received: emergency-stopping all active swarms.")
-        try:
-            app.state.store.emergency_stop_all()
-        except Exception:
-            logging.exception("Emergency stop during shutdown failed")
-        uvicorn_handle_exit(sig, frame)
-
-    server.handle_exit = handle_exit
     try:
-        server.run()
+        uvicorn.run(app, host=host, port=port)
     finally:
         shutdown_ollama_generation()
 

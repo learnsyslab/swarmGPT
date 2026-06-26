@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 from cflib2.error import DisconnectedError
 
-from swarm_gpt.core.drone_swarm import DroneSwarm, EmergencyStopActive
+from swarm_gpt.core.drone_swarm import DroneSwarm
 
 
 class FakeParam:
@@ -33,24 +33,12 @@ class FakeExternalPose:
         self.sent.append((pos, quat))
 
 
-class FakeEmergency:
-    def __init__(self) -> None:
-        self.stops = 0
-
-    async def send_emergency_stop(self) -> None:
-        self.stops += 1
-
-
 class FakeLocalization:
     def __init__(self) -> None:
         self.fake_external_pose = FakeExternalPose()
-        self.fake_emergency = FakeEmergency()
 
     def external_pose(self) -> FakeExternalPose:
         return self.fake_external_pose
-
-    def emergency(self) -> FakeEmergency:
-        return self.fake_emergency
 
 
 class FakeCrazyflie:
@@ -102,7 +90,6 @@ def make_swarm(uris: list[str]) -> DroneSwarm:
     swarm._commander_levels = dict.fromkeys(uris)
     swarm._loop = asyncio.new_event_loop()
     swarm._loop_thread = None
-    swarm._estop = threading.Event()
     return swarm
 
 
@@ -138,90 +125,6 @@ def test_setpoint_sends_once_and_returns():
         cf = swarm.cfs[uri]
         assert cf.fake_commander.setpoints == [tuple(target[uri])]
         assert cf.fake_param.values == [("commander.enHighLevel", 0)]
-
-
-def test_emergency_stop_one_hung_drone_does_not_block_others():
-    uris = ["radio://0/80/2M/E7E7E7E701", "radio://0/80/2M/E7E7E7E702"]
-    swarm = make_swarm(uris)
-    stopped: list[str] = []
-
-    async def emergency_stop(uri: str) -> None:
-        if uri == uris[0]:
-            await asyncio.sleep(1)
-        stopped.append(uri)
-
-    swarm._emergency_stop = emergency_stop
-
-    try:
-        swarm.emergency_stop()
-    finally:
-        swarm._loop.close()
-
-    assert stopped == [uris[1]]
-
-
-def test_emergency_stop_sets_latch_and_blocks_motion():
-    uris = ["radio://0/80/2M/E7E7E7E701"]
-    swarm = make_swarm(uris)
-
-    async def emergency_stop(uri: str) -> None:
-        return None
-
-    swarm._emergency_stop = emergency_stop
-
-    try:
-        swarm.emergency_stop()
-        assert swarm._estop.is_set()
-        with pytest.raises(EmergencyStopActive):
-            swarm.goto({uris[0]: [0.0, 0.0, 1.0, 0.0]})
-        with pytest.raises(EmergencyStopActive):
-            swarm.land()
-    finally:
-        swarm._loop.close()
-
-
-def test_stream_reference_cuts_motors_immediately_when_estopped():
-    uris = ["radio://0/80/2M/E7E7E7E701"]
-    swarm = make_swarm(uris)
-    swarm.ctrl_freq = 50
-    swarm.col_freq = 10
-    swarm._estop.set()
-
-    try:
-        swarm._loop.run_until_complete(swarm._stream_reference(uris[0], 5.0, lambda t: np.zeros(4)))
-    finally:
-        swarm._loop.close()
-
-    cf = swarm.cfs[uris[0]]
-    assert cf.fake_commander.setpoints == []  # no setpoints streamed
-    assert cf.fake_localization.fake_emergency.stops == 1  # motors cut from the loop
-
-
-def test_estop_guarded_sleep_cuts_motors_when_latched():
-    uris = ["radio://0/80/2M/E7E7E7E701"]
-    swarm = make_swarm(uris)
-    swarm._estop.set()
-
-    try:
-        cut = swarm._loop.run_until_complete(swarm._estop_guarded_sleep(uris[0], 5.0))
-    finally:
-        swarm._loop.close()
-
-    assert cut is True
-    assert swarm.cfs[uris[0]].fake_localization.fake_emergency.stops == 1
-
-
-def test_estop_guarded_sleep_returns_false_without_latch():
-    uris = ["radio://0/80/2M/E7E7E7E701"]
-    swarm = make_swarm(uris)
-
-    try:
-        cut = swarm._loop.run_until_complete(swarm._estop_guarded_sleep(uris[0], 0.0))
-    finally:
-        swarm._loop.close()
-
-    assert cut is False
-    assert swarm.cfs[uris[0]].fake_localization.fake_emergency.stops == 0
 
 
 def test_estimator_updater_copies_batch_and_skips_inactive_drones():

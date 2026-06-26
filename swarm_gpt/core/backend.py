@@ -23,6 +23,7 @@ from swarm_gpt.utils.music_analyzer import SongStructure
 if TYPE_CHECKING:
     from numpy.typing import NDArray as Array
 
+    from swarm_gpt.core.drone_swarm import DroneSwarm
     from swarm_gpt.utils.llm_providers import LLMProvider
 
 logging.basicConfig(level=logging.WARNING)
@@ -119,7 +120,7 @@ class AppBackend:
         self._preset: None | str = None
         self._strict_processing = strict_processing
         self._strict_drone_match = strict_drone_match
-        self._active_swarm: Any | None = None
+        self._active_swarm: DroneSwarm | None = None
         if set(self.songs) & set(self.presets):
             raise ValueError("Songs and presets must have unique names")
 
@@ -380,14 +381,12 @@ class AppBackend:
                     )
             self.music_manager.stop()
             swarm.goto(final_pos_dict, duration=2.0)  # Transition from ideal point to hover pos
-            if self.settings["land_on_docks"]:  # Commented out for demo
+            if self.settings["land_on_docks"]:
                 swarm.goto(final_pos_dict, duration=3.0)  # Hovering
             swarm.land(duration=1.5)  # Landing
         finally:
-            try:
-                swarm.close()
-            finally:
-                self._active_swarm = None
+            self._active_swarm = None
+            swarm.close()
         logger.info("Deployment successful")
         return True
 
