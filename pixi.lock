@@ -57,7 +57,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/tzdata-2025c-hc9c84f9_1.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/wheel-0.47.0-pyhd8ed1ab_0.conda
       - pypi: .
-      - pypi: git+https://github.com/learnsyslab/axswarm.git#2ce7540d07983d152c3df7a0d77166de18dbd2d6
+      - pypi: git+https://github.com/learnsyslab/axswarm#2ce7540d07983d152c3df7a0d77166de18dbd2d6
       - pypi: https://files.pythonhosted.org/packages/01/8e/1e35281b8ab6d5d72ebe9911edcdffa3f36b04ed9d51dec6dd140396e220/scipy-1.17.1-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/04/4b/29cac41a4d98d144bf5f6d33995617b185d14b22401f75ca86f384e87ff1/h11-0.16.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/05/7f/798705f5296a58ca505d600456748d1be48078eac8a7050d8a98bc9edb89/decorator-5.3.1-py3-none-any.whl
@@ -223,7 +223,7 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/rust-1.95.0-h4ff7c5d_1.conda
       - conda: https://conda.anaconda.org/conda-forge/osx-arm64/tk-8.6.13-h010d191_3.conda
       - pypi: .
-      - pypi: git+https://github.com/learnsyslab/axswarm.git#2ce7540d07983d152c3df7a0d77166de18dbd2d6
+      - pypi: git+https://github.com/learnsyslab/axswarm#2ce7540d07983d152c3df7a0d77166de18dbd2d6
       - pypi: https://files.pythonhosted.org/packages/01/84/c01099b59a285a1ebba64ae93f62bfa036675340fd1b0045ae65890a0442/jiter-0.15.0-cp312-cp312-macosx_11_0_arm64.whl
       - pypi: https://files.pythonhosted.org/packages/03/dc/200013a74641f8774664bbcd2346c695c05c2e300ea792adcb40a293eed0/soxr-1.1.0-cp312-abi3-macosx_11_0_arm64.whl
       - pypi: https://files.pythonhosted.org/packages/04/4b/29cac41a4d98d144bf5f6d33995617b185d14b22401f75ca86f384e87ff1/h11-0.16.0-py3-none-any.whl
@@ -1111,8 +1111,8 @@ environments:
       - conda: https://prefix.dev/robostack-kilted/linux-64/ros-kilted-zstd-vendor-0.32.0-np2py312h31f38b3_14.conda
       - conda: https://prefix.dev/robostack-kilted/linux-64/ros2-distro-mutex-0.12.0-kilted_14.conda
       - pypi: .
-      - pypi: git+https://github.com/bitcraze/crazyflie-lib-python-v2.git#329bd2cb6b21ccecce0396926887743c148a6bd6
-      - pypi: git+https://github.com/learnsyslab/axswarm.git#2ce7540d07983d152c3df7a0d77166de18dbd2d6
+      - pypi: git+https://github.com/bitcraze/crazyflie-lib-python-v2#329bd2cb6b21ccecce0396926887743c148a6bd6
+      - pypi: git+https://github.com/learnsyslab/axswarm#2ce7540d07983d152c3df7a0d77166de18dbd2d6
       - pypi: https://files.pythonhosted.org/packages/01/8e/1e35281b8ab6d5d72ebe9911edcdffa3f36b04ed9d51dec6dd140396e220/scipy-1.17.1-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/04/4b/29cac41a4d98d144bf5f6d33995617b185d14b22401f75ca86f384e87ff1/h11-0.16.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/05/7f/798705f5296a58ca505d600456748d1be48078eac8a7050d8a98bc9edb89/decorator-5.3.1-py3-none-any.whl
@@ -1916,8 +1916,8 @@ environments:
       - conda: https://prefix.dev/robostack-kilted/osx-arm64/ros-kilted-zstd-vendor-0.32.0-np2py312h50b1e4c_14.conda
       - conda: https://prefix.dev/robostack-kilted/osx-arm64/ros2-distro-mutex-0.12.0-kilted_14.conda
       - pypi: .
-      - pypi: git+https://github.com/bitcraze/crazyflie-lib-python-v2.git#329bd2cb6b21ccecce0396926887743c148a6bd6
-      - pypi: git+https://github.com/learnsyslab/axswarm.git#2ce7540d07983d152c3df7a0d77166de18dbd2d6
+      - pypi: git+https://github.com/bitcraze/crazyflie-lib-python-v2#329bd2cb6b21ccecce0396926887743c148a6bd6
+      - pypi: git+https://github.com/learnsyslab/axswarm#2ce7540d07983d152c3df7a0d77166de18dbd2d6
       - pypi: https://files.pythonhosted.org/packages/01/84/c01099b59a285a1ebba64ae93f62bfa036675340fd1b0045ae65890a0442/jiter-0.15.0-cp312-cp312-macosx_11_0_arm64.whl
       - pypi: https://files.pythonhosted.org/packages/03/dc/200013a74641f8774664bbcd2346c695c05c2e300ea792adcb40a293eed0/soxr-1.1.0-cp312-abi3-macosx_11_0_arm64.whl
       - pypi: https://files.pythonhosted.org/packages/04/4b/29cac41a4d98d144bf5f6d33995617b185d14b22401f75ca86f384e87ff1/h11-0.16.0-py3-none-any.whl
@@ -2555,8 +2555,8 @@ environments:
       - conda: https://conda.anaconda.org/conda-forge/noarch/wayland-protocols-1.49-hd8ed1ab_0.conda
       - conda: https://conda.anaconda.org/conda-forge/noarch/wheel-0.47.0-pyhd8ed1ab_0.conda
       - pypi: .
-      - pypi: git+https://github.com/CPJKU/madmom.git#27f032e8947204902c675e5e341a3faf5dc86dae
-      - pypi: git+https://github.com/govi218/all-in-one.git?branch=gov%2Fupdate-deprecated#90c571ae2620d6df9cbcdc08cfeb5ece42c40abb
+      - pypi: git+https://github.com/cpjku/madmom#27f032e8947204902c675e5e341a3faf5dc86dae
+      - pypi: git+https://github.com/govi218/all-in-one?branch=gov%2Fupdate-deprecated#90c571ae2620d6df9cbcdc08cfeb5ece42c40abb
       - pypi: https://download-r2.pytorch.org/whl/cu126/torch-2.6.0%2Bcu126-cp312-cp312-manylinux_2_28_x86_64.whl
       - pypi: https://download-r2.pytorch.org/whl/cu126/torchaudio-2.6.0%2Bcu126-cp312-cp312-linux_x86_64.whl
       - pypi: https://download-r2.pytorch.org/whl/triton-3.2.0-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl
@@ -3452,8 +3452,8 @@ environments:
       - conda: https://prefix.dev/robostack-kilted/linux-64/ros-kilted-zstd-vendor-0.32.0-np2py312h31f38b3_14.conda
       - conda: https://prefix.dev/robostack-kilted/linux-64/ros2-distro-mutex-0.12.0-kilted_14.conda
       - pypi: .
-      - pypi: git+https://github.com/bitcraze/crazyflie-lib-python-v2.git#329bd2cb6b21ccecce0396926887743c148a6bd6
-      - pypi: git+https://github.com/learnsyslab/axswarm.git#2ce7540d07983d152c3df7a0d77166de18dbd2d6
+      - pypi: git+https://github.com/bitcraze/crazyflie-lib-python-v2#329bd2cb6b21ccecce0396926887743c148a6bd6
+      - pypi: git+https://github.com/learnsyslab/axswarm#2ce7540d07983d152c3df7a0d77166de18dbd2d6
       - pypi: https://files.pythonhosted.org/packages/01/8e/1e35281b8ab6d5d72ebe9911edcdffa3f36b04ed9d51dec6dd140396e220/scipy-1.17.1-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl
       - pypi: https://files.pythonhosted.org/packages/04/4b/29cac41a4d98d144bf5f6d33995617b185d14b22401f75ca86f384e87ff1/h11-0.16.0-py3-none-any.whl
       - pypi: https://files.pythonhosted.org/packages/05/7f/798705f5296a58ca505d600456748d1be48078eac8a7050d8a98bc9edb89/decorator-5.3.1-py3-none-any.whl
@@ -4285,8 +4285,8 @@ environments:
       - conda: https://prefix.dev/robostack-kilted/osx-arm64/ros-kilted-zstd-vendor-0.32.0-np2py312h50b1e4c_14.conda
       - conda: https://prefix.dev/robostack-kilted/osx-arm64/ros2-distro-mutex-0.12.0-kilted_14.conda
       - pypi: .
-      - pypi: git+https://github.com/bitcraze/crazyflie-lib-python-v2.git#329bd2cb6b21ccecce0396926887743c148a6bd6
-      - pypi: git+https://github.com/learnsyslab/axswarm.git#2ce7540d07983d152c3df7a0d77166de18dbd2d6
+      - pypi: git+https://github.com/bitcraze/crazyflie-lib-python-v2#329bd2cb6b21ccecce0396926887743c148a6bd6
+      - pypi: git+https://github.com/learnsyslab/axswarm#2ce7540d07983d152c3df7a0d77166de18dbd2d6
       - pypi: https://files.pythonhosted.org/packages/01/84/c01099b59a285a1ebba64ae93f62bfa036675340fd1b0045ae65890a0442/jiter-0.15.0-cp312-cp312-macosx_11_0_arm64.whl
       - pypi: https://files.pythonhosted.org/packages/03/dc/200013a74641f8774664bbcd2346c695c05c2e300ea792adcb40a293eed0/soxr-1.1.0-cp312-abi3-macosx_11_0_arm64.whl
       - pypi: https://files.pythonhosted.org/packages/04/4b/29cac41a4d98d144bf5f6d33995617b185d14b22401f75ca86f384e87ff1/h11-0.16.0-py3-none-any.whl
@@ -29176,29 +29176,29 @@ packages:
   - mutagen
   - imageio>=2.37.0,<3
   - av>=15.1.0,<18
-  - axswarm @ git+https://github.com/learnsyslab/axswarm.git ; extra == 'sim'
+  - axswarm @ git+https://github.com/learnsyslab/axswarm ; extra == 'sim'
   - crazyflow==0.1.0 ; extra == 'sim'
   - drone-models==0.1.0 ; extra == 'sim'
   - drone-controllers==0.1.0 ; extra == 'sim'
   - jax>=0.7 ; extra == 'sim'
-  - cflib2 @ git+https://github.com/bitcraze/crazyflie-lib-python-v2.git ; extra == 'deploy'
+  - cflib2 @ git+https://github.com/bitcraze/crazyflie-lib-python-v2 ; extra == 'deploy'
   - drone-estimators ; extra == 'deploy'
   requires_python: '>=3.10'
-- pypi: git+https://github.com/CPJKU/madmom.git#27f032e8947204902c675e5e341a3faf5dc86dae
-  name: madmom
-  version: 0.17.dev0
-  requires_dist:
-  - numpy>=1.13.4
-  - scipy>=1.13
-  - mido>=1.2.6
-- pypi: git+https://github.com/bitcraze/crazyflie-lib-python-v2.git#329bd2cb6b21ccecce0396926887743c148a6bd6
+- pypi: git+https://github.com/bitcraze/crazyflie-lib-python-v2#329bd2cb6b21ccecce0396926887743c148a6bd6
   name: cflib2
   version: 0.1.0
   requires_dist:
   - packaging~=25.0
   - tyro>=1.0.8
   requires_python: '>=3.11'
-- pypi: git+https://github.com/govi218/all-in-one.git?branch=gov%2Fupdate-deprecated#90c571ae2620d6df9cbcdc08cfeb5ece42c40abb
+- pypi: git+https://github.com/cpjku/madmom#27f032e8947204902c675e5e341a3faf5dc86dae
+  name: madmom
+  version: 0.17.dev0
+  requires_dist:
+  - numpy>=1.13.4
+  - scipy>=1.13
+  - mido>=1.2.6
+- pypi: git+https://github.com/govi218/all-in-one?branch=gov%2Fupdate-deprecated#90c571ae2620d6df9cbcdc08cfeb5ece42c40abb
   name: allin1
   version: 1.1.0
   requires_dist:
@@ -29216,7 +29216,7 @@ packages:
   - timm ; extra == 'train'
   - wandb ; extra == 'train'
   requires_python: '>=3.8'
-- pypi: git+https://github.com/learnsyslab/axswarm.git#2ce7540d07983d152c3df7a0d77166de18dbd2d6
+- pypi: git+https://github.com/learnsyslab/axswarm#2ce7540d07983d152c3df7a0d77166de18dbd2d6
   name: axswarm
   version: 0.1.0
   requires_dist:
