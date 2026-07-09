@@ -93,6 +93,24 @@ def make_swarm(uris: list[str]) -> DroneSwarm:
     return swarm
 
 
+def test_run_schedules_threadsafe_when_loop_is_already_running():
+    swarm = make_swarm([])
+    swarm._loop_thread = None
+
+    async def command() -> str:
+        return "stopped"
+
+    thread = threading.Thread(target=swarm._loop.run_forever)
+    thread.start()
+
+    try:
+        assert swarm._run(command()) == "stopped"
+    finally:
+        swarm._loop.call_soon_threadsafe(swarm._loop.stop)
+        thread.join()
+        swarm._loop.close()
+
+
 def test_setpoint_sends_once_and_returns():
     uris = ["radio://0/80/2M/E7E7E7E701", "radio://0/80/2M/E7E7E7E702"]
     swarm = make_swarm(uris)

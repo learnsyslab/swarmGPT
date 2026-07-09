@@ -16,6 +16,7 @@ import {
   createJob,
   deletePreset,
   deployJob,
+  emergencyStopJob,
   getLibrary,
   getLlm,
   getPlayback,
@@ -67,6 +68,7 @@ export function App() {
   const [presetNotice, setPresetNotice] = useState<string | null>(null);
   const [savingPreset, setSavingPreset] = useState(false);
   const [deletingPreset, setDeletingPreset] = useState<string | null>(null);
+  const [emergencyStopping, setEmergencyStopping] = useState(false);
   const socketRef = useRef<WebSocket | null>(null);
 
   const providerInfo = llm?.providers.find((entry) => entry.id === provider);
@@ -141,8 +143,13 @@ export function App() {
       if (event.type === "deploy_complete") {
         setStage("ready");
       }
+      if (event.type === "emergency_stop_sent") {
+        setPresetNotice("Emergency stop sent.");
+        setEmergencyStopping(false);
+      }
       if (event.type === "failed") {
         setStage((current) => (current === "deploying" ? "ready" : "failed"));
+        setEmergencyStopping(false);
         setError(String(event.payload.message ?? "Job failed"));
       }
     };
@@ -158,6 +165,7 @@ export function App() {
     setPlayback(null);
     setError(null);
     setPresetNotice(null);
+    setEmergencyStopping(false);
     setProgress(0);
     setStage("thinking");
     setDetailsOpen(false);
@@ -195,12 +203,29 @@ export function App() {
       return;
     }
     setError(null);
+    setPresetNotice(null);
+    setEmergencyStopping(false);
     setStage("deploying");
     try {
       await deployJob(jobId);
     } catch (err) {
       setStage("ready");
       throw err;
+    }
+  };
+
+  const emergencyStop = async () => {
+    if (!jobId) {
+      return;
+    }
+    setError(null);
+    setPresetNotice(null);
+    setEmergencyStopping(true);
+    try {
+      await emergencyStopJob(jobId);
+      setPresetNotice("Emergency stop sent.");
+    } finally {
+      setEmergencyStopping(false);
     }
   };
 
@@ -255,6 +280,7 @@ export function App() {
     setRefineText("");
     setError(null);
     setPresetNotice(null);
+    setEmergencyStopping(false);
   };
 
   if (stage === "playing" && playback) {
@@ -459,6 +485,19 @@ export function App() {
                 <button className="secondary-action" onClick={reset}>
                   <ListMusic size={18} />
                   Choose another
+                </button>
+              </div>
+            )}
+
+            {stage === "deploying" && (
+              <div className="ready-actions">
+                <button
+                  className="danger-action"
+                  disabled={emergencyStopping}
+                  onClick={() => emergencyStop().catch((err: Error) => setError(err.message))}
+                >
+                  <X size={18} />
+                  {emergencyStopping ? "Stopping" : "E-stop"}
                 </button>
               </div>
             )}

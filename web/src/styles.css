@@ -229,6 +229,7 @@ textarea {
 
 .primary-action,
 .secondary-action,
+.danger-action,
 .icon-button {
   display: inline-flex;
   align-items: center;
@@ -255,6 +256,14 @@ textarea {
 
 .secondary-action {
   padding: 0 14px;
+}
+
+.danger-action {
+  padding: 0 15px;
+  border: 1px solid rgba(255, 180, 168, 0.64);
+  color: #2b0806;
+  background: #ff8f7f;
+  font-weight: 900;
 }
 
 .compact {
@@ -490,7 +499,8 @@ button:disabled {
   }
 
   .primary-action,
-  .secondary-action {
+  .secondary-action,
+  .danger-action {
     width: 100%;
   }
 

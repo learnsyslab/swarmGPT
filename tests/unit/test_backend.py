@@ -46,3 +46,24 @@ def test_preset_metadata_and_delete(tmp_path: Path):
 
     app.delete_preset(preset_id)
     assert not (preset_dir / preset_id).exists()
+
+
+def test_emergency_stop_active_swarm_stops_live_swarm_and_music() -> None:
+    class ActiveSwarm:
+        def __init__(self) -> None:
+            self.calls: list[str] = []
+
+        def emergency_stop(self) -> None:
+            self.calls.append("emergency_stop")
+
+    config_path = virtual_crazyswarm_config(n_drones=1)
+    app = AppBackend(config_file=config_path)
+    swarm = ActiveSwarm()
+    music_calls: list[str] = []
+    app._active_swarm = swarm
+    app.music_manager.stop = lambda: music_calls.append("stop")
+
+    app.emergency_stop_active_swarm()
+
+    assert swarm.calls == ["emergency_stop"]
+    assert music_calls == ["stop"]

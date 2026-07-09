@@ -1,3 +1,6 @@
+import threading
+import time
+from collections.abc import Generator
 from pathlib import Path
 from types import SimpleNamespace
 from urllib.parse import quote
@@ -6,6 +9,7 @@ import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 
+import swarm_gpt.api.server as server
 from swarm_gpt.api.server import ApiConfig, _backend_from_config, create_app, normalize_playback
 from swarm_gpt.utils.llm_providers import DEFAULT_OPENAI_MODEL_CHOICES
 
@@ -79,3 +83,73 @@ def test_library_returns_preset_display_metadata_and_delete(tmp_path: Path):
     delete_response.raise_for_status()
     assert delete_response.json() == {"deleted": preset_id}
     assert not (preset_dir / preset_id).exists()
+
+
+def test_emergency_stop_endpoint_runs_while_deploy_is_active(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class DeployingBackend:
+        def __init__(self) -> None:
+            self.songs = ["Test Song"]
+            self.presets: list[str] = []
+            self.settings = {"axswarm": {"pos_min": [-1, -1, 0], "pos_max": [1, 1, 2]}}
+            self.music_manager = SimpleNamespace(song="Test Song")
+            self.splines: dict[int, object] = {}
+            self.deploy_entered = threading.Event()
+            self.stop_requested = threading.Event()
+            self.emergency_stop_calls = 0
+
+        def initial_prompt(self, selection: str) -> list[dict[str, str]]:
+            return []
+
+        def simulate(self) -> Generator[None, None, dict[str, object]]:
+            self.splines[0] = object()
+            states = np.zeros((1, 1, 13))
+            states[:, :, 3:7] = [0, 0, 0, 1]
+            if False:
+                yield None
+            return {"timestamps": np.array([0.0]), "states": states, "num_drones": 1}
+
+        def crop_window(self, song: str) -> tuple[float, float]:
+            return (0.0, 60.0)
+
+        def deploy(self) -> bool:
+            self.deploy_entered.set()
+            self.stop_requested.wait(timeout=2.0)
+            return True
+
+        def emergency_stop_active_swarm(self) -> None:
+            self.emergency_stop_calls += 1
+            self.stop_requested.set()
+
+    backends: list[DeployingBackend] = []
+
+    def backend_from_config(config: ApiConfig, provider: str, model_id: str) -> DeployingBackend:
+        backend = DeployingBackend()
+        backends.append(backend)
+        return backend
+
+    (tmp_path / "Test Song.mp3").write_bytes(b"")
+    monkeypatch.setattr(server, "_backend_from_config", backend_from_config)
+    client = TestClient(create_app(ApiConfig(music_dir=tmp_path)))
+
+    create_response = client.post(
+        "/api/jobs", json={"selection": "Test Song", "provider": "openai", "modelId": "gpt"}
+    )
+    create_response.raise_for_status()
+    job_id = create_response.json()["jobId"]
+    backend = backends[0]
+    for _ in range(50):
+        if client.get(f"/api/jobs/{job_id}").json()["status"] == "ready":
+            break
+        time.sleep(0.01)
+
+    deploy_response = client.post(f"/api/jobs/{job_id}/deploy")
+    deploy_response.raise_for_status()
+    assert backend.deploy_entered.wait(timeout=1.0)
+
+    stop_response = client.post(f"/api/jobs/{job_id}/emergency-stop")
+    stop_response.raise_for_status()
+
+    assert stop_response.json() == {"jobId": job_id, "emergencyStopped": True}
+    assert backend.emergency_stop_calls == 1

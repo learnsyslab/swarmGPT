@@ -346,8 +346,13 @@ class DroneSwarm:
                 self.ros_connector.close()
 
     def _run(self, coroutine: Awaitable[Any]) -> Any:
-        """Run a cflib2 coroutine on the swarm event loop."""
-        if self._loop_thread is not None:
+        """Run a cflib2 coroutine on the swarm event loop.
+
+        Dispatches cross-thread when the loop runs in another thread or is already running
+        (e.g. a deployment driving it), so an emergency stop from the request thread that
+        handles the frontend button still reaches the swarm mid-performance.
+        """
+        if self._loop_thread is not None or self._loop.is_running():
             return asyncio.run_coroutine_threadsafe(coroutine, self._loop).result()
         return self._loop.run_until_complete(coroutine)
 
