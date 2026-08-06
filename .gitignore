@@ -30,8 +30,10 @@ openai_api_key.sh
 
 .cursor
 docs/ui-previews
+# Internal design docs: local-only, never published. docs/ is also the mkdocs
+# docs_dir, so these are excluded from the site build in mkdocs.yml too.
 docs/specs/
-docs/superpowers
+docs/plans/
 test-results
 playwright-report
 web/dist
