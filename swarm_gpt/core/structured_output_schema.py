@@ -6,7 +6,7 @@ bar 4, beat 1). The choreographer addresses moments at this granularity; the sch
 an enum of every addressable beat. The LLM emits only the entries it wants; presence of the
 required segment-opening keys is validated downstream.
 
-``lighting`` is a second, independent array over the same address space (spec §10.1). It is
+``lighting`` is a second, independent array over the same address space. It is
 deliberately unconstrained: no required keys and no alternation rule, because LEDs have no
 physical continuity constraint the way motion does.
 """
@@ -17,15 +17,14 @@ import json
 import re
 from typing import Any
 
-from swarm_gpt.core.lighting import load_lighting_config
-from swarm_gpt.core.lighting_primitives import LIGHTING_PRIMITIVES
+from swarm_gpt.core.lighting import LIGHTING_PRIMITIVES, load_lighting_config
 from swarm_gpt.exception import LLMFormatError
 
 _AXIS_ENUM = ["x", "y", "z"]
 _KEY_PATTERN = r"s\d+b\d+t\d+"
 _KEY_RE = re.compile(r"^s(\d+)b(\d+)t(\d+)$")
 
-# The lighting vocabulary the LLM may say (spec §7.1, §7.3, §8.6, §10.2). Each list is exactly what
+# The lighting vocabulary the LLM may say. Each list is exactly what
 # the engine resolves: offering a name that `lighting.select` or `spread_offsets` would reject turns
 # a schema-valid emission into a `KeyError` at compile time.
 _DECK_ENUM = ["top", "bot", "both"]
@@ -42,7 +41,7 @@ _SPREAD_ENUM = [
     "z",
 ]
 # `by` is the one parameter name two primitives disagree on: `gradient` interpolates along a
-# spatial axis, `alternate_blink` splits the swarm two ways (§10.2). Resolved per primitive.
+# spatial axis, `alternate_blink` splits the swarm two ways. Resolved per primitive.
 _LIGHTING_BY_ENUM = {
     "gradient": ["index", "x", "y", "z", "radius"],
     "alternate_blink": ["parity", "side"],
@@ -167,7 +166,7 @@ def _action_schema(num_drones: int) -> dict[str, Any]:
 def _selector_schema(num_drones: int) -> dict[str, Any]:
     # Strict mode cannot express a variant by omission -- every declared property is required -- so
     # a selector carries all three fields and the unused ones are ignored: `ids` is read only when
-    # `kind` is "ids", `count` only when it is "first" (§7.1). `ids` therefore takes no `minItems`,
+    # `kind` is "ids", `count` only when it is "first". `ids` therefore takes no `minItems`,
     # so an empty list is the natural filler everywhere else.
     return {
         "type": "object",
@@ -183,7 +182,7 @@ def _selector_schema(num_drones: int) -> dict[str, Any]:
 
 def _lighting_param_schemas(num_drones: int) -> dict[str, dict[str, Any]]:
     # The colour vocabulary is exactly the shipped palette, so an invented colour cannot be
-    # expressed (§10.2). Resolved here rather than at import: this module is imported widely, and
+    # expressed. Resolved here rather than at import: this module is imported widely, and
     # reading `lighting.toml` from disk at import time turns a malformed calibration file into an
     # import error, surfacing far from its cause and taking every importer down with it.
     palette = list(load_lighting_config().palette)
@@ -193,7 +192,7 @@ def _lighting_param_schemas(num_drones: int) -> dict[str, dict[str, Any]]:
         "color": {"type": "string", "enum": palette},
         "color_a": {"type": "string", "enum": palette},
         "color_b": {"type": "string", "enum": palette},
-        # Periods are in beats, not seconds (§10.2); `build_look` converts them via the song BPM.
+        # Periods are in beats, not seconds; `build_look` converts them via the song BPM.
         "period_beats": {"type": "number", "exclusiveMinimum": 0},
         "duty": {"type": "number", "exclusiveMinimum": 0, "maximum": 1},
         "length": _int_schema(minimum=1, maximum=num_drones),
@@ -267,9 +266,9 @@ def build_motion_primitive_response_schema(
     required, so per-entry both fields are required; the LLM controls sparseness by emitting
     only the entries it wants. Presence of ``required_keys`` is validated downstream, not here.
 
-    ``lighting`` is a second track of the same shape over the same key enum, carrying the §10.2
-    lighting primitives instead of the motion ones. ``required_keys`` does not constrain it at
-    all -- an empty ``lighting`` array is a complete answer (§10.1).
+    ``lighting`` is a second track of the same shape over the same key enum, carrying the lighting
+    primitives instead of the motion ones. ``required_keys`` does not constrain it at all -- an
+    empty ``lighting`` array is a complete answer.
 
     Args:
         all_keys: Every addressable ``(seq, bar, beat)`` tuple in the song, in time order.
@@ -304,7 +303,7 @@ def build_motion_primitive_response_schema(
             "lighting": _key_track_schema(encoded_all, "#/$defs/lighting_action_list"),
         },
         # Strict mode requires every declared property, so `lighting` must be emitted -- but an
-        # empty array satisfies it, which is what keeps lighting genuinely optional (§10.1).
+        # empty array satisfies it, which is what keeps lighting genuinely optional.
         "required": ["song_mood", "choreography_plan", "choreography", "lighting"],
         "$defs": {
             "action": _action_schema(num_drones),
@@ -336,7 +335,7 @@ _PRIMITIVE_ARG_ORDER: dict[str, list[str]] = {
     "form_cone": ["delta_height_cm", "spacing_cm", "is_inverted", "time_to_finish_s"],
 }
 
-# The §10.2 catalogue's parameter order, which is also the rendered call's argument order: every
+# The catalogue's parameter order, which is also the rendered call's argument order: every
 # lighting primitive takes `sel` first and `deck` last.
 _LIGHTING_PRIMITIVE_ARG_ORDER: dict[str, list[str]] = {
     "light_color": ["sel", "color", "deck"],
@@ -431,7 +430,7 @@ def _selector_literal(sel: Any) -> str:
 
     Args:
         sel: The selector object, ``{"kind", "ids", "count"}``. ``ids`` is read only when ``kind``
-            is "ids", ``count`` only when it is "first"; the other fields are ignored (§7.1).
+            is "ids", ``count`` only when it is "first"; the other fields are ignored.
 
     Returns:
         The selector as a Python literal, e.g. ``"['ids', [1, 3, 5]]"``.
@@ -454,11 +453,10 @@ def _selector_literal(sel: Any) -> str:
 
 
 def action_to_lighting_primitive(action: dict[str, Any]) -> str:
-    """Convert one structured lighting action to ``primitive(args)`` syntax (§10.2).
+    """Convert one structured lighting action to ``primitive(args)`` syntax.
 
     The counterpart of `action_to_motion_primitive` for the lighting track. Arguments are rendered
-    in the catalogue's order -- ``sel`` first, ``deck`` last -- so the call reads the way §10.2
-    writes it.
+    in the catalogue's order -- ``sel`` first, ``deck`` last.
 
     Args:
         action: One entry of a lighting key's ``actions`` array, ``{"primitive", "params"}``.
@@ -467,8 +465,8 @@ def action_to_lighting_primitive(action: dict[str, Any]) -> str:
         The rendered call, e.g. ``"pulse(['ids', [1, 3, 5]], 2, 'both')"``.
 
     Raises:
-        LLMFormatError: If the primitive is unknown, or its params are not exactly the ones §10.2
-            gives it.
+        LLMFormatError: If the primitive is unknown, or its params are not exactly the ones the
+            catalogue gives it.
     """
     primitive = action.get("primitive")
     if primitive not in _LIGHTING_PRIMITIVE_ARG_ORDER:
@@ -526,7 +524,7 @@ def structured_payload_to_lighting(payload: dict[str, Any]) -> dict[tuple[int, i
     The sibling of `structured_payload_to_choreography` for the second track. A *missing*
     ``lighting`` key is not an error: strict mode forces the field to be required, so a model with
     nothing to say emits ``[]`` rather than omitting it — but payloads predating this feature,
-    including this repo's own preset fixtures, carry no key at all and must still load (§10.1).
+    including this repo's own preset fixtures, carry no key at all and must still load.
 
     Args:
         payload: The structured-output payload from the LLM.

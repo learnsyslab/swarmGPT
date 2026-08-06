@@ -143,7 +143,7 @@ def test_load_drone_config_uses_active_list(tmp_path: Path) -> None:
     assert c.uris[1] == "radio://0/30/2M/E7E7E7E71F"  # cf31, channel=30, addr=0x1F
 
 
-# --- lighting track (spec §10.1, §7.3; plan Task 10) --------------------------------------------
+# --- lighting track -------------------------------------------------------------------------------
 
 LIGHTING_CFG = load_lighting_config()
 LIGHTING_N = 6
@@ -151,10 +151,10 @@ LIGHTING_N = 6
 # unambiguously against the frozen snapshot.
 LIGHTING_POSITIONS = np.stack([np.arange(6.0), np.zeros(6), np.linspace(1.0, 2.0, 6)], axis=1)
 # The music ends at 8s; the flight runs 4s longer, because `response2waypoints` appends the
-# return-to-home legs. The §8.7 blackout belongs at the end of the *flight* (spec §8.7).
+# Return-to-home legs. The blackout belongs at the end of the *flight*.
 SONG_END_S = 8.0
 FLIGHT_END_S = 12.0
-# The strict-mode selector object: every field present, the unused ones ignored (§7.1).
+# The strict-mode selector object: every field present, the unused ones ignored.
 ALL_SEL = {"kind": "all", "ids": [], "count": 1}
 
 
@@ -237,7 +237,7 @@ def _blue_then_blink() -> list[dict]:
 
 
 def _spatial_lighting() -> list[dict]:
-    """Two keys of `sweep`, whose phase spread reads the frozen position snapshot (§7.3)."""
+    """Two keys of `sweep`, whose phase spread reads the frozen position snapshot."""
     return [
         {
             "key": key,
@@ -263,7 +263,7 @@ def _recording_position_at(calls: list[float]) -> Callable[[float], np.ndarray]:
 
 
 def test_structured_payload_to_text_emits_a_lighting_block():
-    """§10.1: the lighting track renders in the same idiom as `choreography:`, ended by END."""
+    """The lighting track renders in the same idiom as `choreography:`, ended by END."""
     text = _lighting_choreographer()._structured_payload_to_text(_payload(_blue_then_blink()))
 
     assert "\nlighting:\n" in text
@@ -279,7 +279,7 @@ def test_structured_payload_to_text_emits_a_lighting_block():
 
 
 def test_lighting_block_stays_out_of_the_choreography_slice():
-    """The two tracks share an address space; slicing must not mix them (§10.1)."""
+    """The two tracks share an address space; slicing must not mix them."""
     choreographer = _lighting_choreographer()
     text = choreographer._structured_payload_to_text(_payload(_blue_then_blink()))
 
@@ -287,7 +287,7 @@ def test_lighting_block_stays_out_of_the_choreography_slice():
 
 
 def test_lighting_slice_ignores_the_word_lighting_inside_a_multi_line_plan():
-    """§10.1: the ``lighting:`` header is anchored to a line of its own, so prose cannot claim it.
+    """The ``lighting:`` header is anchored to a line of its own, so prose cannot claim it.
 
     The structured path keeps the plan on one line -- `json.dumps` escapes the newlines -- but a
     free-text response can wrap it. An unanchored header would then match inside the prose and
@@ -315,7 +315,7 @@ def test_lighting_slice_ignores_the_word_lighting_inside_a_multi_line_plan():
 
 
 def test_response2lighting_puts_each_look_at_its_resolved_time():
-    """Each emitted key becomes a look at `structure.time_of` of that address (§8.4)."""
+    """Each emitted key becomes a look at `structure.time_of` of that address."""
     choreographer = _lighting_choreographer()
     structure = _lighting_structure()
     text = choreographer._structured_payload_to_text(_payload(_blue_then_blink()))
@@ -326,7 +326,7 @@ def test_response2lighting_puts_each_look_at_its_resolved_time():
 
     t_switch = structure.time_of(2, 1, 1)
     assert t_switch == 4.0
-    # The first look holds right up to the second one's start, which replaces it outright (§8.4).
+    # The first look holds right up to the second one's start, which replaces it outright.
     assert np.allclose(
         timeline.evaluate(t_switch - 0.01)[:, 0], np.round(LIGHTING_CFG.palette["blue"])
     )
@@ -337,10 +337,10 @@ def test_response2lighting_puts_each_look_at_its_resolved_time():
 
 
 def test_response2lighting_converts_period_beats_with_the_songs_own_tempo():
-    """§10.2: `period_beats` is beats, so the song's tempo has to reach every effect it builds.
+    """`period_beats` is beats, so the song's tempo has to reach every effect it builds.
 
     Every other fixture in this file is 120 BPM, where a hardcoded 120.0 is indistinguishable from
-    the forwarded `structure.bpm` (spec §11) — and a tempo that never arrives runs every
+    the forwarded `structure.bpm` — and a tempo that never arrives runs every
     `period_beats` effect in the show at the wrong rate, for the whole show.
     """
     choreographer = _lighting_choreographer()
@@ -361,7 +361,7 @@ def test_response2lighting_converts_period_beats_with_the_songs_own_tempo():
 
 
 def test_response2lighting_reads_positions_at_each_looks_start_and_at_no_other_time():
-    """§7.3: the snapshot is frozen at `t_start`, which is what keeps the timeline pure."""
+    """The snapshot is frozen at `t_start`, which is what keeps the timeline pure."""
     choreographer = _lighting_choreographer()
     structure = _lighting_structure()
     text = choreographer._structured_payload_to_text(_payload(_spatial_lighting()))
@@ -380,7 +380,7 @@ def test_response2lighting_reads_positions_at_each_looks_start_and_at_no_other_t
 
 @pytest.mark.parametrize("lighting", [None, []])
 def test_a_payload_without_lighting_yields_a_full_on_timeline(lighting: list | None):
-    """§10.1: an absent key and an empty array both mean 'no lighting', never an error.
+    """An absent key and an empty array both mean 'no lighting', never an error.
 
     ``None`` here is the payload predating the feature — this repo's own fixtures — and ``[]`` is
     what strict mode forces a model with nothing to say into emitting.
@@ -394,14 +394,14 @@ def test_a_payload_without_lighting_yields_a_full_on_timeline(lighting: list | N
     )
 
     assert calls == []
-    # §8.5: brightness 1.0 everywhere and the base hue wheel, which is today's colouring exactly.
+    # Brightness 1.0 everywhere and the base hue wheel, which is today's colouring exactly.
     base = np.round(hue_to_wrgb(np.arange(LIGHTING_N) / LIGHTING_N, LIGHTING_CFG))
     for deck in range(2):
         assert np.allclose(timeline.evaluate(1.0)[:, deck], base)
 
 
 def test_a_response_with_no_lighting_block_at_all_yields_a_full_on_timeline():
-    """A free-text or preset response that never mentions lighting is not an error (§10.1)."""
+    """A free-text or preset response that never mentions lighting is not an error."""
     text = 'song_mood: "x"\nchoreography:\n  s1b1t1: spiral(3, 100)\n  END'
 
     timeline = _lighting_choreographer().response2lighting(
@@ -423,7 +423,7 @@ def test_response2lighting_parses_a_hand_written_lighting_block():
     top = timeline.evaluate(4.0)[:, 0]
     green = np.round(LIGHTING_CFG.palette["green"])
     assert np.allclose(top[[0, 2]], green)
-    # `ids` is 1-indexed, and the deck stacks resolve independently (§8.6).
+    # `ids` is 1-indexed, and the deck stacks resolve independently.
     assert not np.allclose(top[1], green)
     assert np.allclose(
         timeline.evaluate(4.0)[:, 1],
@@ -462,7 +462,7 @@ def test_response2lighting_reports_a_wrong_argument_count_as_a_format_error():
 
 
 def test_response2lighting_blacks_out_at_the_end_of_the_flight_not_the_music():
-    """§8.7: the blackout is `t_end - 0.1` where `t_end` is the flight, as at `backend.py:332`.
+    """The blackout is `t_end - 0.1` where `t_end` is the flight, as at `backend.py:332`.
 
     Deriving it from the song structure instead would darken the swarm for the whole
     return-to-home leg — the drones would fly home and land dark rather than lit.
@@ -480,7 +480,7 @@ def test_response2lighting_blacks_out_at_the_end_of_the_flight_not_the_music():
 
 
 def test_validate_lighting_rejects_a_malformed_emission_without_positions():
-    """A malformed lighting track must reprompt, and cannot wait for the axswarm pass (§7.3).
+    """A malformed lighting track must reprompt, and cannot wait for the axswarm pass.
 
     Positions do not exist until `Backend.simulate` has run, so the full compile cannot happen at
     generation time — but the vocabulary and arity can be checked, and that is what catches a
@@ -529,17 +529,17 @@ def test_validate_lighting_rejects_every_name_the_engine_would_reject(emission: 
 def test_validate_lighting_does_not_warn_about_its_own_dry_run_snapshot(
     caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
 ):
-    """The dry run discards every position-dependent result, so it must not diagnose one (§7.3).
+    """The dry run discards every position-dependent result, so it must not diagnose one.
 
     Positions do not exist at generation time, so the looks are built against a synthetic
-    snapshot. A snapshot with no extent along an axis is exactly what the §7.3 collapse warnings
+    snapshot. A snapshot with no extent along an axis is exactly what the collapse warnings
     report, so a snapshot of zeros makes every `sweep`, `ripple_light` and `left`/`right` emission
     warn on every generation — noise about the fixture rather than about the show, which trains
     the reader to ignore the one case that is real.
     """
-    for name in ("swarm_gpt.core.lighting", "swarm_gpt.core.lighting_primitives"):
-        monkeypatch.setattr(logging.getLogger(name), "propagate", True)
-        caplog.set_level(logging.WARNING, logger=name)
+    name = "swarm_gpt.core.lighting"
+    monkeypatch.setattr(logging.getLogger(name), "propagate", True)
+    caplog.set_level(logging.WARNING, logger=name)
     emission = (
         "sweep(['all', []], 4, 'z', 'both'); ripple_light(['all', []], 4, 'both'); "
         "light_color(['right', []], 'red', 'both')"

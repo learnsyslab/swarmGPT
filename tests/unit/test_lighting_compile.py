@@ -1,4 +1,4 @@
-"""Unit tests for the hardware cue read-out (spec §9.1, and §3.1 for the failure it prevents)."""
+"""Unit tests for the hardware cue read-out."""
 
 import dataclasses
 
@@ -8,11 +8,11 @@ import pytest
 from swarm_gpt.core.lighting import (
     LightingConfig,
     LightingTimeline,
+    build_look,
+    compile_cues,
     hue_to_wrgb,
     load_lighting_config,
 )
-from swarm_gpt.core.lighting_compile import compile_cues
-from swarm_gpt.core.lighting_primitives import build_look
 
 CFG = load_lighting_config()
 
@@ -22,7 +22,7 @@ POSITIONS_6 = np.stack([np.arange(6.0), np.zeros(6), np.ones(6)], axis=1)
 URIS_6 = [f"radio://0/80/2M/E7E7E7E70{i}" for i in range(N6)]
 
 N10 = 10
-# Ten drones, which is the swarm the §9.1 chase measurements were taken on. The ids are scrambled
+# Ten drones, which is the swarm the chase measurements were taken on. The ids are scrambled
 # across the line the way `_assign_positions` scrambles them, so the `neighbour` walk that orders
 # the chase disagrees with id order and a per-drone assertion cannot pass by accident.
 LINE_10 = np.stack([np.arange(10.0), np.zeros(10), np.ones(10)], axis=1)
@@ -32,7 +32,7 @@ URIS_10 = [f"radio://0/80/2M/E7E7E7E7{i:02d}" for i in range(N10)]
 # `DroneSwarm.col_freq` defaults to 10 Hz (drone_swarm.py:48) and caps cue consumption.
 COL_FREQ = 10.0
 
-# How far before the end of the show the unconditional blackout lands (§8.7).
+# How far before the end of the show the unconditional blackout lands.
 BLACKOUT_LEAD_S = 0.1
 
 ALL = ("all", ())
@@ -68,11 +68,11 @@ def _lit_grid_samples(cues: dict[float, np.ndarray], t_end: float) -> int:
     return int(np.count_nonzero(held.any(axis=1)))
 
 
-# --- §3.1: the cue-drift regression -----------------------------------------------------
+# --- the cue-drift regression ---------------------------------------------------------------------
 
 
 def test_minimum_cue_spacing_is_never_denser_than_col_freq():
-    """The §3.1 regression test, and the sharpest constraint in the design.
+    """The cue-drift regression test, and the sharpest constraint in the design.
 
     `_stream_reference` consumes at most one cue per deck per `1 / col_freq` tick, in order, and
     never drops. A denser cue list therefore plays back *slowed*, and the lag accumulates for the
@@ -80,14 +80,14 @@ def test_minimum_cue_spacing_is_never_denser_than_col_freq():
     glitching once. Uniform sampling at exactly `col_freq` makes that structurally impossible, so
     this holds for every drone, every deck, and the fastest effects the vocabulary can express.
 
-    The `t_end` values matter: the §8.7 blackout cue is emitted at `t_end - 0.1` whatever the grid
+    The `t_end` values matter: the blackout cue is emitted at `t_end - 0.1` whatever the grid
     does, so a show whose end does *not* fall on a `col_freq` tick is exactly where an unguarded
     implementation crowds that final cue up against the tick before it. An on-grid `t_end` hides
     that, because the two land on the same time and collapse into one dict key.
     """
     # `period_beats = 0.05` is 0.025 s at 120 BPM, so `rainbow` and `blink` are both clamped to the
     # 0.2 s Nyquist floor: the show does contain the fastest legal effect. `sweep` sits just above
-    # it on purpose, and `chase` is held at 0.3 s by the §9.1 lit-window floor its `length = 2` of
+    # it on purpose, and `chase` is held at 0.3 s by the lit-window floor its `length = 2` of
     # six implies. A floor-period square wave lands on exactly two samples per period,
     # which aliases into a *static* lit/unlit pattern — a legitimate compile result, but one that
     # leaves some drone-deck permanently dark and so makes its spacing assertion vacuous.
@@ -115,29 +115,29 @@ def test_minimum_cue_spacing_is_never_denser_than_col_freq():
                 assert gaps.min() >= period - GRID_SLACK, f"{deck} {uri} at t_end={t_end}"
 
 
-# --- §9.1: the clamp guards the lit window, not the period -------------------------------
+# --- the clamp guards the lit window, not the period ----------------------------------------------
 
 
 @pytest.mark.parametrize("bpm", [120.0, 120.0000001])
 def test_a_chase_lights_every_drone_on_the_compile_grid(bpm: float):
-    """The quantity that has to survive the sampling grid is each drone's lit window (§9.1).
+    """The quantity that has to survive the sampling grid is each drone's lit window.
 
     A `chase` spreads the phases evenly, so one drone's on-interval is `period_s x length / n_sel`
     — a tenth of the period at `length = 1` on ten drones. Clamping the *period* to `2 / col_freq`
     leaves that window at 0.05 s, half a grid tick, so a drone's whole on-interval can fall between
     two ticks and it is never lit in the compiled cues. Continuously-sampled `evaluate` gives all
     ten equal on-time, so the MuJoCo preview looks right while the hardware and the browser are
-    broken — the preview-versus-flight divergence §5 exists to prevent.
+    broken — the preview-versus-flight divergence one shared timeline exists to prevent.
 
     The second tempo is the same emission a ten-millionth of a BPM away. Under the period-only
     clamp it flips which drones are dropped (measured: five of ten never light at all), because
     ticks and phase offsets are exact multiples of the same rational and the last bit decides.
     Under the correct clamp both tempos land on the same 1.0 s period and neither drops anyone.
 
-    The evenness bound is deliberately loose. §9.1 clamps the lit window to *one* tick, not two, so
+    The evenness bound is deliberately loose. The clamp guards one tick, not two, so
     a window straddles a tick boundary on some periods and not others: measured on-times run 71-94
     grid samples where the continuous on-time is 6.01 s for all ten. That ±1 tick per period is
-    inherent to the boundary the spec sets. A drone getting a quarter of another's on-time, which
+    inherent to the boundary the clamp sets. A drone getting a quarter of another's on-time, which
     is what the period-only clamp produces, is not.
     """
     t_end = 60.1  # so the grid is exactly 0.0 .. 59.9 plus the blackout at 60.0
@@ -154,7 +154,7 @@ def test_a_chase_lights_every_drone_on_the_compile_grid(bpm: float):
 
 
 def test_a_chase_period_the_clamp_stretches_still_lights_every_drone():
-    """The case where the old clamp fired and still produced a broken show (§9.1).
+    """The case where the old clamp fired and still produced a broken show.
 
     `chase(all, 0.25 beats, length=1)` is 0.125 s at 120 BPM, so the period-only clamp *did* fire
     and logged "clamping to 0.200 s" — as though the effect were now representable. It was not:
@@ -171,18 +171,18 @@ def test_a_chase_period_the_clamp_stretches_still_lights_every_drone():
     assert lit.max() - lit.min() <= 0.5 * lit.mean(), f"uneven on-time: {lit}"
 
 
-# --- §9.1: dedup is what makes the design cheap -----------------------------------------
+# --- dedup is what makes the design cheap ---------------------------------------------------------
 
 
 def test_a_static_look_dedups_to_one_cue_plus_the_terminal_blackout():
-    """Dedup means a static look costs ~1 cue, not `10 x duration` (§9.1)."""
+    """Dedup means a static look costs ~1 cue, not `10 x duration`."""
     t_end = 60.0
     action = _action("light_color", sel=ALL, color="teal", deck="both")
     top, bot = compile_cues(_timeline([action], t_end), URIS_6, COL_FREQ, t_end)
     for cues in (top, bot):
         for uri in URIS_6:
             times = sorted(cues[uri])
-            assert len(times) == 2, "one content cue, then the §8.7 blackout"
+            assert len(times) == 2, "one content cue, then the blackout"
             assert times[0] == 0.0
             assert times[1] == pytest.approx(t_end - BLACKOUT_LEAD_S)
             assert cues[uri][times[0]] == pytest.approx(np.round(CFG.palette["teal"]))
@@ -190,7 +190,7 @@ def test_a_static_look_dedups_to_one_cue_plus_the_terminal_blackout():
 
 
 def test_a_gradient_look_dedups_like_a_static_one():
-    """`gradient` is time-invariant, so it costs exactly what a named colour costs (§9.1)."""
+    """`gradient` is time-invariant, so it costs exactly what a named colour costs."""
     t_end = 60.0
     action = _action("gradient", sel=ALL, color_a="red", color_b="blue", by="index", deck="both")
     top, _ = compile_cues(_timeline([action], t_end), URIS_6, COL_FREQ, t_end)
@@ -207,7 +207,7 @@ def test_rainbow_cue_count_tracks_hue_steps_over_the_period():
     A continuously advancing hue changes on every tick, so nothing collapses; quantizing to
     `hue_steps` makes it piecewise-constant and brings the rate to `min(col_freq, hue_steps /
     period)`. At 24 steps over a 12 s cycle that is 2 Hz, a fifth of the 10 Hz ceiling — the
-    property that keeps the radio budget viable (§9.1, §12.1).
+    property that keeps the radio budget viable.
     """
     period_s = 12.0
     t_end = period_s + BLACKOUT_LEAD_S  # the sample grid then covers exactly one cycle
@@ -224,7 +224,7 @@ def test_rainbow_cue_count_tracks_hue_steps_over_the_period():
 
 
 def test_brightness_steps_collapses_a_slow_brightness_waveform():
-    """`brightness_steps` is to `sine`/`ramp` what `hue_steps` is to `rainbow` (§9.1).
+    """`brightness_steps` is to `sine`/`ramp` what `hue_steps` is to `rainbow`.
 
     Unquantized, a 16 s breathe changes on nearly every tick and compiles to most of the undeduped
     ceiling. Bucketing the merged brightness makes it piecewise-constant, so dedup collapses the
@@ -268,7 +268,7 @@ def test_square_wave_primitives_are_unaffected_by_brightness_quantization():
 
 
 def test_decks_compile_independently():
-    """A top-only effect leaves bot deduped down to its base colour plus the blackout (§8.6)."""
+    """A top-only effect leaves bot deduped down to its base colour plus the blackout."""
     t_end = 20.0
     actions = [
         _action("light_color", sel=ALL, color="red", deck="both"),
@@ -279,13 +279,13 @@ def test_decks_compile_independently():
     assert len(top[URIS_6[0]]) > 20
 
 
-# --- §8.7: the terminal blackout --------------------------------------------------------
+# --- the terminal blackout ------------------------------------------------------------------------
 
 
 def test_the_terminal_blackout_cue_is_emitted_explicitly():
     """The timeline implements the blackout as an early return, which guarantees zeros *from*
     `t_end - 0.1` but does not put a sample there: a uniform grid anchored at 0 lands on that
-    instant only by luck, so `compile_cues` must emit it itself (§8.7)."""
+    instant only by luck, so `compile_cues` must emit it itself."""
     t_end = 12.34  # deliberately off the 10 Hz grid
     action = _action("light_on", sel=ALL, deck="both")
     top, bot = compile_cues(_timeline([action], t_end), URIS_6, COL_FREQ, t_end)
@@ -325,7 +325,7 @@ def test_every_compiled_wrgb_is_integral_and_in_range():
 
 
 def test_a_lighting_less_show_compiles_to_todays_static_cue_structure():
-    """The §8.5 failure-safe property, end to end: an emission carrying no lighting at all
+    """The failure-safe property, end to end: an emission carrying no lighting at all
     reproduces the two-cue-per-drone stub the deploy path uses today (backend.py:330-337)."""
     t_end = 45.0
     top, bot = compile_cues(LightingTimeline([], N6, t_end, CFG), URIS_6, COL_FREQ, t_end)
@@ -343,12 +343,12 @@ def test_a_lighting_less_show_compiles_to_todays_static_cue_structure():
 
 @pytest.mark.parametrize("t_end", [0.0, 0.05, 0.15, 0.19])
 def test_a_show_too_short_for_the_cue_grid_raises(t_end: float):
-    """Below `1 / col_freq + 0.1` the grid cannot open at 0 and can open before it (§9.3).
+    """Below `1 / col_freq + 0.1` the grid cannot open at 0 and can open before it.
 
     The blackout at `t_end - 0.1` is appended unconditionally, and grid ticks it would crowd are
     dropped first, so a show shorter than one tick plus the blackout lead loses every tick and
     keeps only the blackout: `t_end = 0.15` compiles to a single cue at 0.05 and `t_end = 0.05` to
-    a single cue at **-0.05**. The §9.3 payload contract says every cue list is non-empty and
+    a single cue at **-0.05**. The browser payload contract says every cue list is non-empty and
     starts at t = 0, and a negative time would be handed straight to `DroneSwarm`.
 
     Unreachable through `deploy` — `response2waypoints` appends return-to-home legs, so a real
@@ -366,7 +366,7 @@ def test_the_shortest_compilable_show_still_opens_at_zero():
     for cues in (top, bot):
         for uri in URIS_6:
             times = sorted(cues[uri])
-            assert times[0] == 0.0, "the §9.3 contract's initial colour has to be defined"
+            assert times[0] == 0.0, "the payload contract's initial colour has to be defined"
             assert times[-1] == pytest.approx(t_end - BLACKOUT_LEAD_S)
 
 

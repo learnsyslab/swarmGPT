@@ -1,4 +1,4 @@
-"""Unit tests for the LLM-facing lighting primitive vocabulary (spec §10.2).
+"""Unit tests for the LLM-facing lighting primitive vocabulary.
 
 Companion to ``test_lighting.py``, which covers the engine underneath (selectors, waveforms,
 spreads, layers and the timeline). This file covers only the twelve catalogued primitives and the
@@ -11,12 +11,18 @@ import logging
 import numpy as np
 import pytest
 
-from swarm_gpt.core.lighting import LightingTimeline, Look, hue_to_wrgb, load_lighting_config
-from swarm_gpt.core.lighting_primitives import LIGHTING_PRIMITIVES, build_look
+from swarm_gpt.core.lighting import (
+    LIGHTING_PRIMITIVES,
+    LightingTimeline,
+    Look,
+    build_look,
+    hue_to_wrgb,
+    load_lighting_config,
+)
 
 CFG = load_lighting_config()
 
-# The §9.1 aliasing floor: an effect faster than `col_freq / 2` cannot be represented by the cue
+# The aliasing floor: an effect faster than `col_freq / 2` cannot be represented by the cue
 # stream. Derived here the same way the clamp derives it, from the one configured cue rate.
 MIN_PERIOD_S = 2.0 / CFG.col_freq
 
@@ -68,7 +74,7 @@ def clamp_log(
     propagation back on for the one module under test keeps the assertion about the *logger*
     rather than about whichever handler the environment happens to have installed.
     """
-    logger = logging.getLogger("swarm_gpt.core.lighting_primitives")
+    logger = logging.getLogger("swarm_gpt.core.lighting")
     monkeypatch.setattr(logger, "propagate", True)
     caplog.set_level(logging.WARNING, logger=logger.name)
     return caplog
@@ -118,7 +124,7 @@ def test_unknown_deck_raises():
 
 
 def test_colour_layers_keep_their_order_in_the_actions_array():
-    """§8.2 resolves colour LTP by position in the actions array, so build_look must not reorder."""
+    """Colour resolves by position in the actions array, so build_look must not reorder them."""
     look = build_look(
         [
             _action("light_color", sel=ALL, color="blue", deck="both"),
@@ -135,7 +141,7 @@ def test_colour_layers_keep_their_order_in_the_actions_array():
     assert len(look.brightness_layers) == 1
 
 
-# --- colour: light_color, gradient, rainbow (spec §10.2) -------------------------------
+# --- colour: light_color, gradient, rainbow -------------------------------------------------------
 
 
 def test_light_color_builds_a_named_colour_layer():
@@ -195,7 +201,7 @@ def test_gradient_by_index_ranks_within_the_selected_subset():
 
     `ids(2, 4, 6)` cannot tell the two apart -- evenly spaced ids normalize to the same [0, 0.5, 1]
     either way, so the assertion the name makes would hold against a gradient ranked over the whole
-    swarm (spec 11). `ids(1, 2, 6)` ranks to [0, 0.5, 1] but normalizes absolutely to [0, 0.2, 1].
+    swarm. `ids(1, 2, 6)` ranks to [0, 0.5, 1] but normalizes absolutely to [0, 0.2, 1].
     """
     look = _build(
         _action(
@@ -267,14 +273,14 @@ def test_rainbow_builds_a_cycled_layer_carrying_the_spread_offsets():
 
 
 def test_rainbow_takes_the_whole_spread_vocabulary():
-    """`none` cycles the swarm in sync; `x` sweeps the spectrum across the stage (§10.2)."""
+    """`none` cycles the swarm in sync; `x` sweeps the spectrum across the stage."""
     synced = _build(_action("rainbow", sel=ALL, period_beats=8.0, spread="none", deck="both"))
     assert synced.colour_layers[0].params["offsets"] == pytest.approx(np.zeros(N6))
     swept = _build(_action("rainbow", sel=ALL, period_beats=8.0, spread="x", deck="both"))
     assert swept.colour_layers[0].params["offsets"] == pytest.approx(np.arange(N6) / N6)
 
 
-# --- brightness: the nine (spec §10.2) --------------------------------------------------
+# --- brightness: the nine -------------------------------------------------------------------------
 
 
 def test_light_on_builds_a_constant_brightness_layer():
@@ -290,7 +296,7 @@ def test_light_on_builds_a_constant_brightness_layer():
 
 
 def test_light_off_becomes_an_off_mask_bit_not_a_brightness_layer():
-    """§8.3: under a plain `max` a layer contributing 0 is a no-op, so light_off is a kill mask."""
+    """Under a plain `max` a layer contributing 0 is a no-op, so light_off is a kill mask."""
     look = _build(_action("light_off", sel=("odd", ()), deck="both"))
     assert look.brightness_layers == ()
     assert look.colour_layers == ()
@@ -332,7 +338,7 @@ def test_strobe_decay_is_a_ramp_flashing_on_the_beat():
 
 
 def _chase_action(**overrides: object) -> dict:
-    """A `chase` action, `spread` included -- §10.2 gives it one and the schema requires it."""
+    """A `chase` action, `spread` included -- the catalogue gives it one and the schema needs it."""
     params = dict(
         sel=ALL, period_beats=4.0, length=2, group_size=1, spread="neighbour", deck="both"
     )
@@ -340,10 +346,10 @@ def _chase_action(**overrides: object) -> dict:
 
 
 def test_chase_is_a_square_running_along_the_neighbour_spread():
-    """`chase` used to hardcode `index`, which is spatially scrambled by construction (§7.3).
+    """`chase` used to hardcode `index`, which is spatially scrambled by construction.
 
     POSITIONS_6's y coordinates wander, so it is not a straight line and the walk skips past drone
-    2 -- picking it up last, off a long jump back from drone 5. That is the §7.3 seam, and it is the
+    2 -- picking it up last, off a long jump back from drone 5. That is the walk's seam, and it is
     accepted cost. An evenly spaced line would rank identically to `index` and so could not tell the
     two spreads apart at all.
     """
@@ -356,7 +362,7 @@ def test_chase_is_a_square_running_along_the_neighbour_spread():
 
 
 def test_chase_honours_whichever_spread_it_is_given():
-    """`index` stays reachable for a choreography that deliberately addresses drones by id (§7.3).
+    """`index` stays reachable for a choreography that deliberately addresses drones by id.
 
     The engine must read the emitted `spread` rather than pin its own: with `neighbour` recommended
     everywhere the model reads, a `chase` that quietly ignored the parameter would look right on
@@ -374,7 +380,7 @@ def test_chase_without_a_spread_fails_loudly():
 
     The schema declares it and `_parse_lighting_actions` checks arity, so neither production path
     can reach here missing it -- and a `.get(default)` would therefore be unreachable code masking a
-    required field (CLAUDE.md §6.2). `KeyError` is one of the three `Choreographer._build_look`
+    required field, never masked by a default. `KeyError` is one of the three `_build_look`
     turns into an `LLMFormatError`, so a hand-written block reprompts rather than escaping.
     """
     params = {"sel": ALL, "period_beats": 4.0, "length": 2, "group_size": 1, "deck": "both"}
@@ -383,16 +389,16 @@ def test_chase_without_a_spread_fails_loudly():
 
 
 def test_a_built_look_colours_the_swarm_along_its_own_snapshot():
-    """§8.5 end to end, through `build_look` rather than a hand-assembled `Look`.
+    """The default hue wheel end to end, through `build_look` rather than a hand-assembled `Look`.
 
     The base colour is ranked against the look's snapshot at read-out time, so the snapshot has to
     ride on the `Look` -- resolving the masks and offsets while building it is not enough. Dropping
     it there is invisible to every other test in this file, and the swarm silently falls back to the
-    id-ordered wheel this spread exists to undo (§7.3).
+    id-ordered wheel this spread exists to undo.
 
     POSITIONS_6 walks as drones 0, 1, 3, 4, 5, 2, so drone 2 takes the *last* hue rather than the
     third: walk order and id order genuinely disagree on this fixture. `first(4)` rather than `all`
-    per §11 -- and it changes nothing here, because both the covered and the uncovered drones sit at
+    on reprompt -- and it changes nothing here, because covered and uncovered drones both sit at
     brightness 1.0, which is what makes the read-out the pure base colour.
     """
     look = _build(_action("light_on", sel=("first", (4,)), deck="both"))
@@ -402,7 +408,7 @@ def test_a_built_look_colours_the_swarm_along_its_own_snapshot():
 
 
 def test_chase_lights_exactly_length_drones_at_any_instant():
-    """`duty = length / n_sel` is what makes the running light a window of fixed width (§10.2).
+    """`duty = length / n_sel` is what makes the running light a window of fixed width.
 
     The period and sample times are chosen so every phase is an exact binary fraction: at 120 BPM
     16 beats is 8 s, and 0.25 s steps put `t / period` on multiples of 1/32 against offsets of 1/8.
@@ -419,7 +425,7 @@ def test_chase_duty_is_computed_over_the_selection_not_the_whole_swarm():
     """`duty = length / n_sel` is over the *selected* subset, which `sel=all` cannot distinguish.
 
     On the full swarm the mask's population and its length agree, so a duty divided by the swarm
-    size passes every existing assertion (spec 11). Over `first(4)` of eight they differ by a
+    size passes every existing assertion. Over `first(4)` of eight they differ by a
     factor of two, and `chase(first(4), length=2)` must light 2 drones at a time, not 1.
     """
     look = _build(
@@ -433,7 +439,7 @@ def test_chase_duty_is_computed_over_the_selection_not_the_whole_swarm():
 
 
 def test_chase_over_an_empty_selection_builds_instead_of_dividing_by_zero():
-    """`ids([])` now raises (§7.1), but an empty selection is still reachable through `right`.
+    """`ids([])` now raises, but an empty selection is still reachable through `right`.
 
     `_right_mask` splits on a strict `>` against the mean, so a formation with no extent along the
     stage axis puts every drone stage left and none stage right. Every layer is then a no-op, so
@@ -462,7 +468,7 @@ def test_chase_group_size_quantizes_whichever_spread_it_runs_along():
 
 @pytest.mark.parametrize("group_size", [0, 2])
 def test_chase_group_size_is_never_silently_inert(group_size: int):
-    """`group_size` is a plain `chase` parameter in §10.2, carrying no spread restriction.
+    """`group_size` is a plain `chase` parameter in the catalogue, carrying no spread restriction.
 
     The validation used to sit inside the ranked-spread branch of `spread_offsets`, so
     `chase(..., group_size=0, spread="x")` built happily while the identical call with
@@ -478,7 +484,7 @@ def test_sweep_uses_the_named_axis_spread():
     look = _build(_action("sweep", sel=ALL, period_beats=4.0, axis="z", deck="both"))
     (layer,) = look.brightness_layers
     assert layer.kind == "square"
-    assert layer.duty == pytest.approx(0.5), "sweep takes the default duty (§7.2)"
+    assert layer.duty == pytest.approx(0.5), "sweep takes the default duty"
     # z runs 1.0 .. 2.0 evenly, so the half-open spatial normalization gives exactly rank / n.
     assert layer.offsets == pytest.approx(np.arange(N6) / N6)
     across = _build(_action("sweep", sel=ALL, period_beats=4.0, axis="y", deck="both"))
@@ -510,7 +516,7 @@ def test_alternate_blink_maps_by_onto_the_two_alternate_spreads():
 
 def test_alternate_blink_puts_its_two_halves_in_antiphase():
     """This is why the primitive exists: `blink` has no phase parameter, so two `blink` calls
-    cannot express a ping-pong — the half-period offset can only come from a spread (§10.2)."""
+    cannot express a ping-pong — the half-period offset can only come from a spread."""
     (layer,) = _build(
         _action("alternate_blink", sel=ALL, period_beats=2.0, by="parity", deck="both")
     ).brightness_layers
@@ -523,7 +529,7 @@ def test_alternate_blink_puts_its_two_halves_in_antiphase():
 
 
 def test_rainbow_and_chase_share_the_spread_offsets():
-    """They differ only in the attribute driven — hue versus intensity (§10.2)."""
+    """They differ only in the attribute driven — hue versus intensity."""
     rainbow = _build(
         _action("rainbow", sel=ALL, period_beats=8.0, spread="radius", deck="both")
     ).colour_layers[0]
@@ -542,7 +548,7 @@ def test_offsets_are_full_swarm_shaped_even_for_a_subset():
     assert layer.offsets[[0, 1, 2]] == pytest.approx([0.0, 0.0, 0.0])
 
 
-# --- degenerate formations collapse a spatial spread (spec §7.3) ------------------------
+# --- degenerate formations collapse a spatial spread ----------------------------------------------
 
 # A horizontal ring, built exactly the way `form_circle` builds one (`motion_primitives.py:473`):
 # no extent in z at all, and every drone the same distance from the centre. `cos`/`sin` rather than
@@ -583,7 +589,7 @@ def test_a_spread_with_no_extent_to_run_along_warns(
     """
     look = _build(action, positions=RING_6, n=N6)
     assert _spread_offsets_of(look) == pytest.approx(np.zeros(N6)), "the collapse being reported"
-    records = [r for r in clamp_log.records if r.name == "swarm_gpt.core.lighting_primitives"]
+    records = [r for r in clamp_log.records if r.name == "swarm_gpt.core.lighting"]
     assert len(records) == 1
     assert records[0].levelno == logging.WARNING
     message = records[0].getMessage()
@@ -643,7 +649,7 @@ def test_a_gradient_with_no_extent_to_run_along_warns(clamp_log: pytest.LogCaptu
         _action("gradient", sel=ALL, color_a="red", color_b="blue", by="radius", deck="both"),
         positions=RING_6,
     )
-    records = [r for r in clamp_log.records if r.name == "swarm_gpt.core.lighting_primitives"]
+    records = [r for r in clamp_log.records if r.name == "swarm_gpt.core.lighting"]
     assert len(records) == 1
     assert records[0].levelno == logging.WARNING
     message = records[0].getMessage()
@@ -657,7 +663,7 @@ def test_a_gradient_with_extent_does_not_warn(clamp_log: pytest.LogCaptureFixtur
     assert not clamp_log.records
 
 
-# --- beats -> seconds, and the Nyquist clamp (spec §9.1) --------------------------------
+# --- beats -> seconds, and the Nyquist clamp ------------------------------------------------------
 
 
 def test_period_beats_converts_through_the_song_bpm():
@@ -669,12 +675,12 @@ def test_period_beats_converts_through_the_song_bpm():
 
 def test_nyquist_clamp_warns_and_clamps_rather_than_rejecting(clamp_log: pytest.LogCaptureFixture):
     """An effect faster than col_freq / 2 aliases, so it is slowed — never rejected, because one
-    over-eager LLM parameter must not fail a whole show (§9.1)."""
+    over-eager LLM parameter must not fail a whole show."""
     look = _build(_action("blink", sel=ALL, period_beats=0.1, duty=0.5, deck="both"))
     assert look.brightness_layers[0].period_s == pytest.approx(MIN_PERIOD_S), (
         "clamped, not rejected"
     )
-    records = [r for r in clamp_log.records if r.name == "swarm_gpt.core.lighting_primitives"]
+    records = [r for r in clamp_log.records if r.name == "swarm_gpt.core.lighting"]
     assert len(records) == 1
     assert records[0].levelno == logging.WARNING
     message = records[0].getMessage()
@@ -685,7 +691,7 @@ def test_nyquist_clamp_warns_and_clamps_rather_than_rejecting(clamp_log: pytest.
 def test_the_clamp_guards_each_drones_lit_window_not_the_period(
     clamp_log: pytest.LogCaptureFixture,
 ):
-    """`chase` divides the period into `length / n_sel`, so the period is the wrong quantity (§9.1).
+    """`chase` divides the period into `length / n_sel`, so the period is the wrong quantity.
 
     `chase(all, 1 beat, length=1)` over eight drones is a 0.5 s period at 120 BPM, comfortably
     above the 0.2 s Nyquist floor — while each drone is lit for 0.0625 s, well under one 0.1 s cue
@@ -702,7 +708,7 @@ def test_the_clamp_guards_each_drones_lit_window_not_the_period(
 
 
 def test_the_clamp_never_returns_a_period_below_the_nyquist_floor():
-    """A `chase` wide enough to want a sub-Nyquist period still cannot have one (§9.1).
+    """A `chase` wide enough to want a sub-Nyquist period still cannot have one.
 
     `length = 8` of eight is a duty of 1.0, whose lit-window floor is a single tick — but a
     waveform sampled fewer than twice per period aliases whatever its duty, so the two floors are a
@@ -722,7 +728,7 @@ def test_an_author_set_blink_duty_is_not_clamped_against_its_lit_window(
     Every offset is 0, so the whole selection shares one phase: a short `duty` coarsens the flash
     for all of them together rather than dropping it from some, which is the failure the lit-window
     floor exists to prevent. Clamping `blink` against `duty` too would slow a legal 0.1-duty stab
-    by a factor of five for no benefit (§9.1).
+    by a factor of five for no benefit.
     """
     look = _build(_action("blink", sel=ALL, period_beats=1.0, duty=0.1, deck="both"))
     assert look.brightness_layers[0].period_s == pytest.approx(0.5)
@@ -739,7 +745,7 @@ def test_the_nyquist_clamp_also_covers_rainbow():
 def test_a_legal_period_is_left_alone(clamp_log: pytest.LogCaptureFixture):
     look = _build(_action("pulse", sel=ALL, period_beats=1.0, deck="both"))
     assert look.brightness_layers[0].period_s == pytest.approx(0.5)
-    assert [r for r in clamp_log.records if r.name == "swarm_gpt.core.lighting_primitives"] == []
+    assert [r for r in clamp_log.records if r.name == "swarm_gpt.core.lighting"] == []
 
 
 def test_the_clamp_floor_tracks_the_configured_cue_rate(clamp_log: pytest.LogCaptureFixture):
@@ -747,7 +753,7 @@ def test_the_clamp_floor_tracks_the_configured_cue_rate(clamp_log: pytest.LogCap
 
     A second hardcoded copy would silently mis-tune the moment `DroneSwarm.col_freq` moved: raise
     the rate and the clamp throttles effects for no reason, lower it and the clamp stops guarding
-    against the §3.1 drift at all. The same emission must therefore survive at 20 Hz and be clamped
+    against cue drift at all. The same emission must therefore survive at 20 Hz and be clamped
     at 10 Hz, with the warning firing only in the second case.
     """
     # 0.3 beats is 0.15 s at 120 BPM: above the 0.1 s floor at 20 Hz, below the 0.2 s floor at 10.

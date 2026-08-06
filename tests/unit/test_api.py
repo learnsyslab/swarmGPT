@@ -40,7 +40,7 @@ def test_normalize_playback_schema():
     assert payload["numDrones"] == 3
     assert payload["fields"]["pos"] == [0, 3]
     assert len(payload["states"]) == len(payload["timestamps"])
-    # §9.3: the timeline is the single colour source, so the static `colors` array is gone and the
+    # The timeline is the single colour source, so the static `colors` array is gone and the
     # payload carries one cue list per deck per drone instead.
     assert "colors" not in payload
     assert payload["lighting"] == _lighting_stub(3)

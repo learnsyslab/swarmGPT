@@ -368,7 +368,7 @@ def render_preset(
         sim.state_control(controls)
 
     def render_frame(frame_time: float) -> None:
-        # Per frame, not once before the loop: the lighting timeline is a function of time (§9.2).
+        # Per frame, not once before the loop: the lighting timeline is a function of time.
         paint_lighting(sim, lighting, frame_time)
         positions = np.asarray(sim.data.states.pos[0])
         for i, trail in enumerate(trails):

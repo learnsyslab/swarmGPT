@@ -7,8 +7,7 @@ import pytest
 from conftest import virtual_crazyswarm_config
 
 from swarm_gpt.core.backend import AppBackend, _fold_cues_to_rgb
-from swarm_gpt.core.lighting import hue_to_wrgb, load_lighting_config
-from swarm_gpt.core.lighting_compile import compile_cues
+from swarm_gpt.core.lighting import compile_cues, hue_to_wrgb, load_lighting_config
 from swarm_gpt.exception import LLMFormatError
 from swarm_gpt.utils import generate_default_colors
 from swarm_gpt.utils.music_analyzer import Bar, Beat, Segment, SongStructure
@@ -77,7 +76,8 @@ def test_emergency_stop_active_swarm_stops_live_swarm_and_music() -> None:
     assert swarm.calls == ["emergency_stop"]
     assert music_calls == ["stop"]
 
-# --- lighting read-outs (spec §5, §8.7, §9.1, §9.2; plan Tasks 11 and 12) -----------------------
+
+# --- lighting read-outs ---------------------------------------------------------------------------
 
 LIGHTING_CFG = load_lighting_config()
 LIGHTING_N = 4
@@ -191,7 +191,7 @@ def _deploy_backend(monkeypatch: pytest.MonkeyPatch, response: str) -> AppBacken
 
 
 def test_deploy_builds_colour_cues_from_the_compiled_timeline(monkeypatch: pytest.MonkeyPatch):
-    """§5, §9.1: deploy's colour dicts come from `compile_cues`, not from a two-cue stub."""
+    """Deploy's colour dicts come from `compile_cues`, not from a two-cue stub."""
     app = _deploy_backend(monkeypatch, LIGHTING_RESPONSE)
 
     assert app.deploy() is True
@@ -206,20 +206,20 @@ def test_deploy_builds_colour_cues_from_the_compiled_timeline(monkeypatch: pytes
             times = sorted(track)
             # The stub emitted exactly two cues per deck; a blinking look cannot compile to that.
             assert len(times) > 2
-            # §3.1: never denser than the consumer drains.
+            # Never denser than the consumer drains.
             assert min(np.diff(times)) >= 1.0 / LIGHTING_CFG.col_freq - 1e-9
             assert all(np.all(v >= 0) and np.all(v <= 255) for v in track.values())
 
 
 def test_deploy_passes_one_col_freq_to_the_swarm_and_the_compiler(monkeypatch: pytest.MonkeyPatch):
-    """§9.1: the cue consumer and the cue compiler read the same config field, never a literal.
+    """The cue consumer and the cue compiler read the same config field, never a literal.
 
     `col_freq` is patched away from the shipped 10 Hz, because that is the only thing that tells
     the config field apart from a literal: while `lighting.toml` ships 10.0, a hardcoded 10.0 in
     the `compile_cues` call is indistinguishable from `cfg.col_freq`. It stops being latent the
-    moment someone takes the lever §9.1 and §12.1 recommend and compiles on a grid below
+    moment someone lowers the configured cue rate and compiles on a grid below
     `col_freq` for radio headroom -- cues baked at 10 Hz while the swarm drained at 4 Hz is the
-    §3.1 permanent-desync mode this compile rule exists to make impossible.
+    permanent-desync mode this compile rule exists to make impossible.
     """
     cfg = dataclasses.replace(LIGHTING_CFG, col_freq=4.0)
     monkeypatch.setattr("swarm_gpt.core.backend.load_lighting_config", lambda: cfg)
@@ -241,7 +241,7 @@ def test_deploy_passes_one_col_freq_to_the_swarm_and_the_compiler(monkeypatch: p
 
 
 def test_deploy_ends_every_drone_and_deck_black(monkeypatch: pytest.MonkeyPatch):
-    """§8.7: the terminal blackout is unconditional, so the drones never land lit."""
+    """The terminal blackout is unconditional, so the drones never land lit."""
     app = _deploy_backend(monkeypatch, LIGHTING_RESPONSE)
 
     app.deploy()
@@ -259,7 +259,7 @@ def test_deploy_ends_every_drone_and_deck_black(monkeypatch: pytest.MonkeyPatch)
 def test_deploy_without_a_lighting_track_keeps_todays_static_colours(
     monkeypatch: pytest.MonkeyPatch,
 ):
-    """§8.5/§10.1: a preset predating the feature compiles to one colour, then black."""
+    """A preset predating the feature compiles to one colour, then black."""
     response = 'song_mood: "x"\nchoreography:\n  s1b1t1: spiral(3, 100)\n  END'
     app = _deploy_backend(monkeypatch, response)
 
@@ -277,7 +277,7 @@ def test_deploy_without_a_lighting_track_keeps_todays_static_colours(
 
 
 def test_the_position_snapshot_is_ordered_by_drone_index(monkeypatch: pytest.MonkeyPatch):
-    """§7.3: the snapshot's row order *is* the drone index, and this is the seam it crosses.
+    """The snapshot's row order *is* the drone index, and this is the seam it crosses.
 
     The splines are keyed by drone, so the array handed to `response2lighting` has to be built in
     that key order. Nothing position-free notices if it is not — but `left`, `right`, `sweep`,
@@ -300,7 +300,7 @@ def test_the_position_snapshot_is_ordered_by_drone_index(monkeypatch: pytest.Mon
 
 
 def test_lighting_compiles_from_the_latest_response_in_the_history(monkeypatch: pytest.MonkeyPatch):
-    """After a self-correct round the history holds several responses, not one (spec §11).
+    """After a self-correct round the history holds several responses, not one.
 
     The lights must come from the one the waypoints and splines were built from — the last — or
     the show flies a superseded response's lighting over the current response's trajectory.
@@ -328,7 +328,7 @@ def test_lighting_refuses_a_history_that_does_not_end_in_a_response(
 ):
     """A history ending on a prompt has no response to compile, and must say so rather than
     silently reading the prompt text — which parses as a lighting-less response and compiles to
-    the §8.5 base state, a plausible-looking show built from the wrong message."""
+    the default hue wheel, a plausible-looking show built from the wrong message."""
     app = _deploy_backend(monkeypatch, LIGHTING_RESPONSE)
     app.choreographer.messages.append({"role": "user", "content": "make it bluer"})
 
@@ -370,7 +370,7 @@ def test_reprompt_rejects_a_malformed_lighting_emission(monkeypatch: pytest.Monk
 
 
 def test_sim_colours_change_over_a_blink(monkeypatch: pytest.MonkeyPatch):
-    """§9.2: the colour `render.py` and `sim.py` draw is a function of time, sampled per frame.
+    """The colour `render.py` and `sim.py` draw is a function of time, sampled per frame.
 
     Asserts on the read-out itself rather than standing up a GUI: if the render path kept its
     one-shot ``rgbas[:, :3]`` assignment these two values would be drawn identically.
@@ -390,7 +390,7 @@ def test_sim_colours_change_over_a_blink(monkeypatch: pytest.MonkeyPatch):
 def test_sim_colours_without_a_lighting_track_are_the_base_hue_wheel(
     monkeypatch: pytest.MonkeyPatch,
 ):
-    """§8.5: no lighting is full on, each drone in its own hue — today's colouring, calibrated.
+    """No lighting is full on, each drone in its own hue — today's colouring, calibrated.
 
     This is the one visible change for presets predating the feature: the sim now carries the
     same ``channel_gain`` blue dim the deploy path has always applied (`backend.py:314`), so the
@@ -411,11 +411,11 @@ def test_sim_colours_without_a_lighting_track_are_the_base_hue_wheel(
     assert np.allclose(timeline.evaluate_rgb01(0.0)[:, :2], uncalibrated[:, :2], atol=2e-3)
 
 
-# --- the browser read-out (spec §9.3) -----------------------------------------------------------
+# --- the browser read-out -------------------------------------------------------------------------
 
 
 def test_browser_cues_are_drone_indexed_and_json_ready(monkeypatch: pytest.MonkeyPatch):
-    """§9.3: `compile_cues` output is not browser-ready, and this is the whole of the adaptation.
+    """`compile_cues` output is not browser-ready, and this is the whole of the adaptation.
 
     Four mismatches at once: URI keys become drone indices, `{time: NDArray}` dicts become parallel
     lists, NumPy scalars become JSON-serializable ones, and 4-channel WRGB becomes 3-channel RGB.
@@ -450,7 +450,7 @@ def test_browser_cues_are_drone_indexed_and_json_ready(monkeypatch: pytest.Monke
 
 
 def test_browser_cues_are_the_same_baked_list_the_hardware_gets(monkeypatch: pytest.MonkeyPatch):
-    """§9.3: browser == hardware, so the preview shows the `col_freq` quantization that will fly.
+    """Browser == hardware, so the preview shows the `col_freq` quantization that will fly.
 
     Also pins the index keying against the URI keying -- entry `i` must be the drone whose URI sits
     at position `i` in deploy's list -- and the deck keying, since `browser_cues` zips deck names
@@ -479,14 +479,14 @@ def test_browser_cues_are_the_same_baked_list_the_hardware_gets(monkeypatch: pyt
         for i, uri in enumerate(uris):
             times = sorted(cues[uri])
             # The W fold recomputed from the hardware cues rather than run back through
-            # `_fold_cues_to_rgb`, so this compares two independent derivations (§9.3).
+            # `_fold_cues_to_rgb`, so this compares two independent derivations.
             folded = [
                 np.clip(cues[uri][t][1:] + cues[uri][t][0], 0, 255).astype(int).tolist()
                 for t in times
             ]
             assert browser[deck][i]["times"] == times
             assert browser[deck][i]["rgb"] == folded
-            # §8.7: the terminal blackout is the last cue, and the browser's zero-order-hold
+            # The terminal blackout is the last cue, and the browser's zero-order-hold
             # lookup has to be able to reach it.
             assert browser[deck][i]["times"][-1] == pytest.approx(FLIGHT_END_S - 0.1)
             assert browser[deck][i]["rgb"][-1] == [0, 0, 0]
@@ -499,7 +499,7 @@ def test_browser_cues_are_the_same_baked_list_the_hardware_gets(monkeypatch: pyt
 
 
 def test_browser_cues_fold_the_white_channel_into_rgb(monkeypatch: pytest.MonkeyPatch):
-    """§9.3: three.js has no white channel, so W folds into all three, as `evaluate_rgb01` does."""
+    """Three.js has no white channel, so W folds into all three, as `evaluate_rgb01` does."""
     response = (
         'song_mood: "x"\n'
         "choreography:\n  s1b1t1: spiral(3, 100)\n  END\n"
@@ -516,7 +516,7 @@ def test_browser_cues_fold_the_white_channel_into_rgb(monkeypatch: pytest.Monkey
 
 
 def test_the_white_fold_clips_rather_than_overflowing():
-    """§9.3: the fold is `clip(rgb + w, 0, 255)`, and the clip is not optional.
+    """The fold is `clip(rgb + w, 0, 255)`, and the clip is not optional.
 
     Asserted on the fold directly because the shipped palette cannot reach it: every entry is
     normalized to a constant channel sum of 255, so `w + channel` never exceeds it. A retuned

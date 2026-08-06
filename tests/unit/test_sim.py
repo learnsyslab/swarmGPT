@@ -1,7 +1,7 @@
-"""Unit tests for the sim read-out (spec §9.2): what `replay_sim_states` actually draws per frame.
+"""Unit tests for the sim read-out: what `replay_sim_states` actually draws per frame.
 
 `test_backend.py` pins `LightingTimeline.evaluate_rgb01` itself. That is not the same thing as
-pinning the render path, which is where the two §9.2 mistakes live: sampling the timeline once
+pinning the render path, which is where the two read-out mistakes live: sampling the timeline once
 before the loop instead of per frame, and painting both LED rings from the same deck. Both survive
 a green timeline test, so these tests drive the real loop with a fake `Sim` and record what
 `change_material` is handed — plus what `draw_line` is handed, since the trails must stay one
@@ -16,8 +16,7 @@ import numpy as np
 import pytest
 
 import swarm_gpt.core.sim as sim_module
-from swarm_gpt.core.lighting import LightingTimeline, load_lighting_config
-from swarm_gpt.core.lighting_primitives import build_look
+from swarm_gpt.core.lighting import LightingTimeline, build_look, load_lighting_config
 from swarm_gpt.core.sim import paint_lighting, replay_sim_states
 
 CFG = load_lighting_config()
@@ -32,7 +31,7 @@ ALL = ("all", ())
 CLOCK_TICK = 0.25
 FRAME_TIMES = (0.25, 0.75, 1.25, 1.75, 2.0)
 
-# A 2s replay, and a lighting timeline long enough that the §8.7 blackout never reaches it.
+# A 2s replay, and a lighting timeline long enough that the blackout never reaches it.
 REPLAY_END_S = 2.0
 SHOW_END_S = 10.0
 
@@ -171,7 +170,7 @@ def _paint(
 
 
 def test_paint_lighting_gives_each_ring_its_own_deck(monkeypatch: pytest.MonkeyPatch):
-    """§8.6: the two decks resolve independently, so one shared array cannot express both.
+    """The two decks resolve independently, so one shared array cannot express both.
 
     Both call sites used to hand the same array to both `change_material` calls, and
     `evaluate_rgb01` fills it from the *top* deck by default — every `deck="bot"` action was
@@ -219,10 +218,10 @@ def test_paint_lighting_reads_the_timeline_at_the_time_it_is_given(monkeypatch: 
 
 
 def test_paint_lighting_hands_nothing_back(monkeypatch: pytest.MonkeyPatch):
-    """§9.2: it paints the LED materials and returns nothing — the trails are not a read-out of it.
+    """It paints the LED materials and returns nothing — the trails are not a read-out of it.
 
     This return value has flipped three times across the lighting work, so it is pinned rather than
-    left implicit. The trails are one fixed grey (§9.2), so nothing downstream needs a resolved
+    left implicit. The trails are one fixed grey, so nothing downstream needs a resolved
     deck, and handing one back would invite a caller to colour something from it again.
     """
     timeline = _timeline(
@@ -243,7 +242,7 @@ def test_paint_lighting_hands_nothing_back(monkeypatch: pytest.MonkeyPatch):
 
 
 def test_replay_paints_each_deck_from_its_own_deck_of_the_timeline(monkeypatch: pytest.MonkeyPatch):
-    """§9.2, §8.6: a `deck="bot"` action must be visible in the preview.
+    """A `deck="bot"` action must be visible in the preview.
 
     Both `change_material` calls used to be handed the same array, which `evaluate_rgb01` fills
     from the *top* deck by default — so the bottom ring silently mirrored the top one and every
@@ -268,7 +267,7 @@ def test_replay_paints_each_deck_from_its_own_deck_of_the_timeline(monkeypatch: 
 
 
 def test_replay_resamples_the_timeline_on_every_frame(monkeypatch: pytest.MonkeyPatch):
-    """§9.2: the colour is a function of time, so the loop must resample it, not hoist it.
+    """The colour is a function of time, so the loop must resample it, not hoist it.
 
     The blink is a 2s square wave at 120 BPM, so the fixture's five frames straddle two on-phases
     and one off-phase. Sampling once before the loop would paint all five identically.
@@ -296,7 +295,7 @@ def test_replay_resamples_the_timeline_on_every_frame(monkeypatch: pytest.Monkey
 def test_replay_trails_are_one_neutral_grey_whatever_the_lighting_does(
     monkeypatch: pytest.MonkeyPatch,
 ):
-    """§9.2: every trail is `TRAIL_RGBA`, for every drone, at every frame, ignoring the lighting.
+    """Every trail is `TRAIL_RGBA`, for every drone, at every frame, ignoring the lighting.
 
     Trails carrying colour oversold the effect — one LED changing repainted a whole streak, so the
     preview showed a bigger cue than the hardware will fly. Grey makes the trail scene furniture

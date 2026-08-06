@@ -15,8 +15,7 @@ import yaml
 from scipy.interpolate import make_smoothing_spline
 
 from swarm_gpt.core import Choreographer
-from swarm_gpt.core.lighting import load_lighting_config
-from swarm_gpt.core.lighting_compile import compile_cues
+from swarm_gpt.core.lighting import compile_cues, load_lighting_config
 from swarm_gpt.core.sim import replay_sim_states, simulate_axswarm
 from swarm_gpt.exception import LLMException
 from swarm_gpt.utils import MusicManager
@@ -76,13 +75,13 @@ def self_correct(n_retries: int) -> Callable[[Callable[P, R]], Callable[P, R]]:
 
 
 def _fold_cues_to_rgb(cues: dict[float, Array]) -> dict[str, list]:
-    """Fold one drone-deck's WRGB cue dict into the browser's parallel arrays (spec §9.3).
+    """Fold one drone-deck's WRGB cue dict into the browser's parallel arrays.
 
     Three.js has no white channel, so W folds into all three exactly as
     :meth:`LightingTimeline.evaluate_rgb01` does it -- ``clip(rgb + w, 0, 255)``, where the clip is
     load-bearing because a near-white cue overflows without it. The truncation to integers matches
     ``DroneSwarm._apply_drone_color``, which packs each channel with ``int()``, so quantization can
-    only ever darken relative to intent (§9.1).
+    only ever darken relative to intent.
 
     **Note: that truncation requirement is currently vacuous, and byte-level agreement holds for a
     different reason than it claims.** :meth:`LightingTimeline.evaluate` already rounds, so every
@@ -237,7 +236,7 @@ class AppBackend:
                 response, structure, strict=self._strict_processing
             )
             # The lighting cannot be compiled yet -- a look freezes a position snapshot, and
-            # positions exist only after the axswarm pass (§7.3). Checking the half that needs no
+            # positions exist only after the axswarm pass. Checking the half that needs no
             # positions here is what lets a malformed lighting track reprompt.
             self.choreographer.validate_lighting(response)
         except LLMException as e:
@@ -307,16 +306,13 @@ class AppBackend:
         return sim_data
 
     def lighting_timeline(self) -> LightingTimeline:
-        """Compile the current response's lighting track into a timeline (spec §5, §10.1).
+        """Compile the current response's lighting track into a timeline.
 
-        Each look freezes a position snapshot taken from the axswarm splines (§7.3), so this is
-        only available once :meth:`simulate` has run.
+        Each look freezes a position snapshot taken from the axswarm splines, so this is only
+        available once :meth:`simulate` has run.
 
-        Every read-out goes through here, including for a response that carries no lighting at
-        all: that compiles to the §8.5 base state, which is the same per-drone hue wheel the sim
-        has always drawn plus the channel calibration the deploy path has always applied. The
-        preview and the hardware therefore agree, which is the point of having two read-outs off
-        one timeline.
+        Every read-out goes through here, including for a response carrying no lighting at all:
+        that compiles to the default hue wheel, so the preview and the hardware still agree.
 
         Returns:
             The compiled timeline, covering the whole flight.
@@ -333,11 +329,11 @@ class AppBackend:
         )
 
     def browser_cues(self) -> dict[str, list[dict[str, list]]]:
-        """Adapt the compiled lighting cues for the browser viewer (spec §9.3).
+        """Adapt the compiled lighting cues for the browser viewer.
 
         The browser is the third read-out, and it plays back the same baked cue list the hardware
         does, so the preview shows the ``col_freq`` quantization that will actually fly. That is
-        deliberately *not* the sim's per-frame ``evaluate`` (§9.2), which is smoother than either.
+        deliberately *not* the sim's per-frame ``evaluate``, which is smoother than either.
 
         ``compile_cues`` output is not browser-ready: it is URI-keyed, holds ``NDArray`` values in
         ``{time: wrgb}`` dicts, and carries four channels. This is the whole of the adaptation, so
@@ -345,13 +341,11 @@ class AppBackend:
         does not spread into the API layer.
 
         **Known divergence: editing `lighting.toml` between preview and flight desynchronizes
-        them** (§9.3). This runs once per job and the result is cached in ``job.playback``, while
-        :meth:`deploy` recompiles from scratch and ``load_lighting_config`` re-reads the file every
-        call with no cache -- so the viewer can show the old palette while the drones fly the new
-        one. §12.2 and §12.3 explicitly invite retuning that file by eye, which is what makes this
-        reachable rather than theoretical. Re-running the job resyncs. Everything else is identical
-        by construction: no RNG anywhere in ``lighting*.py``, and both paths take ``t_end``,
-        ``col_freq``, the response text and the positions from the same sources.
+        them.** This runs once per job and caches into ``job.playback``, while :meth:`deploy`
+        recompiles from scratch and ``load_lighting_config`` re-reads the file every call with no
+        cache, so the viewer can show the old palette while the drones fly the new one. Re-running
+        the job resyncs. Nothing else can diverge: there is no RNG in the lighting path, and both
+        paths take ``t_end``, ``col_freq``, the response text and the positions from one source.
 
         Returns:
             ``{"top": [...], "bot": [...]}``, each a list of one ``{"times", "rgb"}`` entry per
@@ -409,8 +403,8 @@ class AppBackend:
         # Bake the lighting before connecting any radio, so a malformed track fails cheaply.
         # `cfg.col_freq` reaches both the cue consumer and the cue compiler from the same config
         # field, so the Nyquist clamp in `build_look` can never disagree with the rate the cues
-        # are actually drained at (§9.1). A response with no lighting track compiles from the
-        # §8.5 base state, which is today's one-colour-then-black cue pair exactly (§10.1).
+        # are actually drained at. A response with no lighting track compiles from the default
+        # hue wheel, which is the one-colour-then-black cue pair the deploy path always sent.
         cfg = load_lighting_config()
         t_end = float(self.waypoints["time"][0, -1])
         uris = [d["uri"] for d in self.choreographer.drones.values()]

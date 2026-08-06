@@ -197,30 +197,24 @@ def simulate_axswarm(
 
 
 def paint_lighting(sim: Sim, lighting: LightingTimeline, t: float) -> None:
-    """Evaluate the lighting timeline at ``t`` and paint both LED rings (spec §9.2).
+    """Evaluate the lighting timeline at ``t`` and paint both LED rings.
 
     Shared by the debug replay viewer below and `render.py`'s offline renderer. The two had this
     same body twice and got it wrong the same two ways, and only one of them sits behind a
     unit-testable seam — `render_preset` runs the whole backend, the axswarm pass and an offscreen
     MuJoCo context. Holding the body here puts both behind one test.
 
-    Each ring gets **its own deck** of one `evaluate` call: the two resolve independently (§8.6),
-    so painting both rings from one deck makes every ``deck="bot"`` action invisible in the
-    preview. `evaluate_rgb01` is the obvious read-out and is *not* used, because it resolves both
-    decks internally and throws one away — one call per deck does the work twice over, on the one
-    function that runs 60x/s in the offline renderer. Its W-into-RGB fold is repeated here instead
-    (§9.2), the same way `_fold_cues_to_rgb` repeats it for the browser payload (§9.3). And the
-    timeline is read here, *from the ``t`` the caller passes*, rather than once before a frame
-    loop: it is a function of time, so a hoisted read-out freezes the show on its first frame.
-    Taking ``t`` as a parameter makes that hoist less likely and keeps this logic covered through
-    `sim.py`'s loop, which a unit test does drive. It does not make the mistake impossible:
-    `render.py` could still pass a stale time, and its own frame loop stays unpinned because
-    `render_preset` needs a full backend, the axswarm pass and an offscreen MuJoCo context.
+    Each ring gets **its own deck** of one `evaluate` call, because the two decks resolve
+    independently and painting both rings from one deck makes every ``deck="bot"`` action invisible
+    in the preview. `evaluate_rgb01` is the obvious read-out and is *not* used: it resolves both
+    decks internally and throws one away, doubling the work in a function that runs 60x/s in the
+    offline renderer. Its W-into-RGB fold is repeated here instead.
 
-    **It paints the LEDs and returns nothing.** Nothing else in a frame is a read-out of the
-    lighting: the trails are `TRAIL_RGBA`, one fixed grey (§9.2). An earlier version handed back
-    the resolved top deck for both callers to colour their trails from, and the shape of this
-    return value has now flipped three times, so it is stated plainly here and pinned by a test.
+    The timeline is read *from the ``t`` the caller passes* rather than once before a frame loop.
+    It is a function of time, so a hoisted read-out freezes the show on its first frame.
+
+    **It paints the LEDs and returns nothing.** Nothing else in a frame reads the lighting: the
+    trails are `TRAIL_RGBA`, one fixed grey.
 
     Args:
         sim: The simulation whose ``led_top`` and ``led_bot`` materials are painted.
@@ -247,9 +241,9 @@ def replay_sim_states(
     This is a debug viewer for the exact states produced by ``simulate_axswarm``. Unlike
     ``simulate_spline``, it does not run another controller/physics pass.
 
-    ``lighting`` drives the LED colours per frame (spec §9.2); the trails are `TRAIL_RGBA` and do
-    not follow it, so the only colour on screen is the lighting. A choreography with no lighting
-    compiles to the §8.5 base state, so there is no colourless case to handle.
+    ``lighting`` drives the LED colours per frame; the trails are `TRAIL_RGBA` and do not follow
+    it, so the only colour on screen is the lighting. A choreography with no lighting still
+    compiles to the default hue wheel, so there is no colourless case to handle.
     """
     timestamps = np.asarray(sim_data["timestamps"], dtype=float)
     states = np.asarray(sim_data["states"], dtype=np.float32)
@@ -328,7 +322,7 @@ def replay_sim_states(
 
                 t = float(np.clip(t_playback, timestamps[0], timestamps[-1]))
                 frame = sample_state(t)
-                # Per frame, not once before the loop: lighting is a function of time (§9.2).
+                # Per frame, not once before the loop: lighting is a function of time.
                 paint_lighting(sim, lighting, t)
                 progress.update(max(0.0, t - last_progress_time))
                 last_progress_time = t

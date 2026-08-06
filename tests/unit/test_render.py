@@ -1,4 +1,4 @@
-"""Unit tests for the offline renderer's audio muxing (spec §9.3).
+"""Unit tests for the offline renderer's audio muxing.
 
 Only `mux_audio` is reachable from a unit test: `render_preset` needs a full backend, the axswarm
 pass and an offscreen MuJoCo context, so the wiring from `backend.crop_window` into this call stays

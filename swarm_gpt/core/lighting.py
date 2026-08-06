@@ -1,12 +1,9 @@
-"""Lighting primitive layer: config, selectors, waveforms, phase spreads and colour sources.
+"""The lighting engine: config, selectors, waveforms, spreads, colour sources, primitives, cues.
 
-Spec: ``docs/specs/2026-08-05-lighting-primitives-design.md``. Lighting factors into two orthogonal
-layers that multiply at the read-out — colour (which hue a drone carries) and brightness (a per-drone
-scalar in ``[0, 1]``) — so any brightness effect composes with any colour source without a
-combinatorial catalogue.
-
-This module is pure NumPy plus stdlib. It never imports the backend, the simulator or JAX, which is
-what lets the whole lighting engine be tested without a trajectory or a radio.
+Colour and brightness are independent layers that multiply at the read-out, so any effect composes
+with any colour source without needing a primitive per combination. Four sections, bottom up: the
+engine, the `Look` / `LightingTimeline` read-out, the primitives the LLM may emit, and the
+`compile_cues` bake into hardware colour cues.
 """
 
 from __future__ import annotations
@@ -22,43 +19,56 @@ import numpy as np
 from swarm_gpt.core.motion_primitives import _sanitize_drone_ids
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from numpy.typing import NDArray
+
+    _Builder = Callable[[dict, "_BuildContext"], "ColourLayer | BrightnessLayer | None"]
 
 logger = logging.getLogger(__name__)
 
-# World axis index and sign that point to the audience's right, keyed by `stage_axis` (§7.1).
+# World axis index and sign that point to the audience's right, keyed by `stage_axis`.
 _STAGE_AXES = {"+x": (0, 1.0), "-x": (0, -1.0), "+y": (1, 1.0), "-y": (1, -1.0)}
 
-# Coordinate index a directional spread reads, keyed by spread name (§7.3).
+# Coordinate index a directional spread reads, keyed by spread name.
 _SPREAD_AXES = {"x": 0, "y": 1, "z": 2}
 
-# `duty` is clamped to (0, 1]; the open lower bound needs a positive floor (§7.2).
+# `duty` is clamped to (0, 1]; the open lower bound needs a positive floor.
 _DUTY_MIN = 1e-6
 
-# Deck axis order, shared by `Look.off_mask` and the `LightingTimeline` read-outs (§6, §8.6).
+# Deck axis order, shared by `Look.off_mask` and the `LightingTimeline` read-outs.
 _DECKS = ("top", "bot")
 
-# How far before the end of the show the unconditional blackout lands (§8.7). This is the existing
-# terminal cue offset from `backend.py:332`, kept so the drones never land lit.
+# How far before the end of the show the blackout lands, so drones never land lit.
 _BLACKOUT_LEAD_S = 0.1
 
 # A selector is a name plus its arguments, e.g. ("all", ()), ("ids", (1, 3, 5)), ("first", (4,)).
 Selector = tuple[str, tuple]
 
-# How many arguments each fixed-arity selector takes (§7.1). `ids` is variadic and is absent, but
-# still has to name at least one drone.
+# Arguments each fixed-arity selector takes. `ids` is variadic and so absent.
 _SELECTOR_ARITY = {"all": 0, "even": 0, "odd": 0, "left": 0, "right": 0, "first": 1}
 
-# The two spreads that rank the selection, and so are the two `group_size` can bucket (§7.3).
+# The spreads that rank the selection, and so the only ones `group_size` can bucket.
 _RANKED_SPREADS = ("neighbour", "index")
 
-# Fraction of the coordinate magnitude below which a spatial span counts as no extent at all.
-# Relative rather than absolute because the values are metres of whatever the formation happens to
-# be sized at, and `span <= 2 * max(|values|)` always, so the ratio is bounded. Three users:
-# `_normalize_span` and `_right_mask` here, `_gradient_s` in `lighting_primitives`. An exact-zero
-# test is not enough for any of them: a ring built from cos/sin is degenerate only to ~1e-16, so it
-# slips past equality and the code then divides by float noise.
+# Fraction of the coordinate magnitude below which a span counts as no extent. Relative rather than
+# exact-zero: a cos/sin ring is degenerate only to ~1e-16, so an equality test would divide by that.
 _SPAN_REL_TOL = 1e-9
+
+# The `deck` every primitive takes, mapped onto the decks its layer covers.
+_DECK_CHOICES = {"top": ("top",), "bot": ("bot",), "both": _DECKS}
+
+# `alternate_blink`'s `by`, mapped onto the spread that splits the group into antiphase halves.
+_ALTERNATE_SPREADS = {"parity": "alternate_parity", "side": "alternate_side"}
+
+# Waveform duty for every brightness primitive that does not set its own.
+_DEFAULT_DUTY = 0.5
+
+# Spreads that measure geometry, so a formation can leave them nothing to run along.
+_SPATIAL_SPREADS = ("radius", *_SPREAD_AXES)
+
+
+# --- Config ---------------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
@@ -66,16 +76,14 @@ class LightingConfig:
     """Palette and calibration constants loaded from ``swarm_gpt/data/lighting.toml``.
 
     Attributes:
-        palette: Colour name -> (4,) WRGB float in [0, 255] at full brightness, already calibrated.
+        palette: Colour name -> (4,) calibrated WRGB in [0, 255] at full brightness.
         gamma: Perceived-brightness exponent applied to the merged brightness scalar.
         b_min: Merged brightness below which the LED goes fully dark.
         hue_steps: Hue quantization steps per `rainbow` cycle.
         brightness_steps: Quantization buckets the merged brightness is floored into.
         channel_gain: (4,) per-channel WRGB multiplier for generated hues.
-        stage_axis: Which world axis points to the audience's right; one of "+x", "-x", "+y", "-y".
-        col_freq: Maximum colour-cue rate in Hz. Sets both the `compile_cues` sample grid and the
-            Nyquist floor effect periods are clamped against (§9.1), and must match the `col_freq`
-            given to `DroneSwarm` (`drone_swarm.py:48`).
+        stage_axis: World axis pointing to the audience's right; "+x", "-x", "+y" or "-y".
+        col_freq: Maximum colour-cue rate in Hz. Must match `DroneSwarm`'s.
     """
 
     palette: dict[str, NDArray]
@@ -90,9 +98,6 @@ class LightingConfig:
 
 def load_lighting_config(path: Path | None = None) -> LightingConfig:
     """Load the lighting palette and calibration constants.
-
-    Every key is required and indexed directly, so a truncated config fails loudly rather than
-    flying with a silent default (CLAUDE.md §6.2).
 
     Args:
         path: Path to the TOML config. Defaults to ``swarm_gpt/data/lighting.toml``.
@@ -116,31 +121,21 @@ def load_lighting_config(path: Path | None = None) -> LightingConfig:
     )
 
 
+# --- Selectors ------------------------------------------------------------------------------
+
+
 def _right_mask(positions: NDArray, cfg: LightingConfig) -> NDArray:
-    """Mark the drones on the audience's right of the swarm centroid along the stage axis.
+    """Mark the drones stage right of the swarm centroid along the stage axis.
 
-    The split is a strict ``>`` against the mean, so a formation with no extent along the stage
-    axis -- a vertical line, or a circle seen edge-on -- puts every drone stage left and none stage
-    right. `light_color(right, ...)` is then a no-op that paints nobody, which is legal but almost
-    never what was meant, so it is logged.
-
-    "No extent" is `_normalize_span`'s test -- the span against ``_SPAN_REL_TOL`` times the
-    coordinate magnitude, not against exact zero -- and the degenerate branch returns that all-left
-    split explicitly rather than leaving it to the comparison. An edge-on ring forces both: its
-    stage-axis coordinate is projected through a heading whose cosine is 6.1e-17 rather than 0, so
-    it comes out equal only to within an ulp or two. An exact-zero test takes the *non-degenerate*
-    branch there and ``coord > coord.mean()`` deals the swarm into two arbitrary halves on that
-    rounding noise -- with the warning silent, and with `alternate_side` putting the same arbitrary
-    half into antiphase. The explicit return matters even for an exactly degenerate axis: the mean
-    of equal non-zero coordinates need not round back to the value they all share, and a mean an
-    ulp low would send *every* drone stage right.
+    A formation with no extent along that axis goes entirely stage left and warns, rather than
+    being dealt into halves by ``coord > coord.mean()`` on float noise.
 
     Args:
         positions: (n, 3) drone positions.
         cfg: Lighting config, whose ``stage_axis`` says which world axis points audience-right.
 
     Returns:
-        An (n,) boolean mask. The complement is stage left, so the two partition the swarm.
+        (n,) boolean mask. Its complement is stage left, so the two partition the swarm.
     """
     axis, sign = _STAGE_AXES[cfg.stage_axis]
     coord = sign * positions[:, axis]
@@ -156,39 +151,26 @@ def _right_mask(positions: NDArray, cfg: LightingConfig) -> NDArray:
 
 
 def select(sel: Selector, n: int, positions: NDArray, cfg: LightingConfig) -> NDArray:
-    """Resolve a selector into the set of drones a lighting layer covers (§7.1).
+    """Resolve a selector into the set of drones a lighting layer covers.
 
-    Both bounds of ``ids`` and ``first`` are checked **here**, not left to the structured-output
-    schema's ``minimum: 1`` / ``maximum: num_drones``: presets and hand-written ``lighting:``
-    blocks reach `build_look` without ever passing through the schema, and that is the path the
-    shipped demo preset takes. `_sanitize_drone_ids` checks neither bound — it only shifts the
-    1-indexed emission down by one — so without this an ``ids`` entry of 0 would become -1 and
-    quietly select the *last* drone, and ``first(99)`` would clamp against the slice and select
-    everything. Both are silent wrong answers rather than errors, which is the worst failure mode
-    available. The checks live in `select` rather than in `_sanitize_drone_ids` so the motion path
-    keeps its existing behaviour (CLAUDE.md §3).
-
-    The **argument count** and an **empty ``ids``** are checked here for the same reason and report
-    the same way. ``("all", (1, 2, 3))`` reads as "drones 1-3" and used to drop the extras;
-    ``ids([])`` selected nothing, so its whole layer did nothing, which is the silent wrong answer
-    ``first(0)`` already raised on.
+    Bounds are checked here rather than in the LLM output schema, because presets and hand-written
+    ``lighting:`` blocks bypass it and every unchecked case is silently wrong rather than an error:
+    ``ids(0)`` shifts to -1 and selects the last drone, ``first(99)`` selects everything.
 
     Args:
         sel: The selector, as a ``(name, args)`` pair.
         n: Number of drones in the swarm.
-        positions: (n, 3) position snapshot, frozen at the look's start time (§7.3). Only the
-            spatial selectors read it.
+        positions: (n, 3) snapshot frozen at the look's start; only spatial selectors read it.
         cfg: Lighting config, for the stage axis.
 
     Returns:
-        An (n,) boolean mask over 0-indexed drone indices.
+        (n,) boolean mask over 0-indexed drone indices.
 
     Raises:
-        KeyError: If the selector name is not one of the §7.1 vocabulary.
+        KeyError: If the selector name is unknown.
         LLMFormatError: If an ``ids`` entry is not an integer, from `_sanitize_drone_ids`.
-        IndexError: If the selector carries the wrong number of arguments, names no drones at all,
-            or an ``ids`` entry or a `first` count falls outside ``1..n`` -- matching how an
-            out-of-range motion drone id fails.
+        IndexError: If the selector carries the wrong number of arguments, names no drones, or an
+            ``ids`` entry or `first` count falls outside ``1..n``.
     """
     kind, args = sel
     if kind in _SELECTOR_ARITY and len(args) != _SELECTOR_ARITY[kind]:
@@ -224,18 +206,16 @@ def select(sel: Selector, n: int, positions: NDArray, cfg: LightingConfig) -> ND
     return mask
 
 
-def waveform(kind: str, phase: NDArray, duty: float = 0.5) -> NDArray:
-    """Evaluate an effect waveform (§7.2).
+# --- Waveforms and phase spreads ------------------------------------------------------------
 
-    All three waveforms peak at ``phase = 0`` so effects land *on* the beat rather than between
-    beats. The phase wraps, so negative phases -- which a spread offset routinely produces near
-    ``t = 0`` -- behave the same as their positive equivalents.
+
+def waveform(kind: str, phase: NDArray, duty: float = 0.5) -> NDArray:
+    """Evaluate an effect waveform. All three peak at ``phase = 0``, and the phase wraps.
 
     Args:
         kind: One of "sine", "square" or "ramp".
         phase: Phase in turns, of any shape.
-        duty: Fraction of each period the "square" waveform stays on, clamped to (0, 1]. Ignored by
-            the other waveforms.
+        duty: Fraction of each period "square" stays on, clamped to (0, 1]. Ignored by the others.
 
     Returns:
         Waveform values in [0, 1], the same shape as ``phase``.
@@ -254,27 +234,15 @@ def waveform(kind: str, phase: NDArray, duty: float = 0.5) -> NDArray:
 
 
 def _normalize_span(values: NDArray) -> NDArray:
-    """Normalize spatial values into [0, 1) using the same convention as the `index` spread.
+    """Normalize spatial values into the half-open [0, 1), as the `index` spread does.
 
-    Min-max normalization alone lands the far drone at exactly 1.0, which is the same phase as the
-    near drone at 0.0 and so collapses the two ends of a sweep. Scaling by ``(n - 1) / n`` closes
-    the gap the way ``rank / n`` does for `index`, and makes evenly spaced drones produce exactly
-    the `index` offsets.
-
-    The no-extent test is against ``_SPAN_REL_TOL`` times the coordinate magnitude, not against
-    exact zero. A ring is the case that forces it: `form_circle` lays its slots out with ``cos``
-    and ``sin``, so every radius is equal in exact arithmetic but equal only to within an ulp or
-    two in floats. An exact-zero test takes the *non-degenerate* branch there and divides by that
-    rounding noise, which spreads the offsets across the whole turn in whatever order the rounding
-    fell — a random per-drone phase for `ripple_light` on the one formation it is most obviously
-    authored over, and non-zero enough that `_spread`'s collapse warning stays silent too. With the
-    tolerance a numerically degenerate span takes the same branch an exactly degenerate one does.
+    The ``(n - 1) / n`` scaling keeps the far drone off 1.0, which is the near drone's phase.
 
     Args:
         values: (n_sel,) coordinates or distances for the selected drones.
 
     Returns:
-        (n_sel,) offsets in [0, 1). All zeros if every value is identical to within the tolerance.
+        (n_sel,) offsets in [0, 1); all zeros if the span is inside `_SPAN_REL_TOL`.
     """
     span = values.max() - values.min()
     if span <= _SPAN_REL_TOL * np.abs(values).max():
@@ -284,32 +252,14 @@ def _normalize_span(values: NDArray) -> NDArray:
 
 
 def _neighbour_ranks(points: NDArray) -> NDArray:
-    """Rank points along a greedy nearest-neighbour walk over them (§7.3).
+    """Rank points along a greedy nearest-neighbour walk over them.
 
-    Drone id order has no relationship to spatial order: every formation primitive routes through
-    `_assign_positions`, a Hungarian assignment that returns whichever drone->slot permutation is
-    cheapest to fly, so on a ring the ids land in an arbitrary rotation. Anything keyed by index is
-    therefore spatially scrambled by construction. This walk recovers spatial order instead: start
-    at the lexicographically smallest position, then repeatedly step to the nearest unvisited point.
-    On a ring it recovers ring order, on a line line order, on a grid a snake.
-
-    **The walk runs over the lexicographically sorted points, not the caller's order.** That is what
-    makes the ranking independent of drone id, and it is not a nicety: a ring hands out an exact
-    distance tie at the very first step, because the start's two ring-neighbours are equidistant
-    from it. Resolving that tie by array order would let the id permutation choose which way round
-    the ring the walk goes, and the whole point of the spread is that it does not care about ids.
-    Sorting first makes "the lexicographically smaller candidate wins" the tie-break everywhere.
-
-    The known failure mode (§7.3): on a clustered or highly symmetric formation the walk can exhaust
-    one cluster and make a single long jump, putting two distant points adjacent in the ordering --
-    one seam in an otherwise smooth sweep. Accepted, because a true shortest-path ordering is a
-    travelling salesman problem and one seam is far smaller than the scrambling `index` produces.
-
-    O(n^2) over the whole walk, which on ten drones is nothing (CLAUDE.md §2).
+    Drone id order is not spatial order, because formation primitives assign drones to slots by
+    whichever permutation is cheapest to fly. The walk recovers spatial order instead, and runs over
+    the lexicographically sorted points so the id permutation cannot break a ring's first-step tie.
 
     Args:
-        points: (m, 3) positions to rank. Ranks cover exactly these rows, so a caller ranking a
-            selected subset passes the subset's rows, not the full swarm's.
+        points: (m, 3) positions to rank; a caller ranking a subset passes the subset's rows.
 
     Returns:
         (m,) integer ranks in ``0 .. m - 1``, one per input row, in walk order.
@@ -333,34 +283,19 @@ def _neighbour_ranks(points: NDArray) -> NDArray:
 def spread_offsets(
     kind: str, mask: NDArray, positions: NDArray, group_size: int, cfg: LightingConfig
 ) -> NDArray:
-    """Compute the per-drone phase offsets that turn one waveform into a family of effects (§7.3).
+    """Compute the per-drone phase offsets that turn one waveform into a family of effects.
 
-    The offsets are relative to the *selected subset*, so a chase over three drones runs across
-    those three rather than across gaps in the full swarm. The one exception is
-    "alternate_side", whose left/right split is defined against the swarm centroid (§7.1) so that
-    it matches the `left`/`right` selectors.
-
-    ``group_size`` quantizes the two ranked spreads, "neighbour" and "index"; the catalogue pairs it
-    with `chase`, which is ranked (§10.2). The two differ only in what they rank by -- spatial order
-    against id order -- so they share the bucketing exactly.
-
-    Every other spread **rejects** a ``group_size`` above 1 rather than ignoring it. §7.3 defines
-    the bucketing over ``rank_i``, and the spatial spreads carry a normalized coordinate instead of
-    a rank: bucketing one evenly would silently turn a proportional sweep into an evenly stepped
-    one on any unevenly spaced formation, which is a different effect, not a quantization of the
-    same effect. §10.2 lists ``group_size`` as a plain `chase` parameter with no spread
-    restriction, so the emitting model has no way to know the combination is inert -- and inert is
-    the one outcome it must not be.
-
-    This function is time-free: spatial spreads read the ``positions`` snapshot the caller froze at
-    the look's start time (§7.3).
+    Offsets are relative to the selected subset, except "alternate_side", which splits against the
+    swarm centroid so it matches the `left`/`right` selectors. ``group_size`` above 1 is rejected
+    outside the ranked spreads rather than ignored, since bucketing a coordinate evenly would turn
+    a proportional sweep into an evenly stepped one without the emitting model ever knowing.
 
     Args:
-        kind: One of "none", "neighbour", "index", "alternate_parity", "alternate_side", "radius",
-            "x", "y", "z".
+        kind: "none", "neighbour", "index", "alternate_parity", "alternate_side", "radius", "x",
+            "y" or "z".
         mask: (n,) boolean mask of the selected drones.
         positions: (n, 3) frozen position snapshot.
-        group_size: Drones per phase bucket for the "neighbour" and "index" spreads; 1 is per-drone.
+        group_size: Drones per phase bucket for the ranked spreads; 1 is per-drone.
         cfg: Lighting config, for the stage axis.
 
     Returns:
@@ -399,23 +334,14 @@ def spread_offsets(
     return offsets
 
 
+# --- Colour sources and layers --------------------------------------------------------------
+
+
 def hue_to_wrgb(hue: NDArray, cfg: LightingConfig) -> NDArray:
-    """Convert hues on the colour wheel to calibrated full-brightness WRGB (§7.5).
+    """Convert hues on the colour wheel to calibrated full-brightness WRGB.
 
-    A generated hue has no palette entry, so it carries its own calibration. The hue is first
-    normalized to a constant channel sum -- constant nominal output across the wheel -- and
-    ``channel_gain`` is applied *after*, as a correction multiplier for the LEDs not being equally
-    efficient per channel. A gain of 0.8 on blue means the blue LED emits about 1/0.8 as much light
-    per commanded unit, so commanding 0.8x equalizes it.
-
-    **Order matters.** Normalizing *after* the gain would divide it straight back out for any hue
-    that lands on a single channel, leaving pure blue at 255 instead of 204 and making a sweeping
-    rainbow throb. With this order the six primaries reproduce their palette entries exactly, and
-    it is the gain-corrected sum that is constant across the wheel, not the raw one.
-
-    The RGB conversion is the closed form of ``colorsys.hsv_to_rgb`` at full saturation and value,
-    written out so it vectorizes over an arbitrary hue shape. The white LED is never driven: the
-    hue wheel cannot reach it, so ``channel_gain[0]`` is inert here.
+    The order is load-bearing: normalize to a constant channel sum first, then apply
+    ``channel_gain``. The other way divides the gain back out for any hue on a single channel.
 
     Args:
         hue: Hues in turns, of any shape. Values outside [0, 1) wrap.
@@ -440,26 +366,17 @@ def hue_to_wrgb(hue: NDArray, cfg: LightingConfig) -> NDArray:
 
 @dataclass(frozen=True)
 class ColourLayer:
-    """One colour source covering a subset of the swarm on one or both decks (§7.5).
+    """One colour source covering a subset of the swarm on one or both decks.
 
-    Layers merge Latest-Takes-Precedence by their order within a look, which is why ``evaluate``
-    leaves unselected rows at zero: the merge overwrites only the rows this layer's mask covers.
-
-    ``params`` depends on ``kind``:
-
-    - ``"named"``: ``{"color": str}`` -- a key into ``cfg.palette``.
-    - ``"gradient"``: ``{"color_a": str, "color_b": str, "s": NDArray}`` where ``s`` is (n,) in
-      [0, 1] **inclusive**, min-max normalized over the selected subset along the primitive's
-      ``by`` axis, so the two extremes reproduce the endpoint colours exactly. Note this differs
-      from ``spread_offsets``, which is half-open on purpose.
-    - ``"cycled"``: ``{"period_s": float, "offsets": NDArray}`` -- the (n,) phase offsets from
-      ``spread_offsets``, so a rainbow travels along whatever order a chase would.
+    Within a look, later colour layers overwrite earlier ones over the rows their mask covers.
 
     Attributes:
         mask: (n,) boolean mask of the drones this layer covers.
         decks: Which decks it applies to, a subset of ("top", "bot").
         kind: One of "named", "gradient" or "cycled".
-        params: Kind-specific parameters, as above.
+        params: ``{"color"}`` for "named"; ``{"color_a", "color_b", "s"}`` for "gradient", where
+            ``s`` is (n,) on the inclusive [0, 1] so the extremes hit the endpoints exactly;
+            ``{"period_s", "offsets"}`` for "cycled", the offsets being `spread_offsets`'.
     """
 
     mask: NDArray
@@ -502,20 +419,18 @@ class ColourLayer:
 
 @dataclass(frozen=True)
 class BrightnessLayer:
-    """One brightness effect covering a subset of the swarm on one or both decks (§7.2, §7.3).
+    """One brightness effect covering a subset of the swarm on one or both decks.
 
-    Layers merge Highest-Takes-Precedence within a look, which is why ``evaluate`` leaves unselected
-    rows at zero: the merge reduces with ``max`` over the layers covering each drone. ``light_on`` is
-    one of these, as a ``"constant"`` layer contributing 1.0, and therefore dominates everything else
-    covering the same drone. ``light_off`` is *not* — it is a post-reduction kill mask carried on the
-    look, because a layer contributing 0 would be a no-op under ``max`` (§8.3).
+    Within a look, brightness layers reduce with ``max``. ``light_on`` is one of these, a "constant"
+    layer at 1.0; ``light_off`` is a kill mask applied after the reduction instead, since a layer
+    contributing 0 would be a no-op under ``max``.
 
     Attributes:
         mask: (n,) boolean mask of the drones this layer covers.
         decks: Which decks it applies to, a subset of ("top", "bot").
-        kind: "constant", or one of the §7.2 waveform names: "sine", "square" or "ramp".
+        kind: "constant", or a waveform name: "sine", "square" or "ramp".
         period_s: Waveform period in seconds. Unused by "constant".
-        duty: Fraction of each period the "square" waveform stays on. Unused by the others.
+        duty: Fraction of each period "square" stays on. Unused by the others.
         offsets: (n,) phase offsets in turns, as produced by `spread_offsets`.
     """
 
@@ -550,28 +465,24 @@ class BrightnessLayer:
         return out
 
 
+# --- Looks and the timeline read-out --------------------------------------------------------
+
+
 @dataclass(frozen=True)
 class Look:
-    """The complete lighting state from one emitted key until the next (§6, §8.4).
+    """The complete lighting state from one emitted key until the next.
 
-    A look is self-contained: the next look **replaces** it rather than layering onto it, so a colour
-    that should persist has to be restated. That is the desk convention, and it keeps a look a unit a
-    test can assert on.
+    The next look replaces this one rather than layering onto it, so a colour that should persist
+    has to be restated.
 
     Attributes:
         t_start: Show time in seconds at which this look takes over.
-        colour_layers: Colour sources in emission order, merged Latest-Takes-Precedence (§8.2).
-        brightness_layers: Brightness effects, merged Highest-Takes-Precedence (§8.3).
-        off_mask: (n, 2) boolean `light_off` kill mask, per deck in ``_DECKS`` order. Applied after
-            the HTP reduction, so it beats every layer covering the same drone (§8.3).
-        positions: (n, 3) position snapshot frozen at ``t_start`` (§7.3), which the §8.5 base colour
-            is assigned in `neighbour` order over. The layers already carry their own resolved
-            masks and offsets, so this is here for the base alone -- and because each look holds its
-            own snapshot, the default hue wheel re-sorts as formations change instead of following
-            the order `_assign_positions` happened to hand out. ``None`` means the look has no
-            snapshot to order against, and the base falls back to id order (§8.5) -- which on a
-            timeline carrying looks is only ever the case when it carries none of them at all,
-            since the synthetic pre-show look borrows the first emitted one's snapshot.
+        colour_layers: Colour sources in emission order; later ones overwrite earlier ones.
+        brightness_layers: Brightness effects, reduced with ``max``.
+        off_mask: (n, 2) boolean `light_off` kill mask, per deck in ``_DECKS`` order, applied after
+            that reduction so it beats every layer covering the same drone.
+        positions: (n, 3) snapshot frozen at ``t_start``, used for the default hue wheel. ``None``
+            falls back to id order, only ever the case on a timeline with no looks at all.
     """
 
     t_start: float
@@ -582,21 +493,20 @@ class Look:
 
 
 class LightingTimeline:
-    """An ordered list of looks, evaluable at any show time (§5, §6).
+    """An ordered list of looks, evaluable at any show time.
 
-    The timeline is a pure function of ``t`` plus the position snapshots already frozen into its
-    layers, so the sim read-out (`evaluate` per frame) and the hardware read-out (a baked cue dict)
-    see exactly the same thing, and neither needs a trajectory or a radio to test.
+    A pure function of ``t`` plus the snapshots already frozen into its layers, so the per-frame sim
+    read-out and the baked hardware cues see exactly the same thing.
     """
 
     def __init__(self, looks: list[Look], n: int, t_end: float, cfg: LightingConfig) -> None:
         """Assemble the timeline.
 
         Args:
-            looks: The emitted looks, in any order. They are sorted by ``t_start``; the sort is
-                stable, so two looks landing on the same time resolve in favour of the later one.
+            looks: The emitted looks, in any order. Sorted stably by ``t_start``, so two looks on
+                the same time resolve in favour of the later one.
             n: Number of drones in the swarm.
-            t_end: Show duration in seconds. The blackout lands ``_BLACKOUT_LEAD_S`` before it.
+            t_end: Show duration in seconds; the blackout lands ``_BLACKOUT_LEAD_S`` before it.
             cfg: Lighting config, for the hue calibration, gamma and the dim floor.
         """
         self._n = n
@@ -604,12 +514,8 @@ class LightingTimeline:
         self._t_blackout = t_end - _BLACKOUT_LEAD_S
         ordered = sorted(looks, key=lambda look: look.t_start)
         # A layerless look covering everything before the first emitted key, so the lookup never has
-        # to special-case "no look yet": with no layers it evaluates to the §8.5 base state. It
-        # borrows the first emitted look's snapshot, because the only thing a layerless look decides
-        # is the base hue order (§8.5) and the two must agree: ordering the pre-show state by id and
-        # the first look by its walk would fly the §7.3 scramble until that look and then re-colour
-        # every drone at once. A timeline with no looks at all has nothing to borrow and keeps id
-        # order, which is what makes §8.5's failure-safe claim exact.
+        # to special-case "no look yet". It borrows the first look's snapshot so the hue order does
+        # not change when that look takes over.
         snapshot = ordered[0].positions if ordered else None
         base = Look(-np.inf, (), (), np.zeros((n, 2), dtype=bool), snapshot)
         self._looks = [base, *ordered]
@@ -617,20 +523,7 @@ class LightingTimeline:
         self._base_colours = [self._base_colour(look) for look in self._looks]
 
     def _base_colour(self, look: Look) -> NDArray:
-        """Assign the §8.5 base hue wheel across the swarm in one look's `neighbour` order.
-
-        The wheel itself is the construction `generate_default_colors` uses for today's deploy and
-        viewer colours -- evenly spaced hues, HSV at full saturation and value, normalized to a
-        constant channel sum -- with its separate blue dim now carried by ``channel_gain``. What
-        changes is *which drone gets which hue*: ranking by the nearest-neighbour walk over the
-        look's snapshot makes the default gradient read as a smooth wheel around the formation,
-        where id order reads as the scramble `_assign_positions` hands out (§7.3).
-
-        A look with no snapshot keeps id order. That is a timeline with no looks at all, where
-        nothing was authored and there is nothing to order against -- so a lighting-less show still
-        reproduces today's per-drone colouring exactly (§8.5). The pre-show base look is not that
-        case: it borrows the first emitted look's snapshot, so the swarm is already in the order
-        that look will hold it in and nothing re-colours when it takes over.
+        """Assign the default hue wheel across the swarm in one look's `neighbour` order.
 
         Args:
             look: The look to colour for.
@@ -644,35 +537,28 @@ class LightingTimeline:
     def _look_index_at(self, t: float) -> int:
         """Find the index of the look covering ``t``.
 
-        A sorted-boundary search rather than a linear scan over the looks, because the renderer
-        calls this once per rendered frame. The index rather than the look itself, because the base
-        colours are precomputed per look and read alongside it.
-
         Args:
             t: Show time in seconds.
 
         Returns:
-            The index into ``self._looks`` of the look in force at ``t``, which is 0 -- the base
-            look -- before the first emitted one.
+            Index into ``self._looks``, which is 0 -- the base look -- before the first emitted one.
         """
         return int(np.searchsorted(self._starts, t, side="right")) - 1
 
     def _merge_colour(self, look: Look, base: NDArray, t: float, deck: str) -> NDArray:
-        """Merge one deck's colour layers Latest-Takes-Precedence (§8.2).
+        """Merge one deck's colour layers, later layers overwriting earlier ones.
 
-        The overwrite is driven by each layer's *mask*, never by whether its output is non-zero: an
-        unselected row and a legitimately dark drone both read as zeros, and only the mask tells them
-        apart. Testing values instead also mixes channels — a red layer over a green one would come
-        out as both.
+        The overwrite is driven by each layer's mask, not by whether its output is non-zero: an
+        unselected row and a legitimately dark drone both read as zeros.
 
         Args:
             look: The look in force.
-            base: That look's (n, 4) §8.5 base colour, from `_base_colour`.
+            base: That look's (n, 4) default colour, from `_base_colour`.
             t: Show time in seconds.
             deck: Which deck to resolve.
 
         Returns:
-            (n, 4) full-brightness WRGB. Drones no layer covers carry the §8.5 base colour.
+            (n, 4) full-brightness WRGB. Drones no layer covers carry the default colour.
         """
         colours = base.copy()
         for layer in look.colour_layers:
@@ -681,11 +567,10 @@ class LightingTimeline:
         return colours
 
     def _merge_brightness(self, look: Look, t: float, deck: str, deck_idx: int) -> NDArray:
-        """Merge one deck's brightness layers Highest-Takes-Precedence (§8.3, §8.5).
+        """Reduce one deck's brightness layers with ``max``, then apply the kill mask.
 
-        Coverage is tracked from the layer masks, not from the merged values: a `square` layer in its
-        off phase legitimately contributes 0, and reading the base state off the value would light
-        those drones full-on during every off phase — inverting the blink.
+        Coverage comes from the layer masks, not the merged values: a `square` layer in its off
+        phase legitimately contributes 0, and reading the base state off the value would invert it.
 
         Args:
             look: The look in force.
@@ -702,30 +587,18 @@ class LightingTimeline:
             if deck in layer.decks:
                 brightness = np.maximum(brightness, layer.evaluate(t))
                 covered |= layer.mask
-        # The base is a fallback, not an HTP participant: it applies only where nothing else does.
+        # Full-on is a fallback, not a participant in the max: it applies only where nothing else
+        # does.
         brightness[~covered] = 1.0
         brightness[look.off_mask[:, deck_idx]] = 0.0
         return brightness
 
     def evaluate(self, t: float) -> NDArray:
-        """Evaluate every drone's colour on both decks at show time ``t`` (§7.4).
+        """Evaluate every drone's colour on both decks at show time ``t``.
 
-        The merged brightness is floored into ``brightness_steps`` buckets *before* the multiply,
-        which is the brightness-axis twin of what ``hue_steps`` does for `rainbow`: it turns the
-        continuous `sine` and `ramp` waveforms into piecewise-constant ones so `compile_cues` can
-        dedup the runs (§9.1).
-
-        ``b_min`` is applied to the merged brightness *before* that quantization. The two are
-        different ideas — a hard dark floor and a resolution — and the floor has to act on the
-        continuous value: quantizing first makes it inert, because the smallest non-zero bucket is
-        larger than any ``b_min`` anyone would set (§7.4, §9.1).
-
-        The quantizer floors rather than rounds. The two differ only at the *bottom* of the range —
-        `floor` darkens ``[0, 1/steps)`` where `round` darkens only ``[0, 1/(2·steps))`` — and
-        `floor` is chosen so quantization can only ever darken relative to intent, never brighten,
-        which is the conservative direction for a physical output. It is not that flooring protects
-        the top bucket: ``round(1.0 × steps) / steps`` is also exactly 1.0, so `light_on` and the
-        §8.5 base state are undimmed either way.
+        Brightness is floored into ``brightness_steps`` buckets before the multiply, which makes the
+        continuous waveforms piecewise-constant so `compile_cues` can dedup the runs. ``b_min`` is
+        applied before that, or quantizing would make the floor inert.
 
         Args:
             t: Show time in seconds.
@@ -734,7 +607,6 @@ class LightingTimeline:
             (n, 2, 4) integral WRGB in [0, 255], with the deck axis ordered (top, bot).
         """
         if t >= self._t_blackout:
-            # Unconditional, appended after the last look, and not the LLM's to override (§8.7).
             return np.zeros((self._n, 2, 4))
         index = self._look_index_at(t)
         look = self._looks[index]
@@ -749,10 +621,7 @@ class LightingTimeline:
         return out
 
     def evaluate_rgb01(self, t: float, deck: str = "top") -> NDArray:
-        """Evaluate one deck as RGB in [0, 1], the convenience read-out for the 3D viewer (§9.2).
-
-        The viewer has no separate white channel, so W folds into all three. The default is the top
-        deck because that is the face a drone marker represents.
+        """Evaluate one deck as RGB in [0, 1] for the 3D viewer, folding W into all three channels.
 
         Args:
             t: Show time in seconds.
@@ -766,3 +635,419 @@ class LightingTimeline:
         """
         wrgb = self.evaluate(t)[:, _DECKS.index(deck)]
         return np.clip((wrgb[:, 1:] + wrgb[:, :1]) / 255.0, 0.0, 1.0)
+
+
+# --- The primitives the LLM may emit --------------------------------------------------------
+#
+# The mapping onto the engine above is thin: `chase` and `sweep` are both "square wave plus a
+# spread", and `rainbow` and `chase` differ only in whether the spread drives hue.
+
+
+@dataclass(frozen=True)
+class _BuildContext:
+    """Everything a primitive builder reads besides its own parameters.
+
+    Attributes:
+        primitive: The name this action was emitted under, for diagnostics.
+        mask: (n,) boolean mask the action's ``sel`` resolved to.
+        decks: The decks the action's ``deck`` resolved to, a subset of ("top", "bot").
+        positions: (n, 3) position snapshot, frozen at the look's start time.
+        cfg: Lighting config, for the stage axis the spatial spreads read.
+        bpm: Song tempo in beats per minute, which converts `period_beats` into seconds.
+    """
+
+    primitive: str
+    mask: NDArray
+    decks: tuple[str, ...]
+    positions: NDArray
+    cfg: LightingConfig
+    bpm: float
+
+
+def _period_seconds(
+    period_beats: float, ctx: _BuildContext, lit_fraction: float = _DEFAULT_DUTY
+) -> float:
+    """Convert an emitted beat period into seconds, held off the cue-rate aliasing floor.
+
+    The clamped quantity is the lit window, not the period: below one ``1 / col_freq`` tick,
+    ``period_s x lit_fraction`` can fall entirely between two grid ticks and the drone is then never
+    lit in the compiled cues at all. Over-fast effects are clamped rather than rejected.
+
+    Args:
+        period_beats: Effect period in beats, as emitted.
+        ctx: The action's build context, for the song tempo and the configured cue rate.
+        lit_fraction: Fraction of each period one drone must be distinguishable for; only `chase`
+            narrows it below the default half period.
+
+    Returns:
+        The period in seconds, at least ``max(2 / col_freq, 1 / (col_freq x lit_fraction))``.
+    """
+    tick_s = 1.0 / ctx.cfg.col_freq
+    min_period_s = max(2.0 * tick_s, tick_s / lit_fraction)
+    period_s = float(period_beats) * 60.0 / ctx.bpm
+    if period_s >= min_period_s:
+        return period_s
+    logger.warning(
+        "Lighting period_beats=%g is %.3f s at %.1f BPM, leaving each drone lit for %.3f s — under "
+        "the %.3f s cue tick, which drops the effect from some drones entirely rather than merely "
+        "coarsening it. Clamping that window to %.3f s, stretching the period to %.3f s.",
+        period_beats,
+        period_s,
+        ctx.bpm,
+        period_s * lit_fraction,
+        tick_s,
+        min_period_s * lit_fraction,
+        min_period_s,
+    )
+    return min_period_s
+
+
+def _gradient_s(by: str, mask: NDArray, positions: NDArray) -> NDArray:
+    """Compute `gradient`'s interpolation parameter along ``by``.
+
+    Normalized onto the inclusive [0, 1] so the far drone reproduces ``color_b`` exactly, which is
+    why this is not `spread_offsets` -- that range is half-open and leaves ``color_b`` unreachable.
+
+    Args:
+        by: One of "index", "x", "y", "z" or "radius".
+        mask: (n,) boolean mask of the selected drones.
+        positions: (n, 3) frozen position snapshot.
+
+    Returns:
+        (n,) values in [0, 1]. Zero for unselected drones, and for all of them when the subset has
+        no extent along ``by``.
+
+    Raises:
+        KeyError: If ``by`` is not one of the five axes.
+    """
+    s = np.zeros(mask.shape[0])
+    idx = np.flatnonzero(mask)
+    if idx.size == 0:
+        return s
+    if by == "index":
+        values = np.arange(idx.size, dtype=float)
+    elif by == "radius":
+        values = np.linalg.norm(positions[idx] - positions[idx].mean(axis=0), axis=1)
+    elif by in _SPREAD_AXES:
+        values = positions[idx, _SPREAD_AXES[by]].astype(float)
+    else:
+        raise KeyError(f"Unknown gradient axis {by}")
+    span = values.max() - values.min()
+    if span > _SPAN_REL_TOL * np.abs(values).max():
+        s[idx] = (values - values.min()) / span
+    return s
+
+
+def _spread(ctx: _BuildContext, kind: str, group_size: int = 1) -> NDArray:
+    """Resolve a phase spread against the frozen snapshot, reporting one it collapses on.
+
+    A selection with no extent along a spatial spread's axis gets every offset 0 and the effect
+    degrades into a synchronised blink, which is legal but indistinguishable from a working one.
+
+    Args:
+        ctx: The action's build context, which carries the emitting primitive's name.
+        kind: The spread name that sets the per-drone phase offsets.
+        group_size: Drones per phase bucket; quantizes the ranked spreads only.
+
+    Returns:
+        (n,) offsets in turns, full-swarm-shaped.
+    """
+    offsets = spread_offsets(kind, ctx.mask, ctx.positions, group_size, ctx.cfg)
+    if kind in _SPATIAL_SPREADS and ctx.mask.sum() > 1 and not offsets[ctx.mask].any():
+        logger.warning(
+            "Lighting %s covers drones with no extent along %s, so every phase offset is 0 and it "
+            "fires as one synchronised flash instead of travelling. It needs a formation spread "
+            "out along that axis.",
+            ctx.primitive,
+            kind,
+        )
+    return offsets
+
+
+def _brightness(
+    ctx: _BuildContext, kind: str, period_s: float, duty: float, spread: str, group_size: int
+) -> BrightnessLayer:
+    """Assemble a brightness layer, resolving its phase spread against the frozen snapshot.
+
+    Args:
+        ctx: The action's build context.
+        kind: "constant", or one of the waveform names.
+        period_s: Waveform period in seconds. Unused by "constant".
+        duty: Fraction of each period a "square" waveform stays on.
+        spread: The spread name that sets the per-drone phase offsets.
+        group_size: Drones per phase bucket; quantizes the ranked spreads only.
+
+    Returns:
+        The layer, with full-swarm-shaped (n,) offsets.
+    """
+    offsets = _spread(ctx, spread, group_size)
+    return BrightnessLayer(ctx.mask, ctx.decks, kind, period_s, duty, offsets)
+
+
+def _palette_colour(name: str, cfg: LightingConfig) -> str:
+    """Check a colour name against the palette and return it.
+
+    `ColourLayer` resolves palette names lazily, so an unchecked one would surface as a bare
+    ``KeyError`` mid-render or mid-deploy rather than as a reprompt.
+
+    Args:
+        name: The emitted colour name.
+        cfg: Lighting config, holding the palette.
+
+    Returns:
+        ``name``, unchanged.
+
+    Raises:
+        KeyError: If the name is not a palette entry.
+    """
+    if name not in cfg.palette:
+        raise KeyError(f"Unknown lighting colour {name}")
+    return name
+
+
+def _light_color(params: dict, ctx: _BuildContext) -> ColourLayer:
+    """`light_color(sel, color, deck)`: assign a calibrated palette colour to a subset."""
+    return ColourLayer(
+        ctx.mask, ctx.decks, "named", {"color": _palette_colour(params["color"], ctx.cfg)}
+    )
+
+
+def _gradient(params: dict, ctx: _BuildContext) -> ColourLayer:
+    """`gradient(sel, color_a, color_b, by, deck)`: interpolate two palette colours across it.
+
+    A `by` axis with no extent lands every drone on ``color_a``, so it is reported for the reason
+    `_spread` reports a collapsed spread.
+    """
+    s = _gradient_s(params["by"], ctx.mask, ctx.positions)
+    if params["by"] in _SPATIAL_SPREADS and ctx.mask.sum() > 1 and not s[ctx.mask].any():
+        logger.warning(
+            "Lighting gradient covers drones with no extent along %s, so every drone lands on "
+            "color_a and it paints one flat colour instead of interpolating. It needs a formation "
+            "spread out along that axis.",
+            params["by"],
+        )
+    return ColourLayer(
+        ctx.mask,
+        ctx.decks,
+        "gradient",
+        {
+            "color_a": _palette_colour(params["color_a"], ctx.cfg),
+            "color_b": _palette_colour(params["color_b"], ctx.cfg),
+            "s": s,
+        },
+    )
+
+
+def _rainbow(params: dict, ctx: _BuildContext) -> ColourLayer:
+    """`rainbow(sel, period_beats, spread, deck)`: a spectrum cycle along the chosen spread."""
+    return ColourLayer(
+        ctx.mask,
+        ctx.decks,
+        "cycled",
+        {
+            "period_s": _period_seconds(params["period_beats"], ctx),
+            "offsets": _spread(ctx, params["spread"]),
+        },
+    )
+
+
+def _light_on(params: dict, ctx: _BuildContext) -> BrightnessLayer:
+    """`light_on(sel, deck)`: force full on. Contributes 1.0 to the max, so it dominates."""
+    return _brightness(ctx, "constant", 0.0, _DEFAULT_DUTY, "none", 1)
+
+
+def _light_off(params: dict, ctx: _BuildContext) -> None:
+    """`light_off(sel, deck)`: force dark, via `Look.off_mask` rather than a layer.
+
+    A layer contributing 0 is a no-op under the ``max`` reduction the instant anything else covers
+    the same drone, so `build_look` reads this ``None`` and sets the mask bits instead.
+    """
+    return None
+
+
+def _pulse(params: dict, ctx: _BuildContext) -> BrightnessLayer:
+    """`pulse(sel, period_beats, deck)`: the whole group breathes together."""
+    period_s = _period_seconds(params["period_beats"], ctx)
+    return _brightness(ctx, "sine", period_s, _DEFAULT_DUTY, "none", 1)
+
+
+def _blink(params: dict, ctx: _BuildContext) -> BrightnessLayer:
+    """`blink(sel, period_beats, duty, deck)`: hard on/off flash, the group in sync."""
+    period_s = _period_seconds(params["period_beats"], ctx)
+    return _brightness(ctx, "square", period_s, float(params["duty"]), "none", 1)
+
+
+def _strobe_decay(params: dict, ctx: _BuildContext) -> BrightnessLayer:
+    """`strobe_decay(sel, period_beats, deck)`: flash on the beat, decay out."""
+    period_s = _period_seconds(params["period_beats"], ctx)
+    return _brightness(ctx, "ramp", period_s, _DEFAULT_DUTY, "none", 1)
+
+
+def _chase(params: dict, ctx: _BuildContext) -> BrightnessLayer:
+    """`chase(sel, period_beats, length, group_size, spread, deck)`: a running light along `spread`.
+
+    ``length`` is how many drones are lit at once, i.e. ``duty = length / n_sel``. That makes it the
+    one primitive whose lit window is narrower than half a period, hence the ``duty`` passed on.
+    """
+    # The `n_sel` floor is only here because `chase` is the one primitive that would divide by zero
+    # on an empty selection, where the duty is irrelevant anyway.
+    n_sel = max(int(ctx.mask.sum()), 1)
+    duty = float(np.clip(int(params["length"]) / n_sel, 1.0 / n_sel, 1.0))
+    period_s = _period_seconds(params["period_beats"], ctx, duty)
+    return _brightness(ctx, "square", period_s, duty, params["spread"], int(params["group_size"]))
+
+
+def _sweep(params: dict, ctx: _BuildContext) -> BrightnessLayer:
+    """`sweep(sel, period_beats, axis, deck)`: a directional sweep across the stage."""
+    period_s = _period_seconds(params["period_beats"], ctx)
+    return _brightness(ctx, "square", period_s, _DEFAULT_DUTY, params["axis"], 1)
+
+
+def _ripple_light(params: dict, ctx: _BuildContext) -> BrightnessLayer:
+    """`ripple_light(sel, period_beats, deck)`: a wave out from the swarm centre."""
+    period_s = _period_seconds(params["period_beats"], ctx)
+    return _brightness(ctx, "sine", period_s, _DEFAULT_DUTY, "radius", 1)
+
+
+def _alternate_blink(params: dict, ctx: _BuildContext) -> BrightnessLayer:
+    """`alternate_blink(sel, period_beats, by, deck)`: ping-pong between two halves.
+
+    Not two `blink` calls: `blink` has no phase parameter, so the half-period offset that makes the
+    ping-pong read can only come from a spread.
+    """
+    period_s = _period_seconds(params["period_beats"], ctx)
+    spread = _ALTERNATE_SPREADS[params["by"]]
+    return _brightness(ctx, "square", period_s, _DEFAULT_DUTY, spread, 1)
+
+
+# The catalogue the prompt documents and the LLM output schema enumerates, in prompt order.
+LIGHTING_PRIMITIVES: dict[str, _Builder] = {
+    "light_color": _light_color,
+    "gradient": _gradient,
+    "rainbow": _rainbow,
+    "light_on": _light_on,
+    "light_off": _light_off,
+    "pulse": _pulse,
+    "blink": _blink,
+    "strobe_decay": _strobe_decay,
+    "chase": _chase,
+    "sweep": _sweep,
+    "ripple_light": _ripple_light,
+    "alternate_blink": _alternate_blink,
+}
+
+
+def build_look(
+    actions: list[dict], t_start: float, positions: NDArray, n: int, cfg: LightingConfig, bpm: float
+) -> Look:
+    """Compile one emitted lighting key's actions into a `Look`.
+
+    Colour layers keep their order in ``actions``, since a later colour overwrites an earlier one by
+    position rather than by kind.
+
+    Args:
+        actions: The key's actions, each ``{"primitive": name, "params": {...}}``, whose params
+            carry ``sel`` and ``deck`` alongside that primitive's own parameters.
+        t_start: Show time in seconds at which the look takes over.
+        positions: (n, 3) snapshot frozen at ``t_start``, which the spatial selectors and spreads
+            resolve against and which is carried on the look for the default hue wheel.
+        n: Number of drones in the swarm.
+        cfg: Lighting config, for the palette and the stage axis.
+        bpm: Song tempo in beats per minute, which converts every `period_beats` into seconds.
+
+    Returns:
+        The assembled look.
+
+    Raises:
+        KeyError: If a primitive, deck, selector, spread, gradient axis or colour name is unknown.
+    """
+    colour_layers: list[ColourLayer] = []
+    brightness_layers: list[BrightnessLayer] = []
+    off_mask = np.zeros((n, 2), dtype=bool)
+    for action in actions:
+        name = action["primitive"]
+        if name not in LIGHTING_PRIMITIVES:
+            raise KeyError(f"Unknown lighting primitive {name}")
+        params = action["params"]
+        decks = _DECK_CHOICES[params["deck"]]
+        mask = select(params["sel"], n, positions, cfg)
+        ctx = _BuildContext(name, mask, decks, positions, cfg, bpm)
+        layer = LIGHTING_PRIMITIVES[name](params, ctx)
+        if layer is None:
+            for deck in decks:
+                off_mask[mask, _DECKS.index(deck)] = True
+        elif isinstance(layer, ColourLayer):
+            colour_layers.append(layer)
+        else:
+            brightness_layers.append(layer)
+    return Look(t_start, tuple(colour_layers), tuple(brightness_layers), off_mask, positions)
+
+
+# --- The hardware read-out ------------------------------------------------------------------
+#
+# `DroneSwarm` drains at most one cue per deck per `1 / col_freq` tick and never drops, so a denser
+# cue list plays back slowed and drifts out of sync with the music permanently. Sampling on a
+# uniform `col_freq` grid and dropping consecutive duplicates rules that out structurally.
+
+
+def _sample_times(col_freq: float, t_end: float) -> NDArray:
+    """Build the sample grid, terminated by the blackout instant.
+
+    The blackout is appended explicitly, since a grid anchored at 0 lands on it only by luck; ticks
+    it would crowd are dropped first, so it cannot itself break the minimum spacing between cues.
+
+    Args:
+        col_freq: Maximum colour-cue rate in Hz, matching ``DroneSwarm.col_freq``.
+        t_end: Show duration in seconds.
+
+    Returns:
+        Strictly increasing sample times at least ``1 / col_freq`` apart, opening at 0 and ending at
+        the blackout.
+
+    Raises:
+        ValueError: If the show ends less than one cue period after the blackout instant.
+    """
+    period = 1.0 / col_freq
+    t_blackout = t_end - _BLACKOUT_LEAD_S
+    if t_blackout < period:
+        raise ValueError(
+            f"A {t_end} s show is too short to compile lighting cues: it leaves {t_blackout} s "
+            f"before the blackout, under the {period} s cue period at {col_freq} Hz"
+        )
+    ticks = np.arange(int(np.floor(t_blackout * col_freq)) + 1) / col_freq
+    return np.append(ticks[t_blackout - ticks >= period], t_blackout)
+
+
+def compile_cues(
+    timeline: LightingTimeline, uris: list[str], col_freq: float, t_end: float
+) -> tuple[dict[str, dict[float, NDArray]], dict[str, dict[float, NDArray]]]:
+    """Bake a lighting timeline into per-deck colour cues for `DroneSwarm`.
+
+    Args:
+        timeline: The lighting timeline, already carrying its frozen position snapshots.
+        uris: Radio URI per drone, in the timeline's drone-index order.
+        col_freq: Maximum colour-cue rate in Hz, matching ``DroneSwarm.col_freq``.
+        t_end: Show duration in seconds.
+
+    Returns:
+        ``(color_top, color_bot)``, each ``{uri: {time: (4,) WRGB}}``, ready for
+        ``execute_choreography``.
+
+    Raises:
+        ValueError: If ``uris`` does not cover the swarm the timeline was built for, or if the show
+            is too short for the sample grid to open at 0.
+    """
+    times = _sample_times(col_freq, t_end)
+    frames = np.stack([timeline.evaluate(float(t)) for t in times])  # (n_samples, n, 2, 4)
+    n = frames.shape[1]
+    if len(uris) != n:
+        raise ValueError(f"Got {len(uris)} URIs for a {n}-drone lighting timeline")
+    top: dict[str, dict[float, NDArray]] = {}
+    bot: dict[str, dict[float, NDArray]] = {}
+    for deck_idx, cues in enumerate((top, bot)):  # the deck axis is ordered (top, bot) throughout
+        for i, uri in enumerate(uris):
+            track = frames[:, i, deck_idx]
+            changed = np.ones(times.size, dtype=bool)
+            changed[1:] = np.any(track[1:] != track[:-1], axis=1)
+            cues[uri] = {float(times[k]): track[k] for k in np.flatnonzero(changed)}
+    return top, bot

@@ -10,8 +10,7 @@ import pytest
 from conftest import virtual_crazyswarm_config
 
 from swarm_gpt.core.choreographer import Choreographer
-from swarm_gpt.core.lighting import Look, load_lighting_config
-from swarm_gpt.core.lighting_primitives import LIGHTING_PRIMITIVES, build_look
+from swarm_gpt.core.lighting import LIGHTING_PRIMITIVES, Look, build_look, load_lighting_config
 from swarm_gpt.core.structured_output_schema import (
     LIGHTING_PRIMITIVE_ARG_ORDER,
     action_to_lighting_primitive,
@@ -389,9 +388,9 @@ def test_form_cone_schema_includes_time_to_finish_s():
     assert "time_to_finish_s" in form_cone_variant["properties"]["params"]["required"]
 
 
-# --- lighting track (spec §10.1, §10.2) ---------------------------------------------------------
+# --- lighting track -------------------------------------------------------------------------------
 
-# The §10.2 catalogue, restated deliberately: this table is the pin between the spec's authority on
+# The catalogue, restated deliberately: this table is the pin between the documented
 # parameter names and what the schema actually offers. Deriving it from the code would test nothing.
 LIGHTING_CATALOGUE: dict[str, list[str]] = {
     "light_color": ["sel", "color", "deck"],
@@ -461,7 +460,7 @@ def _build_rendered(action: dict[str, Any]) -> Look:
 
 
 def test_schema_carries_a_lighting_track_keyed_to_all_keys():
-    """§10.1: lighting is its own top-level array over the same address space as choreography."""
+    """Lighting is its own top-level array over the same address space as choreography."""
     schema = _lighting_schema()
     lighting = schema["properties"]["lighting"]
     choreography = schema["properties"]["choreography"]
@@ -477,7 +476,7 @@ def test_schema_carries_a_lighting_track_keyed_to_all_keys():
 
 
 def test_the_lighting_track_points_at_the_lighting_action_list():
-    """§10.1: the two tracks share a shape but not a vocabulary, and the `$ref` is where that lives.
+    """The two tracks share a shape but not a vocabulary, and the `$ref` is where that lives.
 
     Pointing `lighting`'s `actions` at `#/$defs/action_list` leaves the lighting action schema
     perfectly valid but orphaned — nothing references it — and tells the model to emit *motion*
@@ -527,7 +526,7 @@ def test_lighting_colour_enum_is_resolved_when_the_schema_is_built(monkeypatch: 
 def test_lighting_variant_lists_exactly_its_catalogue_parameters(
     primitive: str, param_names: list[str]
 ):
-    """§10.2 is authoritative on each primitive's parameters; the variant must match it exactly."""
+    """The catalogue is authoritative on each primitive's params; the variant must match it."""
     params = _lighting_variant(primitive)["properties"]["params"]
     assert params["required"] == param_names
     assert list(params["properties"]) == param_names
@@ -560,7 +559,7 @@ def test_lighting_selector_carries_every_field_and_stays_strict():
 
 
 def test_lighting_keys_are_not_required_keys():
-    """§10.1: the point of a separate track -- no required-key or alternation rule applies."""
+    """The point of a separate track -- no required-key or alternation rule applies."""
     schema = _lighting_schema()
     lighting = schema["properties"]["lighting"]
     # Every address is offered, not just the required ones: required_keys is [(1, 1, 1)] here.
@@ -681,7 +680,7 @@ def test_action_to_lighting_primitive_rejects_wrong_params():
         action_to_lighting_primitive(action)
 
 
-# --- lighting prompt (spec §10.2, §10.3) --------------------------------------------------------
+# --- lighting prompt ------------------------------------------------------------------------------
 
 
 def _choreographer() -> Choreographer:
@@ -756,7 +755,7 @@ def _prompt_spread_enumeration() -> str:
 
 
 def test_lighting_prompt_documents_every_primitive_signature_exactly():
-    """The prose signatures are the fourth place a lighting parameter lives (CLAUDE.md §7.1).
+    """The prose signatures are the fourth place a lighting parameter lives.
 
     Only the structured JSON examples below were validated; the signature lines the model actually
     reads were merely grepped for `name(`. That is the shape of the `form_circle` bug this repo
@@ -821,7 +820,7 @@ def _prompt_bullet(name: str) -> str:
 
 
 def test_lighting_prompt_says_which_formations_collapse_a_spatial_spread():
-    """A spread with no extent to run along degrades into a synchronised blink (§7.3).
+    """A spread with no extent to run along degrades into a synchronised blink.
 
     `sweep(axis="z")` over any `form_circle` or `form_star` output, and `ripple_light` over a ring,
     are both natural things to author and both silently stop travelling. The engine logs it, but
@@ -833,7 +832,7 @@ def test_lighting_prompt_says_which_formations_collapse_a_spatial_spread():
 
 
 def test_lighting_prompt_restricts_group_size_to_the_ranked_spreads():
-    """`group_size` buckets a rank, and only `neighbour` and `index` produce one (§7.3).
+    """`group_size` buckets a rank, and only `neighbour` and `index` produce one.
 
     The engine rejects the other combinations rather than ignoring them, so a prompt that offers
     `group_size` as unconditional spends a reprompt on every emission that pairs it with `x`.
@@ -844,7 +843,7 @@ def test_lighting_prompt_restricts_group_size_to_the_ranked_spreads():
 
 
 def test_lighting_prompt_states_what_the_primitive_names_do_not_say():
-    """The three facts the LLM cannot infer from the names alone (plan Task 9 step 1)."""
+    """The three facts the LLM cannot infer from the names alone."""
     section = _lighting_prompt_section()
     assert "period_beats is measured in BEATS, not seconds" in section
     assert "Lighting keys are NOT required keys" in section

@@ -14,8 +14,7 @@ import numpy as np
 import toml
 import yaml
 
-from swarm_gpt.core.lighting import LightingTimeline, load_lighting_config
-from swarm_gpt.core.lighting_primitives import build_look
+from swarm_gpt.core.lighting import LightingTimeline, build_look, load_lighting_config
 from swarm_gpt.core.motion_primitives import motion_primitives as motion_primitives_collection
 from swarm_gpt.core.motion_primitives import primitive_by_name
 from swarm_gpt.core.structured_output_schema import (
@@ -51,7 +50,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 # Tempo the generation-time lighting dry run converts `period_beats` with. Slow enough that no
-# emitted period can trip the §9.1 Nyquist clamp and log a spurious warning: the dry run is only
+# emitted period can trip the cue-rate clamp and log a spurious warning: the dry run is only
 # checking names, and `response2lighting` does the real conversion with the song's own tempo.
 _DRY_RUN_BPM = 1.0
 
@@ -600,7 +599,7 @@ class Choreographer:
 
         ``lighting`` is rendered as a second block in the same ``  s#b#t#: call; call`` idiom, so
         the one text parser in :meth:`response2lighting` serves both the structured and the
-        free-text path (spec §10.1).
+        free-text path.
         """
         required_fields = ["song_mood", "choreography_plan", "choreography"]
         missing = [field for field in required_fields if field not in payload]
@@ -675,22 +674,23 @@ class Choreographer:
 
         Everything :meth:`response2lighting` does *except* using the result, which cannot be done
         at generation time: a look freezes a position snapshot, and positions do not exist until
-        the axswarm pass has run (§7.3). So the looks are built here against a **dry-run snapshot**,
-        which is enough to resolve every name in the §10.2 vocabulary — primitive, deck, selector
+        the axswarm pass has run. So the looks are built here against a **dry-run snapshot**,
+        which is enough to resolve every name in the vocabulary — primitive, deck, selector
         kind, spread and gradient axis, plus the palette colours `build_look` now checks. None of
         those depend on where the drones actually are; only the resulting masks and phase offsets
         do, and those are discarded.
 
         The snapshot puts the drones on a diagonal rather than all at the origin, so that it has
         extent along every axis and distinct radii. Nothing about name resolution needs that — but
-        the §7.3 collapse warnings fire on a snapshot with no extent, and a snapshot of zeros is
+        the collapse warnings fire on a snapshot with no extent, and a snapshot of zeros is
         degenerate along all of them, so every `sweep`, `ripple_light` and `left`/`right` emission
         would warn on every generation about the fixture rather than about the show.
 
-        Checking names by rebuilding rather than by restating them keeps one vocabulary. A hand-
-        written list here would be a fifth place a signature change has to land (CLAUDE.md §7.1),
-        and the failure mode of missing one is silent: the name escapes to `compile_cues` during a
-        deploy, or to the per-frame render path, where nothing reprompts.
+        Checking names by rebuilding rather than by restating them keeps one vocabulary. A
+        hand-written list here would be a fifth place a signature change has to land — alongside
+        the prompt, the output schema, the builder and the collision check — and the failure mode
+        of missing one is silent: the name escapes to `compile_cues` during a deploy, or to the
+        per-frame render path, where nothing reprompts.
 
         Args:
             text: The output of the LLM, in the YAML-like form produced by the prompt.
@@ -747,10 +747,10 @@ class Choreographer:
         position_at: Callable[[float], NDArray],
         t_end: float,
     ) -> LightingTimeline:
-        """Translate the LLM output's lighting track into an evaluable timeline (spec §5, §10.1).
+        """Translate the LLM output's lighting track into an evaluable timeline.
 
         Every emitted lighting key becomes one `Look` at the time ``structure.time_of`` resolves
-        that address to, and the look holds until the next one replaces it outright (§8.4).
+        that address to, and the look holds until the next one replaces it outright.
 
         Args:
             text: The output of the LLM, in the YAML-like form produced by the prompt. Both the
@@ -762,7 +762,7 @@ class Choreographer:
                 than reached for so neither this module nor `lighting.py` depends on the backend.
                 It has no source until ``Backend.simulate`` has run, because the splines it reads
                 are populated only after the axswarm pass.
-            t_end: Duration of the *flight* in seconds, which the §8.7 blackout lands 0.1s before.
+            t_end: Duration of the *flight* in seconds, which the blackout lands 0.1s before.
                 Not the song's duration: the trajectory runs on past the music for the
                 return-to-home legs, and darkening the swarm at the end of the music would fly
                 those legs and land unlit.
@@ -770,7 +770,7 @@ class Choreographer:
         Returns:
             The compiled timeline. A response carrying no lighting -- an absent block, an empty
             one, or a payload predating the feature -- yields a timeline with no looks, which
-            evaluates to the §8.5 base state: every drone full on in its own hue, exactly today's
+            evaluates to the default state: every drone full on in its own hue, exactly today's
             behaviour.
 
         Raises:
@@ -785,7 +785,7 @@ class Choreographer:
         for addr, action_str in self.lighting_from_text(text).items():
             actions = self._parse_lighting_actions(action_str, addr)
             t_start = structure.time_of(*addr)
-            # §7.3: the snapshot is frozen here, once per look, which is what keeps the timeline a
+            # The snapshot is frozen here, once per look, which is what keeps the timeline a
             # pure function of t and makes it testable without a trajectory.
             positions = np.asarray(position_at(t_start), dtype=float)
             looks.append(
@@ -984,7 +984,7 @@ class Choreographer:
 
     @staticmethod
     def lighting_from_text(text: str) -> dict[tuple[int, int, int], str]:
-        """Extract the ``lighting:`` block from the LLM output (spec §10.1).
+        """Extract the ``lighting:`` block from the LLM output.
 
         The counterpart of :meth:`_slice_choreography_from_text` for the second track, and
         deliberately more forgiving: lighting is optional, so an absent or empty block yields an
@@ -1020,7 +1020,7 @@ class Choreographer:
         """Parse one lighting key's ``primitive(args); primitive(args)`` string into actions.
 
         Produces the ``{"primitive": name, "params": {...}}`` shape `build_look` consumes.
-        Arguments are positional in the §10.2 catalogue order and zipped back onto their names,
+        Arguments are positional in the catalogue order and zipped back onto their names,
         which is what lets the emitted text stay in the terse call idiom the motion track uses.
 
         Args:
@@ -1028,7 +1028,7 @@ class Choreographer:
             addr: The key's ``(seq, bar, beat)`` address, for error messages.
 
         Returns:
-            The parsed actions, in emission order — which §8.2 resolves colour by.
+            The parsed actions, in emission order, which is what resolves overlapping colours.
 
         Raises:
             LLMFormatError: If a call names an unknown primitive, cannot be parsed, or carries
