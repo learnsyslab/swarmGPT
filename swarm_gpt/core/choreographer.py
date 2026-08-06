@@ -750,7 +750,9 @@ class Choreographer:
         """Translate the LLM output's lighting track into an evaluable timeline.
 
         Every emitted lighting key becomes one `Look` at the time ``structure.time_of`` resolves
-        that address to, and the look holds until the next one replaces it outright.
+        that address to, and the look holds until the next one replaces it outright. Each look's
+        position snapshot is taken at `_settle_time` rather than at its own start, so its selectors
+        and spreads resolve against the formation it was written for.
 
         Args:
             text: The output of the LLM, in the YAML-like form produced by the prompt. Both the

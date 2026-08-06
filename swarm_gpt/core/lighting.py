@@ -160,7 +160,7 @@ def select(sel: Selector, n: int, positions: NDArray, cfg: LightingConfig) -> ND
     Args:
         sel: The selector, as a ``(name, args)`` pair.
         n: Number of drones in the swarm.
-        positions: (n, 3) snapshot frozen at the look's start; only spatial selectors read it.
+        positions: (n, 3) snapshot frozen once for the look; only spatial selectors read it.
         cfg: Lighting config, for the stage axis.
 
     Returns:
@@ -481,8 +481,8 @@ class Look:
         brightness_layers: Brightness effects, reduced with ``max``.
         off_mask: (n, 2) boolean `light_off` kill mask, per deck in ``_DECKS`` order, applied after
             that reduction so it beats every layer covering the same drone.
-        positions: (n, 3) snapshot frozen at ``t_start``, used for the default hue wheel. ``None``
-            falls back to id order, only ever the case on a timeline with no looks at all.
+        positions: (n, 3) snapshot frozen once for the look, used for the default hue wheel.
+            ``None`` falls back to id order, only ever the case on a timeline with no looks at all.
     """
 
     t_start: float
@@ -651,7 +651,7 @@ class _BuildContext:
         primitive: The name this action was emitted under, for diagnostics.
         mask: (n,) boolean mask the action's ``sel`` resolved to.
         decks: The decks the action's ``deck`` resolved to, a subset of ("top", "bot").
-        positions: (n, 3) position snapshot, frozen at the look's start time.
+        positions: (n, 3) position snapshot, frozen once for the look.
         cfg: Lighting config, for the stage axis the spatial spreads read.
         bpm: Song tempo in beats per minute, which converts `period_beats` into seconds.
     """
@@ -949,8 +949,10 @@ def build_look(
         actions: The key's actions, each ``{"primitive": name, "params": {...}}``, whose params
             carry ``sel`` and ``deck`` alongside that primitive's own parameters.
         t_start: Show time in seconds at which the look takes over.
-        positions: (n, 3) snapshot frozen at ``t_start``, which the spatial selectors and spreads
-            resolve against and which is carried on the look for the default hue wheel.
+        positions: (n, 3) snapshot the spatial selectors and spreads resolve against, also
+            carried on the look for the default hue wheel. The caller picks when to sample it --
+            not necessarily ``t_start``, since a formation emitted at that address has not
+            arrived yet.
         n: Number of drones in the swarm.
         cfg: Lighting config, for the palette and the stage axis.
         bpm: Song tempo in beats per minute, which converts every `period_beats` into seconds.
