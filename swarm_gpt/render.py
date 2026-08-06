@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import argparse
 import json
 import logging
 import math
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -44,7 +46,8 @@ MUSIC_DIR = ROOT / "music" / "songs"
 SCENE_XML = ROOT / "swarm_gpt/data/scene.xml"
 
 # Pick a preset that matches the drone count in swarm_gpt/data/drones.toml.
-PRESET_PATH = ROOT / "swarm_gpt/data/presets/The Blue Danube - Op. 314 | 20 | 20260601_004157"
+PRESET_DIR = ROOT / "swarm_gpt/data/presets"
+PRESET_PATH = PRESET_DIR / "The Blue Danube - Op. 314 | 20 | 20260601_004157"
 OUTPUT_PATH = ROOT / "renders/the_blue_danube.mp4"
 
 RENDER_MODE = "rgb_array"
@@ -61,6 +64,10 @@ CAMERA_UP = np.array([0.0, 0.0, 1.0], dtype=float)
 WIDTH = 3840
 HEIGHT = 2160
 FPS = 60
+# `--preview` resolution: fast enough to check a change, coarse enough not to be worth keeping.
+PREVIEW_WIDTH = 1280
+PREVIEW_HEIGHT = 720
+PREVIEW_FPS = 30
 TRAIL_LENGTH = 120
 
 logger = logging.getLogger(__name__)
@@ -426,24 +433,101 @@ def render_preset(
     return frame_sink.result_path
 
 
-def main(
-    preset_path: Path = PRESET_PATH,
-    output_path: Path = OUTPUT_PATH,
-    render_end_time: float | None = None,
-    width: int = WIDTH,
-    height: int = HEIGHT,
-    fps: int = FPS,
-    include_audio: bool = True,
-) -> Path:
-    """Entrypoint for local rendering."""
+def _resolve_preset(name: str) -> Path:
+    """Find a preset directory by exact name, or by a substring that matches only one.
+
+    Preset names carry the song, drone count and timestamp, so they are long to type in full.
+
+    Args:
+        name: Preset directory name, or any case-insensitive substring of one.
+
+    Returns:
+        The preset directory.
+
+    Raises:
+        SystemExit: If nothing matches, or more than one preset does.
+    """
+    if (exact := PRESET_DIR / name).is_dir():
+        return exact
+    matches = sorted(
+        d for d in PRESET_DIR.iterdir() if d.is_dir() and name.lower() in d.name.lower()
+    )
+    if not matches:
+        raise SystemExit(f"No preset matches {name!r}. Use --list to see them.")
+    if len(matches) > 1:
+        listed = "\n  ".join(d.name for d in matches)
+        raise SystemExit(f"{name!r} matches {len(matches)} presets, pick one:\n  {listed}")
+    return matches[0]
+
+
+def _default_output(preset_path: Path) -> Path:
+    """Derive ``renders/<slug>.mp4`` from a preset directory name.
+
+    Args:
+        preset_path: The preset being rendered.
+
+    Returns:
+        The output path to write when ``--out`` is not given.
+    """
+    slug = re.sub(r"[^a-z0-9]+", "_", preset_path.name.lower()).strip("_")
+    return ROOT / "renders" / f"{slug}.mp4"
+
+
+def main(argv: list[str] | None = None) -> Path:
+    """Render a saved preset from the command line.
+
+    Args:
+        argv: Argument list to parse; defaults to ``sys.argv[1:]``.
+
+    Returns:
+        The path the video was written to.
+    """
+    parser = argparse.ArgumentParser(description="Render a saved preset to a video.")
+    parser.add_argument(
+        "preset",
+        nargs="?",
+        default=PRESET_PATH.name,
+        help="preset name, or a substring matching exactly one (default: %(default)s)",
+    )
+    parser.add_argument(
+        "-o", "--out", type=Path, help="output file (default: renders/<preset>.mp4)"
+    )
+    parser.add_argument("-s", "--seconds", type=float, help="stop after this many seconds of show")
+    parser.add_argument(
+        "--preview",
+        action="store_true",
+        help=f"quick pass at {PREVIEW_WIDTH}x{PREVIEW_HEIGHT} @ {PREVIEW_FPS}fps",
+    )
+    parser.add_argument("--width", type=int, help=f"frame width (default: {WIDTH})")
+    parser.add_argument("--height", type=int, help=f"frame height (default: {HEIGHT})")
+    parser.add_argument("--fps", type=int, help=f"frames per second (default: {FPS})")
+    parser.add_argument("--no-audio", dest="audio", action="store_false", help="skip audio muxing")
+    parser.add_argument("--list", action="store_true", help="list available presets and exit")
+    args = parser.parse_args(argv)
+
+    if args.list:
+        for name in sorted(d.name for d in PRESET_DIR.iterdir() if d.is_dir()):
+            print(name)  # stdout is this flag's output, not a diagnostic
+        raise SystemExit(0)
+
+    # An explicit --width/--height/--fps wins over --preview, so the two compose.
+    preset_path = _resolve_preset(args.preset)
+    defaults = (
+        (PREVIEW_WIDTH, PREVIEW_HEIGHT, PREVIEW_FPS) if args.preview else (WIDTH, HEIGHT, FPS)
+    )
+    width, height, fps = (
+        args.width or defaults[0],
+        args.height or defaults[1],
+        args.fps or defaults[2],
+    )
     return render_preset(
         preset_path=preset_path,
-        output_path=output_path,
-        render_end_time=render_end_time,
+        output_path=args.out or _default_output(preset_path),
+        render_end_time=args.seconds,
         width=width,
         height=height,
         fps=fps,
-        include_audio=include_audio,
+        include_audio=args.audio,
     )
 
 
