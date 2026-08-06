@@ -360,8 +360,8 @@ def test_response2lighting_converts_period_beats_with_the_songs_own_tempo():
     assert np.allclose(timeline.evaluate(0.55)[:, 0], 0.0)
 
 
-def test_response2lighting_reads_positions_at_each_looks_start_and_at_no_other_time():
-    """The snapshot is frozen at `t_start`, which is what keeps the timeline pure."""
+def test_response2lighting_snapshots_once_per_look_and_at_no_other_time():
+    """One frozen snapshot per look is what keeps the timeline a pure function of t."""
     choreographer = _lighting_choreographer()
     structure = _lighting_structure()
     text = choreographer._structured_payload_to_text(_payload(_spatial_lighting()))
@@ -371,11 +371,73 @@ def test_response2lighting_reads_positions_at_each_looks_start_and_at_no_other_t
         text, structure, _recording_position_at(calls), FLIGHT_END_S
     )
 
-    assert calls == [structure.time_of(1, 1, 1), structure.time_of(2, 1, 1)]
+    assert len(calls) == 2, "one per look"
     # Evaluating the timeline must never reach for a position again.
     for t in (0.0, 1.7, 4.0, 6.5):
         timeline.evaluate(t)
-    assert calls == [structure.time_of(1, 1, 1), structure.time_of(2, 1, 1)]
+    assert len(calls) == 2
+
+
+def test_response2lighting_snapshots_where_the_formation_has_arrived_not_where_it_starts():
+    """The bug this exists for: a look emitted alongside a formation must not read the old one.
+
+    Motion primitives play forward from their own key, so a lighting key sharing that address
+    lands at the instant the formation *begins*. Sampling there froze the outgoing formation for
+    the whole look — a `left`/`right` split of the shape the swarm was just leaving.
+    """
+    choreographer = _lighting_choreographer()
+    structure = _lighting_structure()
+    # Motion at s1b1t1 and s2b1t1, so the first primitive runs 0s -> 4s and the second 4s -> 8s.
+    payload = _payload(_spatial_lighting())
+    payload["choreography"].append(
+        {
+            "key": "s2b1t1",
+            "actions": [{"primitive": "spiral", "params": {"steps": 3, "height_cm": 60}}],
+        }
+    )
+    calls: list[float] = []
+
+    choreographer.response2lighting(
+        choreographer._structured_payload_to_text(payload),
+        structure,
+        _recording_position_at(calls),
+        FLIGHT_END_S,
+    )
+
+    # Not [0.0, 4.0]: each look reads the end of the motion primitive it was emitted alongside.
+    assert calls == [4.0, 8.0]
+
+
+def test_response2lighting_samples_a_short_look_at_its_own_end():
+    """A look that expires mid-primitive has no settled pose, so it takes the latest one it sees."""
+    choreographer = _lighting_choreographer()
+    structure = _lighting_structure()
+    # One motion key at s1b1t1 running to the song end, but two looks inside that one primitive.
+    payload = _payload(_spatial_lighting())
+    calls: list[float] = []
+
+    choreographer.response2lighting(
+        choreographer._structured_payload_to_text(payload),
+        structure,
+        _recording_position_at(calls),
+        FLIGHT_END_S,
+    )
+
+    # The first look is replaced at 4.0, well before the primitive ends at the 8.0 song end.
+    assert calls == [structure.time_of(2, 1, 1), 8.0]
+
+
+def test_response2lighting_falls_back_to_the_look_start_without_a_motion_track():
+    """A hand-written lighting-only block has no primitive to settle against."""
+    choreographer = _lighting_choreographer()
+    text = "lighting:\n  s2b1t1: light_color(['all', []], 'green', 'both')\n  END"
+    calls: list[float] = []
+
+    choreographer.response2lighting(
+        text, _lighting_structure(), _recording_position_at(calls), FLIGHT_END_S
+    )
+
+    assert calls == [4.0]
 
 
 @pytest.mark.parametrize("lighting", [None, []])

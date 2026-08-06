@@ -781,17 +781,69 @@ class Choreographer:
         """
         logger.debug("Converting LLM output into a lighting timeline")
         cfg = load_lighting_config()
+        emitted = self.lighting_from_text(text)
+        boundaries = self._motion_boundaries(text, structure) if emitted else []
+        starts = sorted(structure.time_of(*addr) for addr in emitted)
         looks = []
-        for addr, action_str in self.lighting_from_text(text).items():
+        for addr, action_str in emitted.items():
             actions = self._parse_lighting_actions(action_str, addr)
             t_start = structure.time_of(*addr)
-            # The snapshot is frozen here, once per look, which is what keeps the timeline a
-            # pure function of t and makes it testable without a trajectory.
-            positions = np.asarray(position_at(t_start), dtype=float)
+            t_next_look = next((t for t in starts if t > t_start), np.inf)
+            # One snapshot per look, frozen here, which keeps the timeline a pure function of t.
+            t_sample = self._settle_time(t_start, t_next_look, boundaries)
+            positions = np.asarray(position_at(t_sample), dtype=float)
             looks.append(
                 self._build_look(actions, addr, t_start, positions, cfg, float(structure.bpm))
             )
         return LightingTimeline(looks, self.num_drones, t_end, cfg)
+
+    def _motion_boundaries(self, text: str, structure: SongStructure) -> list[float]:
+        """Show times at which the motion track hands one primitive over to the next.
+
+        A motion primitive plays forward from its own key until the next one, so these are the
+        instants at which a formation has finished arriving. A response with no parsable motion
+        track -- a hand-written lighting-only block -- yields none, and every look then falls back
+        to sampling at its own start.
+
+        Args:
+            text: The output of the LLM.
+            structure: Song structure, resolving each motion key to seconds.
+
+        Returns:
+            Boundary times in ascending order, ending with the instant the music stops.
+        """
+        try:
+            choreography = self._slice_choreography_from_text(text, structure)
+        except LLMFormatError:
+            return []
+        times = sorted(structure.time_of(*addr) for addr in choreography)
+        # The last primitive plays until the song ends, with the same zero-length guard
+        # `_choreo2waypoints` applies, so both passes agree on where it finishes.
+        song_end = structure.segments[-1].end_s
+        if song_end <= times[-1]:
+            song_end = times[-1] + 1.0
+        return [*times, song_end]
+
+    @staticmethod
+    def _settle_time(t_start: float, t_next_look: float, boundaries: list[float]) -> float:
+        """Pick the show time a look's position snapshot is taken at.
+
+        Not ``t_start``: motion keys and lighting keys share an address space, so a look emitted
+        alongside a formation lands at the instant that formation *begins* and would snapshot the
+        outgoing one. Sampling at the end of the motion primitive covering ``t_start`` reads the
+        formation the look was written for. A look that expires before that primitive finishes is
+        sampled at its own end instead, the closest it gets to settled while it is on.
+
+        Args:
+            t_start: Show time the look takes over at.
+            t_next_look: Show time the next look replaces it at, or ``inf`` for the last one.
+            boundaries: Motion handover times, from `_motion_boundaries`.
+
+        Returns:
+            The sample time, never earlier than ``t_start``.
+        """
+        settled = next((t for t in boundaries if t > t_start), t_start)
+        return max(t_start, min(settled, t_next_look))
 
     def _response2choreo(
         self, text: str, structure: SongStructure | None = None
