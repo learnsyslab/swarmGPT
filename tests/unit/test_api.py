@@ -14,23 +14,36 @@ from swarm_gpt.api.server import ApiConfig, _backend_from_config, create_app, no
 from swarm_gpt.utils.llm_providers import DEFAULT_OPENAI_MODEL_CHOICES
 
 
+def _lighting_stub(num_drones: int) -> dict[str, list[dict[str, list]]]:
+    """A stand-in for `AppBackend.browser_cues`; the real adapter is covered in test_backend.py."""
+    return {
+        deck: [{"times": [0.0, 1.0], "rgb": [[255, 0, 0], [0, 0, 0]]} for _ in range(num_drones)]
+        for deck in ("top", "bot")
+    }
+
+
 def test_normalize_playback_schema():
     backend = SimpleNamespace(
         settings={"axswarm": {"pos_min": [-1, -1, 0], "pos_max": [1, 1, 2]}},
         music_manager=SimpleNamespace(song="Example Song"),
         crop_window=lambda song: (0.0, 60.0),
+        browser_cues=lambda: _lighting_stub(3),
     )
     states = np.zeros((2, 3, 13))
     states[:, :, 3:7] = [0, 0, 0, 1]
     payload = normalize_playback(
         {"timestamps": np.array([0.0, 0.02]), "states": states, "num_drones": 3}, backend
     )
-    assert payload["schemaVersion"] == 1
+    assert payload["schemaVersion"] == 2
     assert payload["audioUrl"] == "/api/media/music/Example%20Song"
     assert payload["audioOffset"] == 0.0
     assert payload["numDrones"] == 3
     assert payload["fields"]["pos"] == [0, 3]
     assert len(payload["states"]) == len(payload["timestamps"])
+    # §9.3: the timeline is the single colour source, so the static `colors` array is gone and the
+    # payload carries one cue list per deck per drone instead.
+    assert "colors" not in payload
+    assert payload["lighting"] == _lighting_stub(3)
 
 
 def test_normalize_playback_rejects_mismatched_states():

@@ -116,10 +116,86 @@ user_initial: |
   - wave(steps, height_cm) — 2D standing-wave surface; drones first form a grid then oscillate.
   </primitives>
 
+  <lighting>
+  The LEDs are a SECOND track, independent of motion. Lighting actions go in the "lighting" array
+  under the same s<seg>b<bar>t<beat> keys.
+
+  Each lighting key defines a COMPLETE look that holds until the next lighting key REPLACES it
+  outright. It is not a delta, so a colour you want to keep must be restated.
+
+  Three things the names do not tell you:
+  1. period_beats is measured in BEATS, not seconds. 1 is one beat, 4 is one bar, 0.5 is a
+     half-beat flicker; the tempo is applied for you, so effects stay locked to the music.
+  2. Lighting keys are NOT required keys and carry no ordering or alternation constraint. Put a
+     lighting entry on any address, with or without a choreography action there, and leave the
+     array empty if the song wants no lighting at all.
+  3. light_on DOMINATES every other brightness effect on the same drones: light_on(all) over
+     pulse(all) is solid, and the pulse underneath is silently swallowed. Use it to override
+     deliberately, never as a "make sure they are lit" safety net — drones with no brightness
+     effect on them are already fully on.
+
+  sel — which drones an action covers:
+    all          every drone
+    ids          an explicit 1-indexed list of drone ids
+    even / odd   by drone index parity
+    first        the first N drones by index
+    left / right by position about the swarm centre, from the audience's point of view
+
+  deck — which LED ring the action drives: top, bot, or both. Use both unless you specifically
+  want the two rings to differ.
+
+  colors (exactly these, no others): red, orange, amber, yellow, green, teal, cyan, azure, blue,
+  indigo, magenta, pink, white
+
+  Colour primitives — which hue each drone carries:
+  - light_color(sel, color, deck) — one palette colour across the subset.
+  - gradient(sel, color_a, color_b, by, deck) — blend two palette colours across the subset;
+    by is index, x, y, z or radius. Static in time.
+  - rainbow(sel, period_beats, spread, deck) — spectrum cycle through the whole wheel. spread
+    none cycles the group in sync, neighbour runs the rainbow around the formation in spatial
+    order, index runs it along drone id order instead, x/y/z sweeps it across the stage, radius
+    ripples it out from the centre, alternate_parity or alternate_side splits the group into two
+    opposed halves. Prefer neighbour over index: drone ids are handed out by whichever hand-off
+    is cheapest to fly and end up scattered around the stage.
+
+  Brightness primitives — how bright each drone is over time:
+  - light_on(sel, deck) — force full on; dominates everything else, see above.
+  - light_off(sel, deck) — force dark; beats every brightness effect on those drones.
+  - pulse(sel, period_beats, deck) — the whole group breathes together, smoothly.
+  - blink(sel, period_beats, duty, deck) — hard on/off. duty is the lit fraction of each period:
+    0.5 is even, 0.1 is a short stab.
+  - strobe_decay(sel, period_beats, deck) — flash on the beat and decay out. The most musical
+    accent there is; period_beats 1 locks it to the pulse of a driving section.
+  - chase(sel, period_beats, length, group_size, spread, deck) — a running light. length is how
+    many drones are lit at once; group_size advances the pattern in blocks of that many drones
+    instead of one at a time, and needs spread neighbour or index — those are the two that rank
+    the drones, so leave group_size at 1 with any other spread. spread is the same vocabulary
+    rainbow takes and sets what the light runs along: use neighbour, which walks the formation
+    itself, unless you specifically want drone id order.
+  - sweep(sel, period_beats, axis, deck) — a directional sweep across the stage; axis x, y or z.
+    The drones must be spread out along that axis or there is no sweep, just a flash: a flat
+    formation has no extent in z, so axis z only travels after a helix, a cone or stacked rings.
+  - ripple_light(sel, period_beats, deck) — a wave travelling out from the swarm centre. It runs
+    on distance from that centre, so it needs drones at different radius: on a plain circle they
+    are all the same distance out and the ripple collapses into one synchronised flash.
+  - alternate_blink(sel, period_beats, by, deck) — two halves ping-pong in antiphase; by is
+    parity for even-vs-odd or side for stage-left-vs-right.
+
+  Colour and brightness MULTIPLY, so stack them freely: rainbow under pulse is a breathing
+  spectrum, chase under light_color is a running light in one hue. Where two brightness effects
+  overlap, the brighter one wins at every instant, so a dim accent under a bright base is
+  invisible — write accents at full strength.
+
+  Drones with no lighting action at all are fully lit, each carrying its own distinct hue, so an
+  empty lighting track already looks like a normal show. Light the moments the music asks for
+  rather than every key.
+  </lighting>
+
   <process>
   1) song_mood — brief mood for "{song}".
   2) choreography_plan — sections, primitives chosen, and intensity rationale per segment.
   3) choreography — sparse map of action keys to action lists.
+  4) lighting — sparse map of lighting keys to the look each one puts on stage.
   </process>
 
 example: |
@@ -177,6 +253,14 @@ output_format_structured: |
          ]
        The system suppresses form_* hold waypoints automatically — no extra timing needed.
     Do NOT stack two formations on overlapping drones.
+  - "lighting" is a SEPARATE array of entries of the same shape:
+    {"key":"s<seg>b<bar>t<beat>","actions":[...]}. It has NO required keys — return [] for a show
+    with no lighting, or as few entries as the music needs. A lighting key may share an address
+    with a choreography key or stand alone, and lighting entries need not be dense.
+  - Each lighting action is {"primitive":"name","params":{...}} carrying EVERY parameter of that
+    primitive. "sel" is always an object with all three fields present:
+    {"kind":"all|ids|even|odd|first|left|right","ids":[...],"count":N}. "ids" is read only when
+    kind is "ids" and "count" only when kind is "first"; fill the unused ones with [] and 1.
   Use exactly the parameter names from the primitive signature.
 
   Correct JSON param examples:
@@ -185,6 +269,18 @@ output_format_structured: |
   - form_cone(delta_height_cm, spacing_cm, is_inverted) -> {"primitive":"form_cone","params":{"delta_height_cm":60,"spacing_cm":60,"is_inverted":0,"time_to_finish_s":2.0}}
   - spiral_speed(steps, height_cm, degrees, radius_increase) -> {"primitive":"spiral_speed","params":{"steps":3,"height_cm":100,"degrees":180,"radius_increase":1}}
   - wave(steps, height_cm) -> {"primitive":"wave","params":{"steps":2,"height_cm":80}}
+
+  Correct lighting JSON examples:
+  - every drone blue on both rings ->
+    {"primitive":"light_color","params":{"sel":{"kind":"all","ids":[],"count":1},"color":"blue","deck":"both"}}
+  - drones 1, 3 and 5 breathing once every 2 beats ->
+    {"primitive":"pulse","params":{"sel":{"kind":"ids","ids":[1,3,5],"count":1},"period_beats":2,"deck":"both"}}
+  - a running light across the first 6 drones, 2 lit at a time ->
+    {"primitive":"chase","params":{"sel":{"kind":"first","ids":[],"count":6},"period_beats":4,"length":2,"group_size":1,"spread":"neighbour","deck":"both"}}
+  - stage left and right flashing against each other every beat ->
+    {"primitive":"alternate_blink","params":{"sel":{"kind":"all","ids":[],"count":1},"period_beats":1,"by":"side","deck":"both"}}
+  - a whole look at one key — a travelling spectrum with a flash on every beat ->
+    {"key":"s2b1t1","actions":[{"primitive":"rainbow","params":{"sel":{"kind":"all","ids":[],"count":1},"period_beats":8,"spread":"neighbour","deck":"both"}},{"primitive":"strobe_decay","params":{"sel":{"kind":"all","ids":[],"count":1},"period_beats":1,"deck":"both"}}]}
 
   Common mistakes that will fail syntax checks:
   - Wrong: {"primitive":"form_cone","params":{"drone_ids":[1,2,3],...}} because form_cone has no drone_ids param.

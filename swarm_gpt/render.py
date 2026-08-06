@@ -32,12 +32,12 @@ import mujoco
 import numpy as np
 from crazyflow.control import Control
 from crazyflow.sim import Physics, Sim
-from crazyflow.sim.visualize import change_material, draw_line
+from crazyflow.sim.visualize import draw_line
 from scipy.spatial.transform import Rotation
 from tqdm import tqdm
 
 from swarm_gpt.core import AppBackend
-from swarm_gpt.utils import generate_default_colors
+from swarm_gpt.core.sim import paint_lighting
 
 ROOT = Path(__file__).resolve().parents[1]
 MUSIC_DIR = ROOT / "music" / "songs"
@@ -78,8 +78,28 @@ def preset_audio_path(preset_meta: dict[str, object]) -> Path:
     return audio_path
 
 
-def mux_audio(video_path: Path, audio_path: Path, duration: float) -> Path:
-    """Mux a song into an existing video, replacing the original file on success."""
+def mux_audio(video_path: Path, audio_path: Path, duration: float, audio_start: float) -> Path:
+    """Mux a song into an existing video, replacing the original file on success.
+
+    Args:
+        video_path: The rendered video, replaced in place on success.
+        audio_path: The full mp3 the choreography was planned against.
+        duration: Length of the muxed output in seconds.
+        audio_start: Seconds into the mp3 the choreography starts at, i.e. the `song_crops`
+            window start. The trajectory timeline is rebased to 0 while the mp3 is not, so
+            without this seek the render plays the song from 0:00 against a choreography written
+            for the crop -- 35 s out of sync for `Fearless2`. The web player has always applied
+            the same offset (`normalize_playback`'s `audioOffset`). The flight outlasts the crop
+            by the return-to-home legs, so the audio runs a few seconds past the crop end during
+            landing, which is preferred over an abrupt cut at touchdown.
+
+    Returns:
+        The video path, now carrying audio.
+
+    Raises:
+        RuntimeError: If ffmpeg is unavailable or fails.
+        ValueError: If ``duration`` is not positive.
+    """
     ffmpeg = shutil.which("ffmpeg")
     if ffmpeg is None:
         raise RuntimeError("ffmpeg is required to add audio to rendered videos")
@@ -100,6 +120,9 @@ def mux_audio(video_path: Path, audio_path: Path, duration: float) -> Path:
         "-y",
         "-i",
         str(video_path),
+        # Before `-i`, so ffmpeg seeks the input rather than decoding and discarding the lead-in.
+        "-ss",
+        f"{audio_start:.6f}",
         "-i",
         str(audio_path),
         "-map",
@@ -319,9 +342,7 @@ def render_preset(
     pos_splines = [backend.splines[i] for i in spline_ids]
     vel_splines = [spline.derivative() for spline in pos_splines]
 
-    rgbas = np.ones((sim.n_drones, 4), dtype=float)
-    rgbas[:, :3] = generate_default_colors(sim.n_drones, limit=1.0)
-    drone_ids = np.arange(sim.n_drones)
+    lighting = backend.lighting_timeline()
     trails = [deque(maxlen=TRAIL_LENGTH) for _ in range(sim.n_drones)]
     t_end = float(backend.waypoints["time"][0, -1])
     if render_end_time is not None:
@@ -347,32 +368,18 @@ def render_preset(
         sim.state_control(controls)
 
     def render_frame(frame_time: float) -> None:
+        # Per frame, not once before the loop: the lighting timeline is a function of time (§9.2).
+        trail_rgba = paint_lighting(sim, lighting, frame_time)
         positions = np.asarray(sim.data.states.pos[0])
         for i, trail in enumerate(trails):
             trail.append(positions[i])
             if len(trail) > 1:
-                draw_line(sim, np.array(trail), rgba=rgbas[i], start_size=2, end_size=5)
-
+                draw_line(sim, np.array(trail), rgba=trail_rgba[i], start_size=2, end_size=5)
         set_camera_pose(sim, mocap_id, frame_time)
         frame = sim.render(mode=RENDER_MODE, camera=CAMERA_NAME, width=width, height=height)
         if frame is None:
             raise RuntimeError("Crazyflow returned no frame in rgb_array mode")
         frame_sink.append_data(frame)
-
-    change_material(
-        sim,
-        mat_name="led_top",
-        drone_ids=drone_ids,
-        rgba=rgbas[drone_ids],
-        emission=np.ones((sim.n_drones,)),
-    )
-    change_material(
-        sim,
-        mat_name="led_bot",
-        drone_ids=drone_ids,
-        rgba=rgbas[drone_ids],
-        emission=np.ones((sim.n_drones,)),
-    )
 
     frame_sink = FrameSink(output_path, fps=fps)
     try:
@@ -409,7 +416,11 @@ def render_preset(
         sim.close()
 
     if audio_path is not None:
-        mux_audio(frame_sink.result_path, audio_path, duration=total_frames / fps)
+        # Same source `normalize_playback` reads for the web player's `audioOffset`.
+        crop_start, _crop_end = backend.crop_window(backend.music_manager.song)
+        mux_audio(
+            frame_sink.result_path, audio_path, duration=total_frames / fps, audio_start=crop_start
+        )
 
     logger.info("Saved render to %s", frame_sink.result_path)
     return frame_sink.result_path

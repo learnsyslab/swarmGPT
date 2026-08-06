@@ -21,7 +21,6 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from swarm_gpt.core import AppBackend
-from swarm_gpt.utils import generate_default_colors
 from swarm_gpt.utils.llm_providers import (
     DEFAULT_OPENAI_MODEL_CHOICES,
     PROVIDER_LABEL_OLLAMA,
@@ -239,13 +238,12 @@ def normalize_playback(sim_data: dict[str, Any], backend: AppBackend) -> dict[st
     if states.shape[1] != num_drones:
         raise ValueError(f"State drone count mismatch: {states.shape[1]} != {num_drones}")
 
-    colors = generate_default_colors(num_drones, limit=1.0)
     bounds = backend.settings["axswarm"]
     sample_rate = 0.0
     if len(timestamps) > 1:
         sample_rate = float(1.0 / np.median(np.diff(timestamps)))
     return {
-        "schemaVersion": 1,
+        "schemaVersion": 2,
         "audioUrl": _audio_url(backend.music_manager.song),
         "audioOffset": backend.crop_window(backend.music_manager.song)[0],
         "song": backend.music_manager.song,
@@ -254,7 +252,7 @@ def normalize_playback(sim_data: dict[str, Any], backend: AppBackend) -> dict[st
         "states": states.tolist(),
         "fields": {"pos": [0, 3], "quat": [3, 7], "vel": [7, 10], "angVel": [10, 13]},
         "bounds": {"min": bounds["pos_min"], "max": bounds["pos_max"]},
-        "colors": colors.tolist(),
+        "lighting": backend.browser_cues(),
         "sampleRate": sample_rate,
     }
 

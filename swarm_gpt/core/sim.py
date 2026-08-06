@@ -22,13 +22,14 @@ from crazyflow.sim import Physics, Sim
 from crazyflow.sim.visualize import change_material, draw_line
 from tqdm import tqdm
 
-from swarm_gpt.utils import MusicManager, generate_default_colors
+from swarm_gpt.utils import MusicManager
 
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from numpy.typing import NDArray
 
+    from swarm_gpt.core.lighting import LightingTimeline
     from swarm_gpt.utils import MusicManager
 
 
@@ -193,13 +194,63 @@ def simulate_axswarm(
     # return sim_log
 
 
+def paint_lighting(sim: Sim, lighting: LightingTimeline, t: float) -> NDArray:
+    """Evaluate the lighting timeline at ``t`` and paint both LED rings (spec §9.2).
+
+    Shared by the debug replay viewer below and `render.py`'s offline renderer. The two had this
+    same body twice and got it wrong the same two ways, and only one of them sits behind a
+    unit-testable seam — `render_preset` runs the whole backend, the axswarm pass and an offscreen
+    MuJoCo context. Holding the body here puts both behind one test.
+
+    Each ring gets **its own deck** of one `evaluate` call: the two resolve independently (§8.6),
+    so painting both rings from one deck makes every ``deck="bot"`` action invisible in the
+    preview. `evaluate_rgb01` is the obvious read-out and is *not* used, because it resolves both
+    decks internally and throws one away — one call per deck does the work twice over, on the one
+    function that runs 60x/s in the offline renderer. Its W-into-RGB fold is repeated here instead
+    (§9.2), the same way `_fold_cues_to_rgb` repeats it for the browser payload (§9.3). And the
+    timeline is read here, *from the ``t`` the caller passes*, rather than once before a frame
+    loop: it is a function of time, so a hoisted read-out freezes the show on its first frame.
+    Taking ``t`` as a parameter makes that hoist less likely and keeps this logic covered through
+    `sim.py`'s loop, which a unit test does drive. It does not make the mistake impossible:
+    `render.py` could still pass a stale time, and its own frame loop stays unpinned because
+    `render_preset` needs a full backend, the axswarm pass and an offscreen MuJoCo context.
+
+    The **top deck** is handed back, because the trails follow the live lighting colour (§9.2) and
+    this is the one place it is already resolved. Both callers draw their trails from it rather
+    than evaluating the timeline a second time.
+
+    Args:
+        sim: The simulation whose ``led_top`` and ``led_bot`` materials are painted.
+        lighting: The compiled lighting timeline.
+        t: Show time in seconds.
+
+    Returns:
+        (n, 4) top-deck rgba in [0, 1], opaque, for the caller's trails.
+    """
+    wrgb = lighting.evaluate(t)
+    rgba = np.ones((sim.n_drones, 2, 4))
+    rgba[..., :3] = np.clip((wrgb[..., 1:] + wrgb[..., :1]) / 255.0, 0.0, 1.0)
+    drone_ids = np.arange(sim.n_drones)
+    emission = np.ones((sim.n_drones,))
+    for mat_name, deck in (("led_top", rgba[:, 0]), ("led_bot", rgba[:, 1])):
+        change_material(sim, mat_name=mat_name, drone_ids=drone_ids, rgba=deck, emission=emission)
+    return rgba[:, 0]
+
+
 def replay_sim_states(
-    sim_data: dict[str, NDArray], settings: dict, music_manager: MusicManager | None = None
+    sim_data: dict[str, NDArray],
+    settings: dict,
+    lighting: LightingTimeline,
+    music_manager: MusicManager | None = None,
 ) -> None:
     """Replay a previously recorded Crazyflow state log in MuJoCo.
 
     This is a debug viewer for the exact states produced by ``simulate_axswarm``. Unlike
     ``simulate_spline``, it does not run another controller/physics pass.
+
+    ``lighting`` drives the LED colours per frame (spec §9.2), and the trails follow the live top
+    deck, so a drone that flashes a new colour flashes its trail with it. A choreography with no
+    lighting compiles to the §8.5 base state, so there is no colourless case to handle.
     """
     timestamps = np.asarray(sim_data["timestamps"], dtype=float)
     states = np.asarray(sim_data["states"], dtype=np.float32)
@@ -226,8 +277,6 @@ def replay_sim_states(
     )
     sim.max_visual_geom = 100_000
 
-    rgbas = np.ones((sim.n_drones, 4))
-    rgbas[:, :3] = generate_default_colors(sim.n_drones, limit=1.0)
     swarm_pos = [deque(maxlen=100) for _ in range(sim.n_drones)]
 
     def sample_state(t: float) -> NDArray:
@@ -280,30 +329,15 @@ def replay_sim_states(
 
                 t = float(np.clip(t_playback, timestamps[0], timestamps[-1]))
                 frame = sample_state(t)
+                # Per frame, not once before the loop: lighting is a function of time (§9.2).
+                trail_rgba = paint_lighting(sim, lighting, t)
                 progress.update(max(0.0, t - last_progress_time))
                 last_progress_time = t
 
                 set_state(frame)
                 for j, dq in enumerate(swarm_pos):
                     dq.append(frame[j, 0:3])
-                    draw_line(
-                        sim, np.array(dq), rgba=rgbas[j % len(rgbas)], start_size=2, end_size=5
-                    )
-
-                change_material(
-                    sim,
-                    mat_name="led_top",
-                    drone_ids=np.arange(sim.n_drones),
-                    rgba=rgbas[np.arange(sim.n_drones) % len(rgbas)],
-                    emission=np.ones((sim.n_drones,)),
-                )
-                change_material(
-                    sim,
-                    mat_name="led_bot",
-                    drone_ids=np.arange(sim.n_drones),
-                    rgba=rgbas[np.arange(sim.n_drones) % len(rgbas)],
-                    emission=np.ones((sim.n_drones,)),
-                )
+                    draw_line(sim, np.array(dq), rgba=trail_rgba[j], start_size=2, end_size=5)
 
                 sim.render(cam_config=default_cam_config)
                 if t_playback >= timestamps[-1]:

@@ -15,15 +15,18 @@ import yaml
 from scipy.interpolate import make_smoothing_spline
 
 from swarm_gpt.core import Choreographer
+from swarm_gpt.core.lighting import load_lighting_config
+from swarm_gpt.core.lighting_compile import compile_cues
 from swarm_gpt.core.sim import replay_sim_states, simulate_axswarm
 from swarm_gpt.exception import LLMException
-from swarm_gpt.utils import MusicManager, generate_default_colors
+from swarm_gpt.utils import MusicManager
 from swarm_gpt.utils.music_analyzer import SongStructure
 
 if TYPE_CHECKING:
     from numpy.typing import NDArray as Array
 
     from swarm_gpt.core.drone_swarm import DroneSwarm
+    from swarm_gpt.core.lighting import LightingTimeline
     from swarm_gpt.utils.llm_providers import LLMProvider
 
 logging.basicConfig(level=logging.WARNING)
@@ -70,6 +73,34 @@ def self_correct(n_retries: int) -> Callable[[Callable[P, R]], Callable[P, R]]:
         return wrapper
 
     return decorator
+
+
+def _fold_cues_to_rgb(cues: dict[float, Array]) -> dict[str, list]:
+    """Fold one drone-deck's WRGB cue dict into the browser's parallel arrays (spec §9.3).
+
+    Three.js has no white channel, so W folds into all three exactly as
+    :meth:`LightingTimeline.evaluate_rgb01` does it -- ``clip(rgb + w, 0, 255)``, where the clip is
+    load-bearing because a near-white cue overflows without it. The truncation to integers matches
+    ``DroneSwarm._apply_drone_color``, which packs each channel with ``int()``, so quantization can
+    only ever darken relative to intent (§9.1).
+
+    **Note: that truncation requirement is currently vacuous, and byte-level agreement holds for a
+    different reason than it claims.** :meth:`LightingTimeline.evaluate` already rounds, so every
+    value arriving here is integral and ``.astype(int)`` is bit-identical to
+    ``np.round(...).astype(int)`` -- there is no fractional part left to truncate, and no test can
+    tell the two apart. The browser and the hardware agree because both are handed the same already
+    rounded WRGB, not because this line truncates. Keep the truncation anyway: it is what stays
+    correct if ``evaluate`` ever stops rounding.
+
+    Args:
+        cues: One drone-deck's ``{time: (4,) WRGB}`` cue dict, as ``compile_cues`` returns it.
+
+    Returns:
+        ``{"times": [...], "rgb": [[r, g, b], ...]}``, JSON-serializable and index-parallel.
+    """
+    wrgb = np.stack(list(cues.values()))
+    rgb = np.clip(wrgb[:, 1:] + wrgb[:, :1], 0, 255).astype(int)
+    return {"times": list(cues), "rgb": rgb.tolist()}
 
 
 class AppBackend:
@@ -205,6 +236,10 @@ class AppBackend:
             self.waypoints = self.choreographer.response2waypoints(
                 response, structure, strict=self._strict_processing
             )
+            # The lighting cannot be compiled yet -- a look freezes a position snapshot, and
+            # positions exist only after the axswarm pass (§7.3). Checking the half that needs no
+            # positions here is what lets a malformed lighting track reprompt.
+            self.choreographer.validate_lighting(response)
         except LLMException as e:
             # We do not want to retry if we are using a preset or a fixed response. This
             # would use the LLM. We raise an error type that is not caught by
@@ -235,6 +270,7 @@ class AppBackend:
         self.waypoints = self.choreographer.response2waypoints(
             response, structure, strict=self._strict_processing
         )
+        self.choreographer.validate_lighting(response)
         logger.info("Successfully generated choreography")
         return self.choreographer.messages
 
@@ -266,9 +302,79 @@ class AppBackend:
             controls = sim_data["controls"][:, i, :3]
             self.splines[drone] = make_smoothing_spline(t, controls, lam=lam)
         if gui:
-            replay_sim_states(sim_data, self.settings, self.music_manager)
+            replay_sim_states(sim_data, self.settings, self.lighting_timeline(), self.music_manager)
         logger.info("Simulation successful")
         return sim_data
+
+    def lighting_timeline(self) -> LightingTimeline:
+        """Compile the current response's lighting track into a timeline (spec §5, §10.1).
+
+        Each look freezes a position snapshot taken from the axswarm splines (§7.3), so this is
+        only available once :meth:`simulate` has run.
+
+        Every read-out goes through here, including for a response that carries no lighting at
+        all: that compiles to the §8.5 base state, which is the same per-drone hue wheel the sim
+        has always drawn plus the channel calibration the deploy path has always applied. The
+        preview and the hardware therefore agree, which is the point of having two read-outs off
+        one timeline.
+
+        Returns:
+            The compiled timeline, covering the whole flight.
+        """
+        assert self.splines, "Please run the simulation first!"
+        assert self.waypoints is not None, "Please generate a choreography first"
+        structure = self._load_structure(self.music_manager.song)
+
+        def position_at(t: float) -> Array:
+            return np.array([self.splines[i](t) for i in sorted(self.splines)])
+
+        return self.choreographer.response2lighting(
+            self._response_text(), structure, position_at, float(self.waypoints["time"][0, -1])
+        )
+
+    def browser_cues(self) -> dict[str, list[dict[str, list]]]:
+        """Adapt the compiled lighting cues for the browser viewer (spec §9.3).
+
+        The browser is the third read-out, and it plays back the same baked cue list the hardware
+        does, so the preview shows the ``col_freq`` quantization that will actually fly. That is
+        deliberately *not* the sim's per-frame ``evaluate`` (§9.2), which is smoother than either.
+
+        ``compile_cues`` output is not browser-ready: it is URI-keyed, holds ``NDArray`` values in
+        ``{time: wrgb}`` dicts, and carries four channels. This is the whole of the adaptation, so
+        ``normalize_playback`` stays a pure reshaper and deploy's ``col_freq``/``t_end`` plumbing
+        does not spread into the API layer.
+
+        **Known divergence: editing `lighting.toml` between preview and flight desynchronizes
+        them** (§9.3). This runs once per job and the result is cached in ``job.playback``, while
+        :meth:`deploy` recompiles from scratch and ``load_lighting_config`` re-reads the file every
+        call with no cache -- so the viewer can show the old palette while the drones fly the new
+        one. §12.2 and §12.3 explicitly invite retuning that file by eye, which is what makes this
+        reachable rather than theoretical. Re-running the job resyncs. Everything else is identical
+        by construction: no RNG anywhere in ``lighting*.py``, and both paths take ``t_end``,
+        ``col_freq``, the response text and the positions from the same sources.
+
+        Returns:
+            ``{"top": [...], "bot": [...]}``, each a list of one ``{"times", "rgb"}`` entry per
+            drone, indexed like the payload's ``states`` rows rather than keyed by radio URI.
+        """
+        cfg = load_lighting_config()
+        # Index keys, not radio URIs: `compile_cues` keys its output by whatever it is handed, and
+        # a browser payload has no business carrying radio addresses.
+        keys = [str(i) for i in range(self.choreographer.num_drones)]
+        decks = compile_cues(
+            self.lighting_timeline(), keys, cfg.col_freq, float(self.waypoints["time"][0, -1])
+        )
+        return {
+            deck: [_fold_cues_to_rgb(cues[key]) for key in keys]
+            for deck, cues in zip(("top", "bot"), decks, strict=True)
+        }
+
+    def _response_text(self) -> str:
+        """The assistant response the current waypoints and splines were generated from."""
+        assert self.choreographer.messages, "Please generate a choreography first"
+        message = self.choreographer.messages[-1]
+        assert message["role"] == "assistant", "Last message in history is not a response"
+        return message["content"]
 
     def deploy(self, drone_ids: list[int] | None = None) -> bool:
         """Run the Crazyflie drones with waypoints generated by the choreographer.
@@ -300,7 +406,19 @@ class AppBackend:
             logger.error("VLC/libvlc is not available. Install VLC (see README) before deploying.")
             return False
 
-        swarm = DroneSwarm(self.choreographer.drones, lighthouse=self.settings["lighthouse"])
+        # Bake the lighting before connecting any radio, so a malformed track fails cheaply.
+        # `cfg.col_freq` reaches both the cue consumer and the cue compiler from the same config
+        # field, so the Nyquist clamp in `build_look` can never disagree with the rate the cues
+        # are actually drained at (§9.1). A response with no lighting track compiles from the
+        # §8.5 base state, which is today's one-colour-then-black cue pair exactly (§10.1).
+        cfg = load_lighting_config()
+        t_end = float(self.waypoints["time"][0, -1])
+        uris = [d["uri"] for d in self.choreographer.drones.values()]
+        color_top, color_bot = compile_cues(self.lighting_timeline(), uris, cfg.col_freq, t_end)
+
+        swarm = DroneSwarm(
+            self.choreographer.drones, col_freq=cfg.col_freq, lighthouse=self.settings["lighthouse"]
+        )
         self._active_swarm = swarm
         logger.info("Swarm connected...")
 
@@ -310,11 +428,6 @@ class AppBackend:
         final_pos_dict = {}
         landing_pos_dict = {}
         choreography_dict = {}
-        color_top = {}
-        color_bot = {}
-        colors_array = np.zeros((self.choreographer.num_drones, 4))
-        colors_array[:, 1:] = generate_default_colors(self.choreographer.num_drones, limit=255)
-        colors_array[:, 3] *= 0.8  # Dim blue channel since that LED is brighter
         for i, d in enumerate(self.choreographer.drones.values()):
             uri = d["uri"]
             init_pos = np.array(self.splines[i](0))
@@ -330,14 +443,6 @@ class AppBackend:
             final_pos_dict[uri] = np.array([*landing_pos + np.array([0.0, 0.0, 0.5]), 0.0])
             landing_pos_dict[uri] = np.array([*landing_pos - np.array([0.0, 0.0, 0.2]), 0.0])
             choreography_dict[uri] = self.splines[i]
-            color_top[uri] = {
-                0.0: colors_array[i],
-                self.waypoints["time"][0, -1] - 0.1: np.zeros(4),
-            }
-            color_bot[uri] = {
-                0.0: colors_array[i],
-                self.waypoints["time"][0, -1] - 0.1: np.zeros(4),
-            }
 
         try:
             if not correct_positions:

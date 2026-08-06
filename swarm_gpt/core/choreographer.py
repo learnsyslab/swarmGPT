@@ -14,14 +14,18 @@ import numpy as np
 import toml
 import yaml
 
+from swarm_gpt.core.lighting import LightingTimeline, load_lighting_config
+from swarm_gpt.core.lighting_primitives import build_look
 from swarm_gpt.core.motion_primitives import motion_primitives as motion_primitives_collection
 from swarm_gpt.core.motion_primitives import primitive_by_name
 from swarm_gpt.core.structured_output_schema import (
     KEY_PATTERN,
+    LIGHTING_PRIMITIVE_ARG_ORDER,
     build_motion_primitive_response_schema,
     decode_key,
     encode_key,
     structured_payload_to_choreography,
+    structured_payload_to_lighting,
 )
 from swarm_gpt.exception import LLMFormatError, LLMPlanError, LLMResponseProcessingError
 from swarm_gpt.utils.llm_providers import (
@@ -35,13 +39,21 @@ from swarm_gpt.utils.llm_providers import (
 from swarm_gpt.utils.music_analyzer import dynamics_window_keys
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from numpy.typing import NDArray
     from openai import OpenAI
 
+    from swarm_gpt.core.lighting import LightingConfig, Look
     from swarm_gpt.utils.llm_providers import LLMProvider
     from swarm_gpt.utils.music_analyzer import SongStructure
 
 logger = logging.getLogger(__name__)
+
+# Tempo the generation-time lighting dry run converts `period_beats` with. Slow enough that no
+# emitted period can trip the §9.1 Nyquist clamp and log a spurious warning: the dry run is only
+# checking names, and `response2lighting` does the real conversion with the song's own tempo.
+_DRY_RUN_BPM = 1.0
 
 _FORMATION_PRIMITIVES: frozenset[str] = frozenset({"form_circle", "form_star", "form_cone"})
 _MOTION_PRIMITIVES_FOR_COMPOSITION: frozenset[str] = frozenset(
@@ -584,7 +596,12 @@ class Choreographer:
         return structured_payload_to_choreography(payload)
 
     def _structured_payload_to_text(self, payload: dict) -> str:
-        """Convert structured payload to legacy YAML-like text for downstream parsing/history."""
+        """Convert structured payload to legacy YAML-like text for downstream parsing/history.
+
+        ``lighting`` is rendered as a second block in the same ``  s#b#t#: call; call`` idiom, so
+        the one text parser in :meth:`response2lighting` serves both the structured and the
+        free-text path (spec §10.1).
+        """
         required_fields = ["song_mood", "choreography_plan", "choreography"]
         missing = [field for field in required_fields if field not in payload]
         if missing:
@@ -592,6 +609,7 @@ class Choreographer:
                 "Structured output is missing required keys: " + ", ".join(sorted(missing))
             )
         choreography = self._structured_payload_to_choreography(payload)
+        lighting = structured_payload_to_lighting(payload)
         lines = [
             f"song_mood: {json.dumps(payload['song_mood'])}",
             f"choreography_plan: {json.dumps(payload['choreography_plan'])}",
@@ -600,6 +618,10 @@ class Choreographer:
         # Sort by (seq, bar, beat) tuple for deterministic, time-ordered output.
         for addr in sorted(choreography):
             lines.append(f"  {encode_key(*addr)}: {choreography[addr]}")
+        lines.append("  END")
+        lines.append("lighting:")
+        for addr in sorted(lighting):
+            lines.append(f"  {encode_key(*addr)}: {lighting[addr]}")
         lines.append("  END")
         return "\n".join(lines)
 
@@ -647,6 +669,129 @@ class Choreographer:
         waypoints["pos"] = np.concat((waypoints["pos"], home, home), axis=1)
 
         return waypoints
+
+    def validate_lighting(self, text: str) -> None:
+        """Check a response's lighting track for names and arities the engine would reject.
+
+        Everything :meth:`response2lighting` does *except* using the result, which cannot be done
+        at generation time: a look freezes a position snapshot, and positions do not exist until
+        the axswarm pass has run (§7.3). So the looks are built here against a **dry-run snapshot**,
+        which is enough to resolve every name in the §10.2 vocabulary — primitive, deck, selector
+        kind, spread and gradient axis, plus the palette colours `build_look` now checks. None of
+        those depend on where the drones actually are; only the resulting masks and phase offsets
+        do, and those are discarded.
+
+        The snapshot puts the drones on a diagonal rather than all at the origin, so that it has
+        extent along every axis and distinct radii. Nothing about name resolution needs that — but
+        the §7.3 collapse warnings fire on a snapshot with no extent, and a snapshot of zeros is
+        degenerate along all of them, so every `sweep`, `ripple_light` and `left`/`right` emission
+        would warn on every generation about the fixture rather than about the show.
+
+        Checking names by rebuilding rather than by restating them keeps one vocabulary. A hand-
+        written list here would be a fifth place a signature change has to land (CLAUDE.md §7.1),
+        and the failure mode of missing one is silent: the name escapes to `compile_cues` during a
+        deploy, or to the per-frame render path, where nothing reprompts.
+
+        Args:
+            text: The output of the LLM, in the YAML-like form produced by the prompt.
+
+        Raises:
+            LLMFormatError: If a lighting entry names an unknown primitive, deck, selector, spread,
+                gradient axis or colour, cannot be parsed, or carries the wrong number of arguments.
+        """
+        cfg = load_lighting_config()
+        positions = np.tile(np.arange(self.num_drones, dtype=float)[:, None], (1, 3))
+        for addr, action_str in self.lighting_from_text(text).items():
+            actions = self._parse_lighting_actions(action_str, addr)
+            self._build_look(actions, addr, 0.0, positions, cfg, _DRY_RUN_BPM)
+
+    def _build_look(
+        self,
+        actions: list[dict],
+        addr: tuple[int, int, int],
+        t_start: float,
+        positions: NDArray,
+        cfg: LightingConfig,
+        bpm: float,
+    ) -> Look:
+        """Compile one key's actions, reporting the engine's bare name errors as format errors.
+
+        Shared by the generation-time dry run and the real compile so both report a malformed
+        emission identically, and so neither can drift into swallowing an error the other raises.
+
+        Args:
+            actions: The key's parsed actions.
+            addr: The key's ``(seq, bar, beat)`` address, for the error message.
+            t_start: Show time in seconds at which the look takes over.
+            positions: (n, 3) position snapshot.
+            cfg: Lighting config.
+            bpm: Song tempo, which converts every ``period_beats`` into seconds.
+
+        Returns:
+            The compiled look.
+
+        Raises:
+            LLMFormatError: If `build_look` rejects a name, an argument or a drone id.
+        """
+        try:
+            return build_look(actions, t_start, positions, self.num_drones, cfg, bpm)
+        except (KeyError, ValueError, IndexError) as e:
+            raise LLMFormatError(
+                f"Cannot compile the lighting at {encode_key(*addr)}: {e.__class__.__name__}: {e}"
+            ) from e
+
+    def response2lighting(
+        self,
+        text: str,
+        structure: SongStructure,
+        position_at: Callable[[float], NDArray],
+        t_end: float,
+    ) -> LightingTimeline:
+        """Translate the LLM output's lighting track into an evaluable timeline (spec §5, §10.1).
+
+        Every emitted lighting key becomes one `Look` at the time ``structure.time_of`` resolves
+        that address to, and the look holds until the next one replaces it outright (§8.4).
+
+        Args:
+            text: The output of the LLM, in the YAML-like form produced by the prompt. Both the
+                structured and the free-text path arrive here as text, so this is the only
+                lighting parser either needs.
+            structure: Hierarchical song structure, resolving each lighting key to seconds and
+                supplying the tempo every ``period_beats`` is converted with.
+            position_at: Swarm position at a show time, as an ``(n, 3)`` array. Injected rather
+                than reached for so neither this module nor `lighting.py` depends on the backend.
+                It has no source until ``Backend.simulate`` has run, because the splines it reads
+                are populated only after the axswarm pass.
+            t_end: Duration of the *flight* in seconds, which the §8.7 blackout lands 0.1s before.
+                Not the song's duration: the trajectory runs on past the music for the
+                return-to-home legs, and darkening the swarm at the end of the music would fly
+                those legs and land unlit.
+
+        Returns:
+            The compiled timeline. A response carrying no lighting -- an absent block, an empty
+            one, or a payload predating the feature -- yields a timeline with no looks, which
+            evaluates to the §8.5 base state: every drone full on in its own hue, exactly today's
+            behaviour.
+
+        Raises:
+            LLMFormatError: If a lighting entry names an unknown primitive, deck, selector,
+                spread or axis, or carries the wrong number of arguments. `build_look` reports
+                these as bare ``KeyError``s; they are wrapped here so a malformed lighting
+                emission reprompts the model the way a malformed motion one does.
+        """
+        logger.debug("Converting LLM output into a lighting timeline")
+        cfg = load_lighting_config()
+        looks = []
+        for addr, action_str in self.lighting_from_text(text).items():
+            actions = self._parse_lighting_actions(action_str, addr)
+            t_start = structure.time_of(*addr)
+            # §7.3: the snapshot is frozen here, once per look, which is what keeps the timeline a
+            # pure function of t and makes it testable without a trajectory.
+            positions = np.asarray(position_at(t_start), dtype=float)
+            looks.append(
+                self._build_look(actions, addr, t_start, positions, cfg, float(structure.bpm))
+            )
+        return LightingTimeline(looks, self.num_drones, t_end, cfg)
 
     def _response2choreo(
         self, text: str, structure: SongStructure | None = None
@@ -836,6 +981,86 @@ class Choreographer:
             )
 
         return dict(sorted(choreography_steps.items()))
+
+    @staticmethod
+    def lighting_from_text(text: str) -> dict[tuple[int, int, int], str]:
+        """Extract the ``lighting:`` block from the LLM output (spec §10.1).
+
+        The counterpart of :meth:`_slice_choreography_from_text` for the second track, and
+        deliberately more forgiving: lighting is optional, so an absent or empty block yields an
+        empty dict instead of raising. Responses predating this feature carry no block at all.
+
+        The block header is matched at the start of a line, unlike the choreography one: the
+        lighting block is the last thing emitted, so an unanchored match could otherwise slice
+        from the word "lighting:" inside the ``choreography_plan`` prose and swallow both tracks.
+
+        Args:
+            text: The YAML-like output of the LLM.
+
+        Returns:
+            Dict mapping ``(seq, bar, beat)`` tuples to action strings, in key order.
+        """
+        yaml_text = re.findall(r"```yaml\n(.*?)(?:```)", text, re.DOTALL)
+        yaml_text = yaml_text[0] if yaml_text else text
+        match = re.search(
+            r"^[ \t]*lighting:[ \t]*$(.*?)(?:^[ \t]*END[ \t]*$|\Z)",
+            yaml_text,
+            re.DOTALL | re.MULTILINE,
+        )
+        if match is None:
+            return {}
+        # Strip line comments (everything after `#`), as the choreography slice does.
+        block = "\n".join(line.split("#")[0].strip() for line in match.group(1).splitlines())
+        entry_re = re.compile(rf"({KEY_PATTERN}):\s*(.*?)\s*(?={KEY_PATTERN}:|$)", re.DOTALL)
+        entries = {decode_key(key): action.strip() for key, action in entry_re.findall(block)}
+        return dict(sorted(entries.items()))
+
+    @staticmethod
+    def _parse_lighting_actions(action_str: str, addr: tuple[int, int, int]) -> list[dict]:
+        """Parse one lighting key's ``primitive(args); primitive(args)`` string into actions.
+
+        Produces the ``{"primitive": name, "params": {...}}`` shape `build_look` consumes.
+        Arguments are positional in the §10.2 catalogue order and zipped back onto their names,
+        which is what lets the emitted text stay in the terse call idiom the motion track uses.
+
+        Args:
+            action_str: One key's actions, as rendered by `action_to_lighting_primitive`.
+            addr: The key's ``(seq, bar, beat)`` address, for error messages.
+
+        Returns:
+            The parsed actions, in emission order — which §8.2 resolves colour by.
+
+        Raises:
+            LLMFormatError: If a call names an unknown primitive, cannot be parsed, or carries
+                the wrong number of arguments. Zipping a short argument list onto the names would
+                silently drop parameters, so the arity is checked before the zip.
+        """
+        actions: list[dict] = []
+        for raw_move in action_str.strip(" ;").split(";"):
+            move = raw_move.strip()
+            if not move:
+                continue
+            name = move.split("(")[0].strip(" -\n")
+            if name not in LIGHTING_PRIMITIVE_ARG_ORDER:
+                raise LLMFormatError(f"Unknown lighting primitive '{name}' at {encode_key(*addr)}")
+            # Parse the `args` portion the way the motion path does: `ast.literal_eval` on a
+            # re-wrapped tuple expression, splitting on the first `(`. The selector is rendered as
+            # a list rather than a tuple precisely so that split stays valid.
+            try:
+                args = ast.literal_eval("(" + move.split("(")[1].split("#")[0][:-1] + ",)")
+            except (SyntaxError, ValueError, IndexError) as e:
+                raise LLMFormatError(
+                    f"Cannot interpret arguments of '{move}' at {encode_key(*addr)}. "
+                    f"Failed with {e.__class__.__name__}: {e}"
+                ) from e
+            arg_names = LIGHTING_PRIMITIVE_ARG_ORDER[name]
+            if len(args) != len(arg_names):
+                raise LLMFormatError(
+                    f"{name} at {encode_key(*addr)} must have {len(arg_names)} arguments "
+                    f"({arg_names}), got {list(args)}"
+                )
+            actions.append({"primitive": name, "params": dict(zip(arg_names, args))})
+        return actions
 
     def _motion_primitives2time_and_pos(
         self, motion_primitives: dict, timestamps: NDArray, t_end: float
