@@ -6,6 +6,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from conftest import with_ulp_noise
 
 from swarm_gpt.core.lighting import (
     BrightnessLayer,
@@ -521,13 +522,14 @@ def test_spread_radius_on_a_cos_sin_ring_collapses_rather_than_amplifying_float_
     so the fixture has to be a real ring, and the guard below is what keeps it one.
     """
     cfg = load_lighting_config()
-    radii = np.linalg.norm(RING_10 - RING_10.mean(axis=0), axis=1)
+    ring = with_ulp_noise(RING_10)
+    radii = np.linalg.norm(ring - ring.mean(axis=0), axis=1)
     span = float(radii.max() - radii.min())
     assert 0.0 < span < 1e-12, (
         f"the fixture must be degenerate only to within float noise, got a span of {span}; "
         "an exactly-equal ring passes this test without the tolerance and pins nothing"
     )
-    assert spread_offsets("radius", ALL_10, RING_10, 1, cfg) == pytest.approx(np.zeros(10))
+    assert spread_offsets("radius", ALL_10, ring, 1, cfg) == pytest.approx(np.zeros(10))
 
 
 def test_spread_group_size_quantizes_into_ceil_buckets():
@@ -634,13 +636,15 @@ def test_a_stage_axis_degenerate_only_to_float_noise_collapses_left_rather_than_
     # A radius-2.5 ring standing in the plane spanned by z and the horizontal heading at pi/2,
     # which is edge-on to the "+x" stage axis. `np.cos(np.pi / 2)` is 6.1e-17, not 0, and that is
     # the whole point of the fixture: writing the x column as the literal 0.5 pins nothing.
-    edge_on = np.stack(
-        [
-            0.5 + 2.5 * np.cos(angles) * np.cos(np.pi / 2),
-            2.5 * np.cos(angles) * np.sin(np.pi / 2),
-            3.0 + 2.5 * np.sin(angles),
-        ],
-        axis=1,
+    edge_on = with_ulp_noise(
+        np.stack(
+            [
+                0.5 + 2.5 * np.cos(angles) * np.cos(np.pi / 2),
+                2.5 * np.cos(angles) * np.sin(np.pi / 2),
+                3.0 + 2.5 * np.sin(angles),
+            ],
+            axis=1,
+        )
     )
     span = float(edge_on[:, 0].max() - edge_on[:, 0].min())
     assert 0.0 < span < 1e-12, (

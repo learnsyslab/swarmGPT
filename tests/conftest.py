@@ -3,6 +3,29 @@ from pathlib import Path
 import numpy as np
 
 
+def with_ulp_noise(points: np.ndarray, col: int = 0) -> np.ndarray:
+    """Return ``points`` with its largest ``col`` coordinate nudged up two ULPs.
+
+    The degeneracy fixtures are rings built from ``cos``/``sin``, so their radii are equal in exact
+    arithmetic but equal only to within float noise in practice -- the case the lighting engine's
+    relative span tolerance exists for, and one an exactly-equal fixture cannot reach, since that
+    takes the degenerate branch either way and pins nothing.
+
+    How much noise ``cos``/``sin`` actually leave is platform-dependent: linux-64 can return a
+    bit-for-bit exact ring where osx-arm64 leaves a couple of ULPs. Pinning it here rather than
+    assuming it keeps those fixtures degenerate-but-not-exact everywhere. Two ULPs is far below the
+    engine's tolerance, so the collapse being asserted still happens.
+
+    The nudge lands on the row where ``col`` is largest, not on a fixed row: two ULPs of a
+    coordinate that happens to sit at zero is a denormal, which moves neither that column's span
+    nor the point's radius.
+    """
+    out = np.asarray(points, dtype=float).copy()
+    row = int(np.argmax(np.abs(out[:, col])))
+    out[row, col] = np.nextafter(np.nextafter(out[row, col], np.inf), np.inf)
+    return out
+
+
 def virtual_crazyswarm_config(n_drones: int) -> Path:
     """Create a virtual crazyswarm config file for testing."""
     n_cols = int(np.ceil(np.sqrt(n_drones)))

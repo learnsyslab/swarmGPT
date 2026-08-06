@@ -10,6 +10,7 @@ import logging
 
 import numpy as np
 import pytest
+from conftest import with_ulp_noise
 
 from swarm_gpt.core.lighting import (
     LIGHTING_PRIMITIVES,
@@ -621,7 +622,8 @@ def test_gradient_by_radius_on_a_cos_sin_ring_collapses_rather_than_amplifying_f
     catch that (they take the degenerate branch either way), so the fixture has to be a real ring,
     and the guard below is what keeps it one.
     """
-    radii = np.linalg.norm(RING_6 - RING_6.mean(axis=0), axis=1)
+    ring = with_ulp_noise(RING_6)
+    radii = np.linalg.norm(ring - ring.mean(axis=0), axis=1)
     span = float(radii.max() - radii.min())
     assert 0.0 < span < 1e-12, (
         f"the fixture must be degenerate only to within float noise, got a span of {span}; "
@@ -629,7 +631,7 @@ def test_gradient_by_radius_on_a_cos_sin_ring_collapses_rather_than_amplifying_f
     )
     look = _build(
         _action("gradient", sel=ALL, color_a="red", color_b="blue", by="radius", deck="both"),
-        positions=RING_6,
+        positions=ring,
     )
     (layer,) = look.colour_layers
     assert layer.params["s"] == pytest.approx(np.zeros(N6))
