@@ -4,8 +4,8 @@
 pinning the render path, which is where the two §9.2 mistakes live: sampling the timeline once
 before the loop instead of per frame, and painting both LED rings from the same deck. Both survive
 a green timeline test, so these tests drive the real loop with a fake `Sim` and record what
-`change_material` is handed — plus what `draw_line` is handed, since the trails track the live
-top-deck colour.
+`change_material` is handed — plus what `draw_line` is handed, since the trails must stay one
+neutral grey no matter what the lighting does.
 """
 
 import dataclasses
@@ -152,15 +152,19 @@ def _replay(
 
 def _paint(
     monkeypatch: pytest.MonkeyPatch, timeline: LightingTimeline, t: float
-) -> tuple[dict[str, np.ndarray], np.ndarray]:
-    """Call `paint_lighting` once; return what each material got, and what it handed back."""
+) -> tuple[dict[str, np.ndarray], Any]:
+    """Call `paint_lighting` once; return what each material got, and what it handed back.
+
+    The return value is passed through untouched rather than coerced to an array, because what it
+    has to be is `None` — coercing would turn that into a NaN array and hide it.
+    """
     painted: dict[str, np.ndarray] = {}
 
     def record(_sim: object, mat_name: str, rgba: np.ndarray, **_kwargs: object) -> None:
         painted[mat_name] = np.asarray(rgba, dtype=float).copy()
 
     monkeypatch.setattr(sim_module, "change_material", record)
-    return painted, np.asarray(paint_lighting(_FakeSim(N4), timeline, t), dtype=float)
+    return painted, paint_lighting(_FakeSim(N4), timeline, t)
 
 
 # --- the shared helper: what both `replay_sim_states` and `render.py` draw -----------------
@@ -214,13 +218,12 @@ def test_paint_lighting_reads_the_timeline_at_the_time_it_is_given(monkeypatch: 
         assert np.allclose(dark[mat_name][:, :3], BLACK), mat_name
 
 
-def test_paint_lighting_hands_back_the_top_deck_for_the_trails(monkeypatch: pytest.MonkeyPatch):
-    """§9.2: the trails follow the live top deck, and this is the one place it is already resolved.
+def test_paint_lighting_hands_nothing_back(monkeypatch: pytest.MonkeyPatch):
+    """§9.2: it paints the LED materials and returns nothing — the trails are not a read-out of it.
 
-    Returning it is what stops both callers evaluating the timeline a second time per frame just to
-    colour a trail. The `light_off(bot)` here is what tells the two decks apart: a helper that
-    handed back the *bottom* deck, or a fresh `evaluate_rgb01` call left on its default, would both
-    look right against a symmetric fixture.
+    This return value has flipped three times across the lighting work, so it is pinned rather than
+    left implicit. The trails are one fixed grey (§9.2), so nothing downstream needs a resolved
+    deck, and handing one back would invite a caller to colour something from it again.
     """
     timeline = _timeline(
         [
@@ -231,10 +234,9 @@ def test_paint_lighting_hands_back_the_top_deck_for_the_trails(monkeypatch: pyte
 
     painted, returned = _paint(monkeypatch, timeline, 0.0)
 
-    assert returned.shape == (N4, 4)
-    assert np.allclose(returned, painted["led_top"])
-    assert not np.allclose(returned, painted["led_bot"]), "the top deck, not the bottom one"
-    assert np.allclose(returned[:, 3], 1.0), "`draw_line` wants an opaque rgba"
+    assert returned is None
+    # ...and it did paint, so the `None` is the contract and not a dead call.
+    assert np.allclose(painted["led_top"][:, :3], RED)
 
 
 # --- the replay loop, which must call the helper once per frame ----------------------------
@@ -291,14 +293,21 @@ def test_replay_resamples_the_timeline_on_every_frame(monkeypatch: pytest.Monkey
         assert all(np.allclose(f, BLACK) for f in drawn[2:4]), deck
 
 
-def test_replay_trails_follow_the_live_top_deck_colour(monkeypatch: pytest.MonkeyPatch):
-    """§9.2: a trail flashes with its drone, so it is painted from the top deck of the same frame.
+def test_replay_trails_are_one_neutral_grey_whatever_the_lighting_does(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """§9.2: every trail is `TRAIL_RGBA`, for every drone, at every frame, ignoring the lighting.
 
-    The blink fixture drives the top deck red -> black -> red across the five frames while
-    `light_off(bot)` holds the bottom deck dark throughout, so the trail rgba has to match the top
-    deck frame for frame. A trail holding one fixed hue for the show fails on the first frame that
-    blinks; one reading the bottom deck fails wherever the top deck is lit; one sampled once
-    before the loop fails as soon as the blink turns over.
+    Trails carrying colour oversold the effect — one LED changing repainted a whole streak, so the
+    preview showed a bigger cue than the hardware will fly. Grey makes the trail scene furniture
+    and leaves every coloured pixel in the frame as signal.
+
+    The fixture is chosen so a regression to the previous behaviour cannot pass: the blink drives
+    the top deck red -> black -> red across the five frames and `light_off(bot)` holds the bottom
+    deck dark throughout, so a trail tracking either deck differs from the grey on every frame, and
+    one tracking the top deck also differs *between* frames. The two assertions at the end pin that
+    the fixture really does vary, so the constancy claimed above is a claim about the trail and not
+    about a fixture that happens to be constant.
     """
     timeline = _timeline(
         [
@@ -316,11 +325,16 @@ def test_replay_trails_follow_the_live_top_deck_colour(monkeypatch: pytest.Monke
 
     # One `draw_line` per drone per frame, in drone order.
     assert len(trails) == len(FRAME_TIMES) * N4
-    for frame, (top, bot) in enumerate(zip(painted["led_top"], painted["led_bot"])):
-        drawn = np.stack(trails[frame * N4 : (frame + 1) * N4])
-        assert np.allclose(drawn, top), f"frame {frame} trail is not the top deck of that frame"
-        assert np.allclose(drawn[:, 3], 1.0), "`draw_line` wants an opaque rgba"
-        assert np.allclose(bot[:, :3], BLACK), "the fixture's bottom deck stays dark throughout"
-    # The fixture has to actually blink, or "follows the top deck" is a claim about a constant.
+    drawn = np.stack(trails)
+    assert np.allclose(drawn, sim_module.TRAIL_RGBA), "every trail is the one colour, always"
+    trail = np.asarray(sim_module.TRAIL_RGBA, dtype=float)
+    assert trail[0] == trail[1] == trail[2], "neutral: no channel may carry colour"
+    # Alpha is deliberately unpinned. `TRAIL_RGBA` is the knob for how present the trail should be,
+    # and 0.0 (no trail at all) is a legitimate setting -- asserting opacity here would make this
+    # test block a presentation choice it has no business having an opinion about. What it pins is
+    # that whatever the value is, the lighting never changes it.
+
+    # The lighting the trails are ignoring has to actually move, or the test above is vacuous.
     lit = [bool(np.allclose(frame[:, :3], RED)) for frame in painted["led_top"]]
     assert lit == [True, True, False, False, True]
+    assert all(np.allclose(frame[:, :3], BLACK) for frame in painted["led_bot"])

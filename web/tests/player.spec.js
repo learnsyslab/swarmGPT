@@ -53,9 +53,10 @@ function makePlayback() {
   // themselves separate them: from a camera looking down, the upward-facing diffusor shows several
   // times the pixels the underside does, so cyan must outnumber magenta.
   //
-  // Drone 0's trail carries the **top** cue too, since trails follow the live top deck (§9.2), so
-  // cyan is the top diffusor plus that line. The margin still separates the decks -- swapping the
-  // two materials moves the large count onto magenta, which no trail contribution offsets.
+  // Trails are one neutral grey and never follow the lighting (§9.2), so both counts are the
+  // diffusors alone: no line contributes to either, and a colour count constrains the LEDs
+  // directly. Cyan lost the trail line when that changed (605 -> 464 desktop, 342 -> 240 mobile);
+  // magenta was never on it and did not move. The ~6x separation is the viewing angle, as intended.
   const blackout = 1.9;
   const lighting = {
     top: [
@@ -273,9 +274,8 @@ async function configurePage(page) {
 const MAGENTA = { hi: [0, 2], lo: 1 }; // drone 0's bottom deck from t = 1.0
 const CYAN = { hi: [1, 2], lo: 0 }; // drone 0's top deck from t = 1.0
 
-// Nothing else in the scene answers either test: the floor, grid and drone bodies are green and
-// grey, and the other two drones' cues keep every channel out of range on both decks -- which
-// covers their trails too, since a trail carries its own drone's top cue.
+// Nothing else in the scene answers either test: the floor, grid, drone bodies and every trail are
+// green and grey, and the other two drones' cues keep every channel out of range on both decks.
 function countPixels(page, spec) {
   return page.evaluate(({ hi, lo }) => {
     const canvas = document.querySelector("canvas");
@@ -365,11 +365,10 @@ async function exercise(page) {
   expect(cyanAfter, `cyan after seeking should be > 0, was ${cyanAfter}`).toBeGreaterThan(0);
 
   // Which mesh carries which material. The camera looks down on the swarm, so the upward-facing
-  // diffusor at z = +0.015 presents several times the pixels the underside at z = -0.002 does --
-  // and drone 0's trail adds to cyan as well, since it follows the top cue. Swapping the two
-  // materials moves the large deck onto magenta and leaves cyan with the underside plus that
-  // trail, which is not enough to keep the inequality; nothing else in the suite notices the swap.
-  // A comparison rather than a threshold, so it does not depend on the viewport or the renderer.
+  // diffusor at z = +0.015 presents several times the pixels the underside at z = -0.002 does.
+  // Swapping the two materials moves the large deck onto magenta and leaves cyan with the
+  // underside, which inverts the inequality; nothing else in the suite notices the swap. A
+  // comparison rather than a threshold, so it does not depend on the viewport or the renderer.
   expect(
     magentaAfter,
     `the bottom deck is mostly hidden from this camera, so magenta (${magentaAfter}) must stay under cyan (${cyanAfter})`

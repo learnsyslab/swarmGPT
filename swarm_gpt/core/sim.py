@@ -32,6 +32,8 @@ if TYPE_CHECKING:
     from swarm_gpt.core.lighting import LightingTimeline
     from swarm_gpt.utils import MusicManager
 
+TRAIL_RGBA = np.array([0.5, 0.5, 0.5, 0.0])
+
 
 def simulate_axswarm(
     waypoints: dict[str, NDArray], settings: dict, gui: bool = False
@@ -194,7 +196,7 @@ def simulate_axswarm(
     # return sim_log
 
 
-def paint_lighting(sim: Sim, lighting: LightingTimeline, t: float) -> NDArray:
+def paint_lighting(sim: Sim, lighting: LightingTimeline, t: float) -> None:
     """Evaluate the lighting timeline at ``t`` and paint both LED rings (spec §9.2).
 
     Shared by the debug replay viewer below and `render.py`'s offline renderer. The two had this
@@ -215,17 +217,15 @@ def paint_lighting(sim: Sim, lighting: LightingTimeline, t: float) -> NDArray:
     `render.py` could still pass a stale time, and its own frame loop stays unpinned because
     `render_preset` needs a full backend, the axswarm pass and an offscreen MuJoCo context.
 
-    The **top deck** is handed back, because the trails follow the live lighting colour (§9.2) and
-    this is the one place it is already resolved. Both callers draw their trails from it rather
-    than evaluating the timeline a second time.
+    **It paints the LEDs and returns nothing.** Nothing else in a frame is a read-out of the
+    lighting: the trails are `TRAIL_RGBA`, one fixed grey (§9.2). An earlier version handed back
+    the resolved top deck for both callers to colour their trails from, and the shape of this
+    return value has now flipped three times, so it is stated plainly here and pinned by a test.
 
     Args:
         sim: The simulation whose ``led_top`` and ``led_bot`` materials are painted.
         lighting: The compiled lighting timeline.
         t: Show time in seconds.
-
-    Returns:
-        (n, 4) top-deck rgba in [0, 1], opaque, for the caller's trails.
     """
     wrgb = lighting.evaluate(t)
     rgba = np.ones((sim.n_drones, 2, 4))
@@ -234,7 +234,6 @@ def paint_lighting(sim: Sim, lighting: LightingTimeline, t: float) -> NDArray:
     emission = np.ones((sim.n_drones,))
     for mat_name, deck in (("led_top", rgba[:, 0]), ("led_bot", rgba[:, 1])):
         change_material(sim, mat_name=mat_name, drone_ids=drone_ids, rgba=deck, emission=emission)
-    return rgba[:, 0]
 
 
 def replay_sim_states(
@@ -248,9 +247,9 @@ def replay_sim_states(
     This is a debug viewer for the exact states produced by ``simulate_axswarm``. Unlike
     ``simulate_spline``, it does not run another controller/physics pass.
 
-    ``lighting`` drives the LED colours per frame (spec §9.2), and the trails follow the live top
-    deck, so a drone that flashes a new colour flashes its trail with it. A choreography with no
-    lighting compiles to the §8.5 base state, so there is no colourless case to handle.
+    ``lighting`` drives the LED colours per frame (spec §9.2); the trails are `TRAIL_RGBA` and do
+    not follow it, so the only colour on screen is the lighting. A choreography with no lighting
+    compiles to the §8.5 base state, so there is no colourless case to handle.
     """
     timestamps = np.asarray(sim_data["timestamps"], dtype=float)
     states = np.asarray(sim_data["states"], dtype=np.float32)
@@ -330,14 +329,14 @@ def replay_sim_states(
                 t = float(np.clip(t_playback, timestamps[0], timestamps[-1]))
                 frame = sample_state(t)
                 # Per frame, not once before the loop: lighting is a function of time (§9.2).
-                trail_rgba = paint_lighting(sim, lighting, t)
+                paint_lighting(sim, lighting, t)
                 progress.update(max(0.0, t - last_progress_time))
                 last_progress_time = t
 
                 set_state(frame)
                 for j, dq in enumerate(swarm_pos):
                     dq.append(frame[j, 0:3])
-                    draw_line(sim, np.array(dq), rgba=trail_rgba[j], start_size=2, end_size=5)
+                    draw_line(sim, np.array(dq), rgba=TRAIL_RGBA, start_size=2, end_size=5)
 
                 sim.render(cam_config=default_cam_config)
                 if t_playback >= timestamps[-1]:

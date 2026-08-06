@@ -31,6 +31,11 @@ type DroneParts = {
 
 const TRAIL_SECONDS = 2.4;
 const TRAIL_SAMPLES = 48;
+// Mirrors `TRAIL_RGBA` in `swarm_gpt/core/sim.py`, which covers the MuJoCo viewer and the offline
+// render. Keep the two in step: the browser is the preview for what the video will show, so a trail
+// visible in one and not the other is the preview lying. Alpha 0 means no trail at all, which is the
+// current setting; raise it in BOTH places to bring trails back.
+const TRAIL_RGBA: readonly [number, number, number, number] = [0.5, 0.5, 0.5, 0.0];
 const STL_SCALE = 0.001;
 const geometryCache = new Map<string, Promise<THREE.BufferGeometry>>();
 
@@ -308,9 +313,13 @@ export function Player({ playback, onClose }: PlayerProps) {
       );
       const trail = new THREE.Line(
         trailGeometry,
-        // Colour left at the material default: the frame loop repaints it from the live top deck
-        // every frame (§9.2), so anything set here is overwritten before the first render.
-        new THREE.LineBasicMaterial({ transparent: true, opacity: 0.65 })
+        // Baked once and never repainted: the trail carries no lighting (§9.2), so the frame loop
+        // only ever touches its geometry.
+        new THREE.LineBasicMaterial({
+          color: new THREE.Color(TRAIL_RGBA[0], TRAIL_RGBA[1], TRAIL_RGBA[2]),
+          transparent: true,
+          opacity: TRAIL_RGBA[3]
+        })
       );
       trail.name = `trail-${index}`;
       trails.push(trail);
@@ -383,10 +392,9 @@ export function Player({ playback, onClose }: PlayerProps) {
         applyCueColor(botMaterial.color, botRgb);
         applyCueColor(botMaterial.emissive, botRgb);
 
-        // The trail follows the live top deck (§9.2), so a drone that flashes a new colour flashes
-        // its trail with it. Same cue lookup the top diffusor just used, reused rather than redone.
+        // Geometry only: the trail's colour is baked at construction and never follows the
+        // lighting (§9.2).
         const trail = active.trails[droneIndex];
-        applyCueColor(trail.material.color, topRgb);
         const attr = trail.geometry.getAttribute("position") as THREE.BufferAttribute;
         for (let i = 0; i < TRAIL_SAMPLES; i += 1) {
           const offset = ((TRAIL_SAMPLES - 1 - i) / (TRAIL_SAMPLES - 1)) * TRAIL_SECONDS;

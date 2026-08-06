@@ -37,7 +37,7 @@ from scipy.spatial.transform import Rotation
 from tqdm import tqdm
 
 from swarm_gpt.core import AppBackend
-from swarm_gpt.core.sim import paint_lighting
+from swarm_gpt.core.sim import TRAIL_RGBA, paint_lighting
 
 ROOT = Path(__file__).resolve().parents[1]
 MUSIC_DIR = ROOT / "music" / "songs"
@@ -369,12 +369,12 @@ def render_preset(
 
     def render_frame(frame_time: float) -> None:
         # Per frame, not once before the loop: the lighting timeline is a function of time (§9.2).
-        trail_rgba = paint_lighting(sim, lighting, frame_time)
+        paint_lighting(sim, lighting, frame_time)
         positions = np.asarray(sim.data.states.pos[0])
         for i, trail in enumerate(trails):
             trail.append(positions[i])
             if len(trail) > 1:
-                draw_line(sim, np.array(trail), rgba=trail_rgba[i], start_size=2, end_size=5)
+                draw_line(sim, np.array(trail), rgba=TRAIL_RGBA, start_size=2, end_size=5)
         set_camera_pose(sim, mocap_id, frame_time)
         frame = sim.render(mode=RENDER_MODE, camera=CAMERA_NAME, width=width, height=height)
         if frame is None:
