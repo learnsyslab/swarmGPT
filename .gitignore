@@ -28,7 +28,14 @@ ros_ws
 
 openai_api_key.sh
 
+.DS_Store
+
 .cursor
+# Claude Code: personal settings and runtime state (worktrees, locks, caches).
+# Un-ignore a specific path if you ever want to share project config with the
+# team, e.g. `!.claude/settings.json` — note `.claude/*` form is required for
+# that, since git will not descend into a directory ignored as `.claude/`.
+.claude/
 docs/ui-previews
 # Internal design docs: local-only, never published. docs/ is also the mkdocs
 # docs_dir, so these are excluded from the site build in mkdocs.yml too.
