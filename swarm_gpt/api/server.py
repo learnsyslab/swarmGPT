@@ -8,7 +8,7 @@ import logging
 import threading
 import uuid
 from contextlib import asynccontextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
@@ -51,7 +51,7 @@ class ApiConfig:
     preset_dir: Path | None = None
     strict_processing: bool = True
     strict_drone_match: bool = True
-    model_id: str = "gpt-5.4-nano"
+    model_id: str = field(default_factory=default_openai_model)
     llm_provider: LLMProvider = "openai"
     use_motion_primitives: bool = True
 

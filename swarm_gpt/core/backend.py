@@ -83,7 +83,7 @@ class AppBackend:
         config_file: Path | None = None,
         strict_processing: bool = True,
         strict_drone_match: bool = True,
-        model_id: str = "gpt-5.4-nano",
+        model_id: str = "gpt-5.6-luna",
         use_motion_primitives: bool = True,
         llm_provider: LLMProvider = "openai",
     ):

@@ -52,7 +52,7 @@ def test_app_and_library_metadata_build(tmp_path: Path):
 
     assert app.title == "SwarmGPT Browser API"
     assert backend.songs == ["Test Song"]
-    assert DEFAULT_OPENAI_MODEL_CHOICES[0] == "gpt-5.4-nano"
+    assert DEFAULT_OPENAI_MODEL_CHOICES[0] == "gpt-5.6-luna"
 
 
 def test_library_returns_preset_display_metadata_and_delete(tmp_path: Path):
