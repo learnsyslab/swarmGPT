@@ -1,66 +1,24 @@
-# Lighting palette and calibration.
-# Spec: docs/specs/2026-08-05-lighting-primitives-design.md (§7.1, §7.4, §7.5).
-#
-# Every value here is data the code must not second-guess (CLAUDE.md §6.6). Flipping the show's
-# orientation or retuning an LED is a change to this file, never to lighting.py.
+# Lighting palette and calibration. Retuning an LED or flipping the show's orientation is a
+# change to this file, never to lighting.py.
 
-# Perceived-brightness exponent applied to the merged brightness scalar (§7.4).
-# UNMEASURED: 2.2 is the standard display value, not a measurement of these LEDs. Tune by eye on
-# hardware and record the result here (spec §12.2).
-gamma = 2.2
+gamma = 2.2  # Perceived-brightness exponent. UNMEASURED; tune by eye on hardware.
+b_min = 0.02  # Merged brightness below which the LED goes fully dark.
 
-# Below this merged brightness the LED is quantization noise and coloured fringing, so it goes
-# fully dark instead (§7.4).
-b_min = 0.02
-
-# Maximum colour-cue rate in Hz, and the single source of truth for it. Two things read it: the
-# uniform sample grid `compile_cues` bakes on (§9.1), and the Nyquist floor `build_look` clamps
-# effect periods against (`period_s >= 2 / col_freq`, §9.1). It must match the `col_freq` handed to
-# `DroneSwarm`, which caps cue consumption at one cue per deck per tick (drone_swarm.py:48) — a cue
-# list denser than the consumer plays back slowed and drifts out of sync permanently (§3.1).
+# Must match the col_freq handed to DroneSwarm, which drains one cue per deck per tick: a denser
+# cue list plays back slowed and drifts out of sync with the music permanently.
 col_freq = 10.0
 
-# Hue quantization steps per `rainbow` cycle (§7.5). This is a cue-budget device, not a look
-# decision: it restores cue dedup for `rainbow`, whose hue would otherwise advance every tick (§9.1).
-# 24 is divisible by 6, so all six primaries survive quantization exactly.
-hue_steps = 24
+hue_steps = 24  # Hue steps per `rainbow`; keeps cue dedup working. Divisible by 6.
+brightness_steps = 16  # Brightness buckets, same dedup device. Lower for radio headroom.
 
-# Buckets the merged brightness is floored into before the multiply (§7.4). The brightness-axis
-# twin of `hue_steps`, and the same kind of device: without it the continuous `sine` and `ramp`
-# waveforms change on nearly every tick and compile to most of the undeduped ceiling, which
-# measurement showed costs more than `rainbow` does (§9.1).
-# Brightness is already the perceptual axis — `gamma` is applied after this — so the buckets are
-# evenly spaced in perceived brightness. 16 is a 4-bit dimmer: coarse enough to collapse the cue
-# runs, fine enough that a slow breathe still reads as smooth. Lower it to buy radio headroom
-# (§12.1); raise it if the steps become visible on a slow fade.
-brightness_steps = 16
-
-# Per-channel [W, R, G, B] multiplier for generated hues (§7.5). Applied *after* the constant-sum
-# renormalization, as a correction for the LEDs not being equally efficient per channel: a gain of
-# 0.8 on blue means the blue LED emits about 1/0.8 as much light per commanded unit, so commanding
-# 0.8x equalizes it. Retune it by eye and it stays a straight brightness trim on that channel.
-#
-# The order is load-bearing, so do not reverse it. Normalizing *after* the gain would divide it
-# straight back out for any hue landing on a single channel, leaving pure blue at 255 instead of
-# 204 and making a sweeping rainbow throb. With this order the six primaries reproduce their
-# palette entries exactly, and it is the gain-corrected sum that is constant across the wheel.
-#
-# UNMEASURED: the 0.8 on blue is carried over from the single hand-tuned dim in backend.py:314,
-# which is evidence that the channels are not equally efficient but is not a calibration curve.
-# Verify by running a slow `rainbow(all, 16)` and watching for brightness throb (spec §12.3).
+# [W, R, G, B] trim for generated hues only -- `rainbow` and the default wheel, never the named
+# palette below. Applied after the constant-sum normalization; reversing that order divides the
+# gain straight back out for any hue landing on one channel. UNMEASURED.
 channel_gain = [1.0, 1.0, 1.0, 0.8]
 
-# Which world axis points to the audience's right (§7.1). One of "+x", "-x", "+y", "-y".
-# UNVERIFIED against the flight volume; confirm before the first show (spec §12.4).
-stage_axis = "+x"
+stage_axis = "+x"  # World axis pointing audience-right. UNVERIFIED against the flight volume.
 
-# Palette entries are [W, R, G, B], each in 0-255, at full brightness.
-#
-# Seeded from `generate_default_colors`' intent (utils/utils.py:42): HSV at full saturation and
-# value, normalized to a constant channel sum of 255 so every hue reads at the same output. The
-# blue channel then carries the 0.8 dim that backend.py:314 used to apply globally — it lives here
-# per colour so a future recalibration touches data, not code (§7.4).
-#
+# [W, R, G, B] in 0-255 at full brightness, on a constant channel sum so every hue reads alike.
 # `white` is the only entry that drives the dedicated white LED; the hue wheel cannot reach it.
 [palette]
 red = [0.0, 255.00, 0.00, 0.00]        # hue 0
