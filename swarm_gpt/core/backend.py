@@ -173,10 +173,18 @@ class AppBackend:
         return self.parse_preset_id(preset_id)
 
     @self_correct(n_retries=2)
-    def initial_prompt(self, song: str, *, response: str | None = None) -> list[dict[str, str]]:
+    def initial_prompt(
+        self,
+        song: str,
+        *,
+        response: str | None = None,
+        on_prompt: Callable[[list[dict[str, str]]], None] | None = None,
+    ) -> list[dict[str, str]]:
         """Set the song and generate the choreography, returning the chat history.
 
         ``response`` supplies a predefined response instead of calling the LLM; used for testing.
+        ``on_prompt`` receives the messages about to be sent, so a caller can surface them while
+        the model is still thinking. It fires once per attempt, and not at all for a preset.
         """
         logger.info(f"Generating initial choreography for song: {song}")
         song_name = self._load_song(song)
@@ -193,6 +201,8 @@ class AppBackend:
             self.choreographer.messages.append({"role": "assistant", "content": response})
         else:
             logger.debug(f"Using LLM to generate choreography for song: {song_name}")
+            if on_prompt is not None:
+                on_prompt([*self.choreographer.messages, *prompt])
             response = self.choreographer.generate_choreography(prompt, structure=structure)
 
         try:
@@ -213,14 +223,21 @@ class AppBackend:
         return self.choreographer.messages
 
     @self_correct(n_retries=3)
-    def reprompt(self, message: str) -> list[dict[str, str]]:
-        """Reprompt the LLM for new waypoints, returning the chat history."""
+    def reprompt(
+        self, message: str, *, on_prompt: Callable[[list[dict[str, str]]], None] | None = None
+    ) -> list[dict[str, str]]:
+        """Reprompt the LLM for new waypoints, returning the chat history.
+
+        ``on_prompt`` receives the messages about to be sent, once per attempt.
+        """
         logger.info(f"Reprompting with message: {message}")
         if message == "":
             logger.warning("No message provided, returning current history")
             return self.choreographer.messages
         prompt = self.choreographer.format_reprompt(message)
         structure = self._load_structure(self.music_manager.song)
+        if on_prompt is not None:
+            on_prompt([*self.choreographer.messages, *prompt])
         response = self.choreographer.generate_choreography(prompt, structure=structure)
         self.waypoints = self.choreographer.response2waypoints(
             response, structure, strict=self._strict_processing

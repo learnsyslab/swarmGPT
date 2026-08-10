@@ -539,3 +539,36 @@ def test_initial_prompt_accepts_a_well_formed_lighting_emission(monkeypatch: pyt
     app.initial_prompt("Fearless2", response=LIGHTING_RESPONSE)
 
     assert app.choreographer.messages[-1]["content"] == LIGHTING_RESPONSE
+
+
+def test_initial_prompt_hands_back_the_prompt_before_the_model_answers(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """The UI has nothing to show for the whole of a reasoning model's think unless the prompt
+    is surfaced up front, so `on_prompt` has to fire ahead of the call, not alongside its result.
+    """
+    app = AppBackend(config_file=virtual_crazyswarm_config(n_drones=LIGHTING_N))
+    monkeypatch.setattr(app, "_load_structure", lambda _song: _lighting_structure())
+    monkeypatch.setattr(
+        app.choreographer,
+        "response2waypoints",
+        lambda *_args, **_kwargs: {"time": np.tile([0.0, FLIGHT_END_S], (LIGHTING_N, 1))},
+    )
+    order: list[str] = []
+    seen: list[list[dict[str, str]]] = []
+
+    def generate(_prompt: list[dict[str, str]], **_kwargs: object) -> str:
+        order.append("llm")
+        return LIGHTING_RESPONSE
+
+    def on_prompt(prompt: list[dict[str, str]]) -> None:
+        order.append("prompt")
+        seen.append(prompt)
+
+    monkeypatch.setattr(app.choreographer, "generate_choreography", generate)
+
+    app.initial_prompt("Fearless2", on_prompt=on_prompt)
+
+    assert order == ["prompt", "llm"]
+    assert any(message["role"] == "user" for message in seen[0])
+    assert any("Fearless2" in message["content"] for message in seen[0])

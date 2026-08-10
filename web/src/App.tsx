@@ -11,7 +11,7 @@ import {
   Wand2,
   X
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import {
   createJob,
   deletePreset,
@@ -60,6 +60,7 @@ export function App() {
   const [progress, setProgress] = useState(0);
   const [events, setEvents] = useState<JobEvent[]>([]);
   const [conversation, setConversation] = useState<ChatMessage[]>([]);
+  const [reasoning, setReasoning] = useState("");
   const [playback, setPlayback] = useState<Playback | null>(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [refineOpen, setRefineOpen] = useState(false);
@@ -118,11 +119,19 @@ export function App() {
       if (event.type === "thinking_started") {
         setStage("thinking");
       }
-      if (event.type === "conversation") {
+      // prompt_sent lands as the request leaves for the model, conversation once it answers.
+      if (event.type === "prompt_sent" || event.type === "conversation") {
         const messages = event.payload.messages;
         if (isMessages(messages)) {
           setConversation(messages);
         }
+      }
+      // A new request is going out, so the last run's account no longer describes what is coming.
+      if (event.type === "prompt_sent") {
+        setReasoning("");
+      }
+      if (event.type === "reasoning_summary") {
+        setReasoning(String(event.payload.text ?? ""));
       }
       if (event.type === "safety_started") {
         setStage("filtering");
@@ -162,6 +171,7 @@ export function App() {
     setJobId(null);
     setEvents([]);
     setConversation([]);
+    setReasoning("");
     setPlayback(null);
     setError(null);
     setPresetNotice(null);
@@ -274,6 +284,7 @@ export function App() {
     setProgress(0);
     setEvents([]);
     setConversation([]);
+    setReasoning("");
     setPlayback(null);
     setDetailsOpen(false);
     setRefineOpen(false);
@@ -553,16 +564,24 @@ export function App() {
           </div>
           <div className="conversation">
             {conversation.map((message, index) => (
-              <article key={`${message.role}-${index}`} className="message">
-                <span>
-                  {message.role === "assistant"
-                    ? "Generated choreography"
-                    : message.role === "user"
-                      ? "Choreography request"
-                      : "Model instructions"}
-                </span>
-                <p>{message.content}</p>
-              </article>
+              <Fragment key={`${message.role}-${index}`}>
+                {message.role === "assistant" && reasoning && (
+                  <article className="message reasoning">
+                    <span>Model reasoning</span>
+                    <p>{reasoning}</p>
+                  </article>
+                )}
+                <article className="message">
+                  <span>
+                    {message.role === "assistant"
+                      ? "Generated choreography"
+                      : message.role === "user"
+                        ? "Choreography request"
+                        : "Model instructions"}
+                  </span>
+                  <p>{message.content}</p>
+                </article>
+              </Fragment>
             ))}
           </div>
         </aside>

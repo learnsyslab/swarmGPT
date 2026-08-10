@@ -107,12 +107,13 @@ def test_emergency_stop_endpoint_runs_while_deploy_is_active(
             self.presets: list[str] = []
             self.settings = {"axswarm": {"pos_min": [-1, -1, 0], "pos_max": [1, 1, 2]}}
             self.music_manager = SimpleNamespace(song="Test Song")
+            self.choreographer = SimpleNamespace(last_reasoning_summary=None)
             self.splines: dict[int, object] = {}
             self.deploy_entered = threading.Event()
             self.stop_requested = threading.Event()
             self.emergency_stop_calls = 0
 
-        def initial_prompt(self, selection: str) -> list[dict[str, str]]:
+        def initial_prompt(self, selection: str, **_kwargs: object) -> list[dict[str, str]]:
             return []
 
         def simulate(self) -> Generator[None, None, dict[str, object]]:
@@ -166,3 +167,77 @@ def test_emergency_stop_endpoint_runs_while_deploy_is_active(
 
     assert stop_response.json() == {"jobId": job_id, "emergencyStopped": True}
     assert backend.emergency_stop_calls == 1
+
+
+def test_prompt_sent_reaches_the_socket_with_its_messages_while_the_model_thinks(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The details panel is driven by the event payload, not the event's arrival.
+
+    A `prompt_sent` row with no `messages` renders an empty panel that looks identical to
+    having sent nothing, which is the whole failure this event exists to rule out.
+    """
+    prompt = [{"role": "system", "content": "you choreograph"}, {"role": "user", "content": "go"}]
+
+    class ThinkingBackend:
+        def __init__(self) -> None:
+            self.songs = ["Test Song"]
+            self.presets: list[str] = []
+            self.settings = {"axswarm": {"pos_min": [-1, -1, 0], "pos_max": [1, 1, 2]}}
+            self.music_manager = SimpleNamespace(song="Test Song")
+            self.choreographer = SimpleNamespace(last_reasoning_summary=None)
+            self.splines: dict[int, object] = {}
+            self.may_answer = threading.Event()
+
+        def initial_prompt(
+            self, selection: str, *, on_prompt: object = None, **_kw: object
+        ) -> list:
+            if callable(on_prompt):
+                on_prompt(prompt)
+            assert self.may_answer.wait(timeout=5.0), "model was released before the assertion"
+            return [*prompt, {"role": "assistant", "content": "done"}]
+
+        def simulate(self) -> Generator[None, None, dict[str, object]]:
+            self.splines[0] = object()
+            states = np.zeros((1, 1, 13))
+            states[:, :, 3:7] = [0, 0, 0, 1]
+            if False:
+                yield None
+            return {"timestamps": np.array([0.0]), "states": states, "num_drones": 1}
+
+        def crop_window(self, song: str) -> tuple[float, float]:
+            return (0.0, 60.0)
+
+        def browser_cues(self) -> dict[str, list]:
+            return _lighting_stub(1)
+
+    backends: list[ThinkingBackend] = []
+
+    def backend_from_config(config: ApiConfig, provider: str, model_id: str) -> ThinkingBackend:
+        backend = ThinkingBackend()
+        backends.append(backend)
+        return backend
+
+    (tmp_path / "Test Song.mp3").write_bytes(b"")
+    monkeypatch.setattr(server, "_backend_from_config", backend_from_config)
+    client = TestClient(create_app(ApiConfig(music_dir=tmp_path)))
+
+    created = client.post(
+        "/api/jobs", json={"selection": "Test Song", "provider": "openai", "modelId": "gpt"}
+    )
+    created.raise_for_status()
+    job_id = created.json()["jobId"]
+
+    try:
+        with client.websocket_connect(f"/api/jobs/{job_id}/events") as socket:
+            seen = []
+            for _ in range(20):
+                event = socket.receive_json()
+                seen.append(event)
+                if event["type"] == "prompt_sent":
+                    break
+            assert seen[-1]["type"] == "prompt_sent", f"never arrived: {[e['type'] for e in seen]}"
+            assert seen[-1]["payload"]["messages"] == prompt
+            assert not any(event["type"] == "conversation" for event in seen)
+    finally:
+        backends[0].may_answer.set()

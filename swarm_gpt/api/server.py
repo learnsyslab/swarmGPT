@@ -263,10 +263,20 @@ def _start_thread(job: Job, target: Any) -> None:
     thread.start()
 
 
+def _emit_reasoning_summary(store: JobStore, job: Job) -> None:
+    """Emit the model's account of its own thinking, if it produced one."""
+    summary = job.backend.choreographer.last_reasoning_summary
+    if summary:
+        store.emit(job, "reasoning_summary", {"text": summary})
+
+
 def _run_initial_job(store: JobStore, job: Job, selection: str) -> None:
     try:
         store.emit(job, "thinking_started", {"selection": selection}, status="thinking")
-        messages = job.backend.initial_prompt(selection)
+        messages = job.backend.initial_prompt(
+            selection, on_prompt=lambda prompt: store.emit(job, "prompt_sent", {"messages": prompt})
+        )
+        _emit_reasoning_summary(store, job)
         store.emit(job, "conversation", {"messages": messages})
         store.emit(job, "safety_started", {}, status="filtering")
         sim_data = _run_simulation_with_events(job.backend, store, job)
@@ -294,7 +304,10 @@ def _run_refine_job(
             job.backend.choreographer.configure_llm(provider, model_id)
             store.emit(job, "llm_configured", {"provider": provider, "modelId": model_id})
         store.emit(job, "thinking_started", {"refine": True}, status="thinking")
-        messages = job.backend.reprompt(message)
+        messages = job.backend.reprompt(
+            message, on_prompt=lambda prompt: store.emit(job, "prompt_sent", {"messages": prompt})
+        )
+        _emit_reasoning_summary(store, job)
         store.emit(job, "conversation", {"messages": messages})
         store.emit(job, "safety_started", {"refine": True}, status="filtering")
         sim_data = _run_simulation_with_events(job.backend, store, job)

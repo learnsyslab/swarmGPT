@@ -279,7 +279,7 @@ def test_call_responses_structured_omits_temperature_for_reasoning_models(
         assert captured["max_output_tokens"] == RESPONSES_MAX_OUTPUT_TOKENS
     else:
         # Reasoning tokens share max_output_tokens, so effort needs the larger budget.
-        assert captured["reasoning"] == {"effort": REASONING_EFFORT}
+        assert captured["reasoning"]["effort"] == REASONING_EFFORT
         assert captured["max_output_tokens"] == REASONING_MAX_OUTPUT_TOKENS
 
 
@@ -995,3 +995,87 @@ def test_conversion_still_rejects_duplicate_ids_in_a_list():
     action = {"primitive": "center", "params": {"drone_ids": [1, 2, 2]}}
     with pytest.raises(LLMFormatError, match="unique drone_ids"):
         action_to_motion_primitive(action)
+
+
+def _fake_openai_client(response: SimpleNamespace, captured: dict[str, Any]) -> Any:
+    class FakeResponses:
+        def create(self, **kwargs: Any) -> SimpleNamespace:
+            captured.update(kwargs)
+            return response
+
+    class FakeClient:
+        responses = FakeResponses()
+
+    return FakeClient()
+
+
+def test_call_responses_structured_captures_the_reasoning_summary():
+    """The summary rides in its own output item, so `output_text` alone never surfaces it."""
+    config_path = virtual_crazyswarm_config(n_drones=4)
+    choreographer = Choreographer(
+        config_file=config_path,
+        model_id="gpt-5.6-luna",
+        llm_provider="openai",
+        use_motion_primitives=True,
+    )
+    structure = _simple_structure(n_segments=1, n_bars=1, n_beats=1)
+    payload = {
+        "song_mood": "energetic",
+        "choreography_plan": "test",
+        "choreography": [
+            {
+                "key": "s1b1t1",
+                "actions": [{"primitive": "rotate", "params": {"angle_deg": 0, "axis": "z"}}],
+            }
+        ],
+    }
+    response = SimpleNamespace(
+        error=None,
+        output_text=json.dumps(payload),
+        output=[
+            SimpleNamespace(
+                type="reasoning",
+                summary=[
+                    SimpleNamespace(type="summary_text", text="Weighing the drop."),
+                    SimpleNamespace(type="summary_text", text="Holding the breakdown."),
+                ],
+            ),
+            SimpleNamespace(type="message", summary=None),
+        ],
+    )
+    captured: dict[str, Any] = {}
+    choreographer._chat_client_for_call = lambda: _fake_openai_client(response, captured)  # noqa: E731
+
+    choreographer._call_responses_structured([{"role": "user", "content": "hi"}], structure)
+
+    assert captured["reasoning"] == {"effort": REASONING_EFFORT, "summary": "auto"}
+    assert choreographer.last_reasoning_summary == "Weighing the drop.\n\nHolding the breakdown."
+
+
+def test_reasoning_summary_is_none_when_the_model_emits_none():
+    """A non-reasoning model returns no such item, and a stale summary must not linger."""
+    config_path = virtual_crazyswarm_config(n_drones=4)
+    choreographer = Choreographer(
+        config_file=config_path,
+        model_id="gpt-4o",
+        llm_provider="openai",
+        use_motion_primitives=True,
+    )
+    structure = _simple_structure(n_segments=1, n_bars=1, n_beats=1)
+    payload = {
+        "song_mood": "energetic",
+        "choreography_plan": "test",
+        "choreography": [
+            {
+                "key": "s1b1t1",
+                "actions": [{"primitive": "rotate", "params": {"angle_deg": 0, "axis": "z"}}],
+            }
+        ],
+    }
+    response = SimpleNamespace(error=None, output_text=json.dumps(payload), output=[])
+    choreographer.last_reasoning_summary = "left over from a previous run"
+    choreographer._chat_client_for_call = lambda: _fake_openai_client(response, {})  # noqa: E731
+
+    choreographer._call_responses_structured([{"role": "user", "content": "hi"}], structure)
+
+    assert choreographer.last_reasoning_summary is None

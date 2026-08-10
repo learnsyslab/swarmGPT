@@ -64,7 +64,8 @@ def responses_model_kwargs(model_id: str) -> dict[str, Any]:
     if model_id.lower().startswith(REASONING_MODEL_PREFIXES):
         return {
             "max_output_tokens": REASONING_MAX_OUTPUT_TOKENS,
-            "reasoning": {"effort": REASONING_EFFORT},
+            # The raw reasoning tokens are never exposed; "auto" asks for the summary of them.
+            "reasoning": {"effort": REASONING_EFFORT, "summary": "auto"},
         }
     return {"max_output_tokens": RESPONSES_MAX_OUTPUT_TOKENS, "temperature": RESPONSES_TEMPERATURE}
 

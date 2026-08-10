@@ -7,7 +7,7 @@ import json
 import logging
 import re
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import einops  # pyright: ignore[reportMissingImports]
 import numpy as np
@@ -93,6 +93,22 @@ def _form_should_drop_holds(
 OLLAMA_CONTEXT_LENGTH = None
 
 
+def _reasoning_summary(response: Any) -> str | None:
+    """Join the reasoning summaries on a Responses result, or None if the model emitted none.
+
+    Only reasoning models asked for a summary carry these, and they sit in their own output
+    items -- ``output_text`` holds the answer alone.
+    """
+    parts = [
+        text
+        for item in getattr(response, "output", None) or []
+        if getattr(item, "type", None) == "reasoning"
+        for summary in getattr(item, "summary", None) or []
+        if (text := getattr(summary, "text", None))
+    ]
+    return "\n\n".join(parts) or None
+
+
 # TODO: improve the error messages for an empty func name and for bad function output, so reprompts
 # can be specific. Log every time a waypoint is clamped.
 class Choreographer:
@@ -118,6 +134,7 @@ class Choreographer:
         self.starting_pos = {}
         self.num_drones = 0
         self.messages = []
+        self.last_reasoning_summary: str | None = None
         prompt = "motion_primitive_prompts" if self.use_motion_primitives else "prompts"
         with open(Path(__file__).resolve().parents[1] / f"data/{prompt}.yaml", "r") as f:
             self.prompts = yaml.safe_load(f)
@@ -200,6 +217,8 @@ class Choreographer:
             "Generating choreography with provider=%s model=%s", self.llm_provider, self._model_id
         )
         self.messages.extend(prompt)
+        # Ollama's native path never sets one, so clear it rather than show the last model's.
+        self.last_reasoning_summary = None
         if self._uses_structured_outputs():
             if structure is None:
                 raise ValueError("structure is required for structured output generation")
@@ -314,6 +333,7 @@ class Choreographer:
                 f"Responses API call failed for provider={self.llm_provider!r} "
                 f"model={self._model_id!r}. {hint} ({e})"
             ) from e
+        self.last_reasoning_summary = _reasoning_summary(response)
         if response.error is not None:
             raise LLMPlanError(
                 f"Model {self._model_id!r} returned an error: {response.error.message}"
@@ -431,6 +451,7 @@ class Choreographer:
                 f"Structured output call failed for provider={self.llm_provider!r} "
                 f"model={self._model_id!r}. {hint} ({e})"
             ) from e
+        self.last_reasoning_summary = _reasoning_summary(response)
         if response.error is not None:
             raise LLMPlanError(
                 f"Model {self._model_id!r} returned an error: {response.error.message}"
