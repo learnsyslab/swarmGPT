@@ -88,11 +88,22 @@ user_initial: |
   </rules>
 
   <primitives>
+  drone_ids — which drones a primitive covers, written as ONE compact string of 1-indexed ids
+  and ranges separated by commas. Never write out an explicit list of every id.
+    "1-{num_drones}"           the whole swarm
+    "7"               a single drone
+    "1-8"             drones 1 through 8
+    "1-4,7,10-12"     several blocks in one string
+  BOTH RANGE ENDPOINTS ARE INCLUSIVE. "1-10" ALREADY CONTAINS drone 10, so the next block starts
+  at 11: split a 20-drone swarm as "1-10" and "11-20", NEVER as "1-10" and "10-20". Naming the
+  same drone twice — within one string, or across two actions at the same key — is rejected,
+  because a drone cannot fly to two targets at once. Every id must be in 1..{num_drones}.
+
   Single-shot (executes once over the interval until the next emitted action):
   - rotate(angle_deg, axis) — all drones; axis usually 'z'
-  - center([ids]) — listed drones to formation around their centroid
-  - move_z([ids], delta_cm) — vertical shift; aim for |delta_cm| ~{move_z_typical_cm} so the motion is visibly noticeable
-  - form_circle([ids], radius_cm, z_coord_cm, time_to_finish_s)
+  - center(drone_ids) — listed drones to formation around their centroid
+  - move_z(drone_ids, delta_cm) — vertical shift; aim for |delta_cm| ~{move_z_typical_cm} so the motion is visibly noticeable
+  - form_circle(drone_ids, radius_cm, z_coord_cm, time_to_finish_s)
       radius_cm: circle radius; the system enforces a minimum based on drone count and spacing.
       z_coord_cm: height of the circle in cm (e.g. 80, 100, 120).
       time_to_finish_s: seconds to arrive; pick ~1s for snappy hits, ≥half the interval for slow blooms.
@@ -211,7 +222,7 @@ example: |
     sweeps through a helix at the start of bar 2.
   choreography:
     s1b1t1: spiral(3, 100)
-    s2b1t1: form_circle([1, 2, 3], 120, 100, 1.5)
+    s2b1t1: form_circle('1-3', 120, 100, 1.5)
     s2b1t3: rotate(60, 'z')
     s2b2t1: helix(2, 40, 90)
     END
@@ -241,11 +252,13 @@ output_format_structured: |
     Two valid multi-action patterns (both in a single entry's "actions" array):
     1. Disjoint drone subsets — different drones at different positions in space:
          "actions": [
-           {"primitive":"form_circle","params":{"drone_ids":[1,2,3,4,5],"radius_cm":100,"z_coord_cm":80,"time_to_finish_s":2.0}},
-           {"primitive":"form_circle","params":{"drone_ids":[6,7,8,9,10],"radius_cm":100,"z_coord_cm":150,"time_to_finish_s":2.0}}
+           {"primitive":"form_circle","params":{"drone_ids":"1-5","radius_cm":100,"z_coord_cm":80,"time_to_finish_s":2.0}},
+           {"primitive":"form_circle","params":{"drone_ids":"6-10","radius_cm":100,"z_coord_cm":150,"time_to_finish_s":2.0}}
          ]
-       Subsets MUST occupy different regions to avoid collision. Stacking by z requires a gap of
-       at least 60cm (vertical collision envelope); otherwise separate by radius or x/y center.
+       The subsets MUST be disjoint — range endpoints are inclusive, so "1-5" is followed by
+       "6-10", never "5-10". They MUST also occupy different regions to avoid collision. Stacking
+       by z requires a gap of at least 60cm (vertical collision envelope); otherwise separate by
+       radius or x/y center.
     2. Formation + motion on overlapping drones — formation arrives, then motion takes over:
          "actions": [
            {"primitive":"form_star","params":{"height_cm":100,"min_spacing_cm":60,"delta_radius_cm":80,"time_to_finish_s":2.0}},
@@ -261,11 +274,14 @@ output_format_structured: |
     primitive. "sel" is always an object with all three fields present:
     {"kind":"all|ids|even|odd|first|left|right","ids":[...],"count":N}. "ids" is read only when
     kind is "ids" and "count" only when kind is "first"; fill the unused ones with [] and 1.
+  - "drone_ids" is a STRING, not an array: one compact spec of 1-indexed ids and inclusive
+    ranges, e.g. "1-8", "7" or "1-4,7,10-12". Endpoints are inclusive, so consecutive blocks
+    must not share one ("1-10" then "11-20"), and no drone may be named twice.
   Use exactly the parameter names from the primitive signature.
 
   Correct JSON param examples:
-  - center([ids]) -> {"primitive":"center","params":{"drone_ids":[1,2,3,4]}}
-  - move_z([ids], delta_cm) -> {"primitive":"move_z","params":{"drone_ids":[1,2,3,4],"delta_cm":30}}
+  - center(drone_ids) -> {"primitive":"center","params":{"drone_ids":"1-4"}}
+  - move_z(drone_ids, delta_cm) -> {"primitive":"move_z","params":{"drone_ids":"1-4","delta_cm":30}}
   - form_cone(delta_height_cm, spacing_cm, is_inverted) -> {"primitive":"form_cone","params":{"delta_height_cm":60,"spacing_cm":60,"is_inverted":0,"time_to_finish_s":2.0}}
   - spiral_speed(steps, height_cm, degrees, radius_increase) -> {"primitive":"spiral_speed","params":{"steps":3,"height_cm":100,"degrees":180,"radius_increase":1}}
   - wave(steps, height_cm) -> {"primitive":"wave","params":{"steps":2,"height_cm":80}}
@@ -283,7 +299,10 @@ output_format_structured: |
     {"key":"s2b1t1","actions":[{"primitive":"rainbow","params":{"sel":{"kind":"all","ids":[],"count":1},"period_beats":8,"spread":"neighbour","deck":"both"}},{"primitive":"strobe_decay","params":{"sel":{"kind":"all","ids":[],"count":1},"period_beats":1,"deck":"both"}}]}
 
   Common mistakes that will fail syntax checks:
-  - Wrong: {"primitive":"form_cone","params":{"drone_ids":[1,2,3],...}} because form_cone has no drone_ids param.
+  - Wrong: {"primitive":"form_cone","params":{"drone_ids":"1-3",...}} because form_cone has no drone_ids param.
+  - Wrong: {"drone_ids":[1,2,3]} because drone_ids is the string "1-3", never an array.
+  - Wrong: two actions at one key with "drone_ids":"1-10" and "drone_ids":"10-20" because
+    endpoints are inclusive and drone 10 is named twice; write "1-10" and "11-20".
   - Wrong: {"primitive":"spiral_speed","params":{"steps":3,"angle_deg":90,...}} because spiral_speed uses 'degrees', not 'angle_deg'.
   - Wrong: {"primitive":"move_z","params":{"delta_cm":30}} because move_z also needs drone_ids.
   - Wrong: {"primitive":"form_star","params":{"height_cm":100,"min_spacing_cm":60,"delta_radius_cm":80}} because form_star also needs time_to_finish_s.
