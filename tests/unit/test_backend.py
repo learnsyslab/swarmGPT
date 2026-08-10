@@ -77,8 +77,6 @@ def test_emergency_stop_active_swarm_stops_live_swarm_and_music() -> None:
     assert music_calls == ["stop"]
 
 
-# --- lighting read-outs ---------------------------------------------------------------------------
-
 LIGHTING_CFG = load_lighting_config()
 LIGHTING_N = 4
 BPM = 120
@@ -214,12 +212,8 @@ def test_deploy_builds_colour_cues_from_the_compiled_timeline(monkeypatch: pytes
 def test_deploy_passes_one_col_freq_to_the_swarm_and_the_compiler(monkeypatch: pytest.MonkeyPatch):
     """The cue consumer and the cue compiler read the same config field, never a literal.
 
-    `col_freq` is patched away from the shipped 10 Hz, because that is the only thing that tells
-    the config field apart from a literal: while `lighting.toml` ships 10.0, a hardcoded 10.0 in
-    the `compile_cues` call is indistinguishable from `cfg.col_freq`. It stops being latent the
-    moment someone lowers the configured cue rate and compiles on a grid below
-    `col_freq` for radio headroom -- cues baked at 10 Hz while the swarm drained at 4 Hz is the
-    permanent-desync mode this compile rule exists to make impossible.
+    `col_freq` is patched off the shipped 10 Hz because a hardcoded 10.0 is otherwise
+    indistinguishable from `cfg.col_freq`, and the two diverging is permanent desync.
     """
     cfg = dataclasses.replace(LIGHTING_CFG, col_freq=4.0)
     monkeypatch.setattr("swarm_gpt.core.backend.load_lighting_config", lambda: cfg)
@@ -279,10 +273,8 @@ def test_deploy_without_a_lighting_track_keeps_todays_static_colours(
 def test_the_position_snapshot_is_ordered_by_drone_index(monkeypatch: pytest.MonkeyPatch):
     """The snapshot's row order *is* the drone index, and this is the seam it crosses.
 
-    The splines are keyed by drone, so the array handed to `response2lighting` has to be built in
-    that key order. Nothing position-free notices if it is not — but `left`, `right`, `sweep`,
-    `ripple_light` and `gradient(by="x")` would then all address the mirror image of the swarm
-    they were written for, which is why this needs a position-dependent primitive to see it.
+    Nothing position-free notices a wrong order, so this needs a position-dependent primitive:
+    `left`, `sweep` and friends would otherwise address the mirror image of the swarm.
     """
     response = (
         'song_mood: "x"\n'
@@ -302,8 +294,7 @@ def test_the_position_snapshot_is_ordered_by_drone_index(monkeypatch: pytest.Mon
 def test_lighting_compiles_from_the_latest_response_in_the_history(monkeypatch: pytest.MonkeyPatch):
     """After a self-correct round the history holds several responses, not one.
 
-    The lights must come from the one the waypoints and splines were built from — the last — or
-    the show flies a superseded response's lighting over the current response's trajectory.
+    The lights must come from the last, or the show flies a superseded response's lighting.
     """
     superseded = (
         'song_mood: "x"\n'
@@ -339,10 +330,8 @@ def test_lighting_refuses_a_history_that_does_not_end_in_a_response(
 def test_reprompt_rejects_a_malformed_lighting_emission(monkeypatch: pytest.MonkeyPatch):
     """A reprompt's own lighting track has to be inside the retry loop, not just the first one.
 
-    `reprompt` is `@self_correct(n_retries=3)`-decorated, so without the check here a malformed
-    lighting emission produced while correcting something *else* passes generation untouched and
-    surfaces only when the lighting is finally compiled — after the axswarm pass, past every
-    retry, with the show about to be deployed.
+    Otherwise a malformed emission produced while correcting something else surfaces only at
+    compile time -- after the axswarm pass, past every retry, with the show about to deploy.
     """
     app = AppBackend(config_file=virtual_crazyswarm_config(n_drones=LIGHTING_N))
     monkeypatch.setattr(app, "_load_structure", lambda _song: _lighting_structure())
@@ -372,8 +361,7 @@ def test_reprompt_rejects_a_malformed_lighting_emission(monkeypatch: pytest.Monk
 def test_sim_colours_change_over_a_blink(monkeypatch: pytest.MonkeyPatch):
     """The colour `render.py` and `sim.py` draw is a function of time, sampled per frame.
 
-    Asserts on the read-out itself rather than standing up a GUI: if the render path kept its
-    one-shot ``rgbas[:, :3]`` assignment these two values would be drawn identically.
+    A render path keeping its one-shot ``rgbas[:, :3]`` assignment draws these two identically.
     """
     app = _deploy_backend(monkeypatch, LIGHTING_RESPONSE)
 
@@ -392,9 +380,8 @@ def test_sim_colours_without_a_lighting_track_are_the_base_hue_wheel(
 ):
     """No lighting is full on, each drone in its own hue — today's colouring, calibrated.
 
-    This is the one visible change for presets predating the feature: the sim now carries the
-    same ``channel_gain`` blue dim the deploy path has always applied (`backend.py:314`), so the
-    preview finally matches what flies. `generate_default_colors` is the uncalibrated version.
+    The one visible change for presets predating the feature: the sim now carries the same
+    ``channel_gain`` blue dim the deploy path always has, so the preview matches what flies.
     """
     response = 'song_mood: "x"\nchoreography:\n  s1b1t1: spiral(3, 100)\n  END'
     app = _deploy_backend(monkeypatch, response)
@@ -411,14 +398,11 @@ def test_sim_colours_without_a_lighting_track_are_the_base_hue_wheel(
     assert np.allclose(timeline.evaluate_rgb01(0.0)[:, :2], uncalibrated[:, :2], atol=2e-3)
 
 
-# --- the browser read-out -------------------------------------------------------------------------
-
-
 def test_browser_cues_are_drone_indexed_and_json_ready(monkeypatch: pytest.MonkeyPatch):
     """`compile_cues` output is not browser-ready, and this is the whole of the adaptation.
 
-    Four mismatches at once: URI keys become drone indices, `{time: NDArray}` dicts become parallel
-    lists, NumPy scalars become JSON-serializable ones, and 4-channel WRGB becomes 3-channel RGB.
+    URI keys become drone indices, `{time: NDArray}` dicts become parallel JSON-safe lists, and
+    4-channel WRGB becomes 3-channel RGB.
     """
     app = _deploy_backend(monkeypatch, LIGHTING_RESPONSE)
 
@@ -452,16 +436,8 @@ def test_browser_cues_are_drone_indexed_and_json_ready(monkeypatch: pytest.Monke
 def test_browser_cues_are_the_same_baked_list_the_hardware_gets(monkeypatch: pytest.MonkeyPatch):
     """Browser == hardware, so the preview shows the `col_freq` quantization that will fly.
 
-    Also pins the index keying against the URI keying -- entry `i` must be the drone whose URI sits
-    at position `i` in deploy's list -- and the deck keying, since `browser_cues` zips deck names
-    onto `compile_cues`' `(top, bot)` tuple and a swap there is invisible in review.
-
-    Both of those claims are **only as strong as the fixture**, which is why this uses
-    `DECK_ASYMMETRIC_RESPONSE` rather than `LIGHTING_RESPONSE`. Under a uniform, deck-identical
-    look every drone-deck compiles to the same bytes, so reversing the drone order or swapping the
-    two decks changes nothing and the assertions pass while constraining neither. Comparing only
-    `times` has the same problem one level down: the grid is shared, so the timings can agree while
-    every colour is wrong.
+    Also pins index-vs-URI and deck keying, which need `DECK_ASYMMETRIC_RESPONSE`: under a uniform
+    look a reversed order or a deck swap is byte-identical, and so is comparing only `times`.
     """
     app = _deploy_backend(monkeypatch, DECK_ASYMMETRIC_RESPONSE)
     uris = [d["uri"] for d in app.choreographer.drones.values()]
@@ -518,10 +494,8 @@ def test_browser_cues_fold_the_white_channel_into_rgb(monkeypatch: pytest.Monkey
 def test_the_white_fold_clips_rather_than_overflowing():
     """The fold is `clip(rgb + w, 0, 255)`, and the clip is not optional.
 
-    Asserted on the fold directly because the shipped palette cannot reach it: every entry is
-    normalized to a constant channel sum of 255, so `w + channel` never exceeds it. A retuned
-    `lighting.toml` -- the file exists to be retuned by eye on hardware -- can, and an unclipped
-    fold would hand three.js a channel above 1.0.
+    Asserted on the fold directly because the shipped palette sums to 255 and cannot reach it. A
+    retuned `lighting.toml` can, and an unclipped fold hands three.js a channel above 1.0.
     """
     folded = _fold_cues_to_rgb({0.0: np.array([200.0, 100.0, 0.0, 60.0])})
 
@@ -531,8 +505,7 @@ def test_the_white_fold_clips_rather_than_overflowing():
 def test_initial_prompt_rejects_a_malformed_lighting_emission(monkeypatch: pytest.MonkeyPatch):
     """A malformed lighting track must fail at generation time, where `self_correct` can reprompt.
 
-    Without the check here it would surface only when the lighting is finally compiled -- after
-    the axswarm pass, long past the retry loop, with the show about to be deployed.
+    Otherwise it surfaces only at compile time, long past the retry loop.
     """
     app = AppBackend(config_file=virtual_crazyswarm_config(n_drones=LIGHTING_N))
     monkeypatch.setattr(app, "_load_structure", lambda _song: _lighting_structure())

@@ -15,6 +15,7 @@ import tempfile
 from collections import deque
 from fractions import Fraction
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from drone_models.core import load_params
 from drone_models.transform import motor_force2rotor_vel
@@ -41,6 +42,9 @@ from tqdm import tqdm
 from swarm_gpt.core import AppBackend
 from swarm_gpt.core.sim import TRAIL_RGBA, paint_lighting
 
+if TYPE_CHECKING:
+    from scipy.interpolate import BSpline
+
 ROOT = Path(__file__).resolve().parents[1]
 MUSIC_DIR = ROOT / "music" / "songs"
 SCENE_XML = ROOT / "swarm_gpt/data/scene.xml"
@@ -56,10 +60,21 @@ CAMERA_NAME = "cinema_cam"
 
 CAMERA_MOVE_START_TIME = 0.0
 CAMERA_MOVE_END_TIME = 30.0
+# The shape of the move, not its placement: the offsets from CAMERA_LOOKAT set the start and end
+# azimuth and elevation and the ratio between the two distances, and the push-in that ratio
+# encodes is preserved. Where the camera actually sits comes from the swarm's own extent, so one
+# set of constants frames a 20-drone lab show in a 4m box and a 100-drone show in a 20m one.
 CAMERA_START_POS = np.array([6.0, 0.0, 6.0], dtype=float)
 CAMERA_END_POS = np.array([0.0, -6.00, 3.00], dtype=float)
 CAMERA_LOOKAT = np.array([0.0, 0.0, 1.1], dtype=float)
 CAMERA_UP = np.array([0.0, 0.0, 1.0], dtype=float)
+CAMERA_FIT_MARGIN = 1.15  # Headroom on the exact frame fit, at the move's closest approach.
+
+# Render-only gain on the LEDs' emission, because `lighting.toml` normalizes every hue to a
+# constant channel *sum* -- right for the flown LEDs, but it leaves two-channel hues peaking at 0.5
+# of the display's range while pure red sits at 1.0. See `paint_lighting` for why it can neither
+# blow out nor shift a hue.
+RENDER_EMISSION_GAIN = 2.5
 
 WIDTH = 3840
 HEIGHT = 2160
@@ -88,24 +103,8 @@ def preset_audio_path(preset_meta: dict[str, object]) -> Path:
 def mux_audio(video_path: Path, audio_path: Path, duration: float, audio_start: float) -> Path:
     """Mux a song into an existing video, replacing the original file on success.
 
-    Args:
-        video_path: The rendered video, replaced in place on success.
-        audio_path: The full mp3 the choreography was planned against.
-        duration: Length of the muxed output in seconds.
-        audio_start: Seconds into the mp3 the choreography starts at, i.e. the `song_crops`
-            window start. The trajectory timeline is rebased to 0 while the mp3 is not, so
-            without this seek the render plays the song from 0:00 against a choreography written
-            for the crop -- 35 s out of sync for `Fearless2`. The web player has always applied
-            the same offset (`normalize_playback`'s `audioOffset`). The flight outlasts the crop
-            by the return-to-home legs, so the audio runs a few seconds past the crop end during
-            landing, which is preferred over an abrupt cut at touchdown.
-
-    Returns:
-        The video path, now carrying audio.
-
-    Raises:
-        RuntimeError: If ffmpeg is unavailable or fails.
-        ValueError: If ``duration`` is not positive.
+    ``audio_start`` is the `song_crops` window start: the trajectory is rebased to 0 while the mp3
+    is not, so without the seek the render is 35 s out of sync for `Fearless2`.
     """
     ffmpeg = shutil.which("ffmpeg")
     if ffmpeg is None:
@@ -193,8 +192,60 @@ class FrameSink:
         self._writer.close = lambda: None
 
 
-def camera_position_at(t: float) -> np.ndarray:
-    """Orbit the camera around the look-at point and land at the configured end pose."""
+def swarm_points(
+    pos_splines: list[BSpline], t_end: float, samples: int = 512
+) -> tuple[np.ndarray, np.ndarray]:
+    """Sample where every drone is across the whole flight.
+
+    Returns the centre of the swarm's bounding box and every sampled position as an ``(n, 3)``
+    array, both in metres.
+    """
+    if not pos_splines:
+        raise ValueError("At least one position spline is required to frame the camera")
+    times = np.linspace(0.0, t_end, samples)
+    pos = np.array([spline(times) for spline in pos_splines], dtype=float).reshape(-1, 3)
+    centre = (pos.min(axis=0) + pos.max(axis=0)) / 2
+    return centre, pos
+
+
+def camera_fit_distance(
+    sim: Sim,
+    camera_id: int,
+    centre: np.ndarray,
+    points: np.ndarray,
+    width: int,
+    height: int,
+    samples: int = 64,
+) -> float:
+    """Find the move's closest approach to ``centre`` that keeps every point inside the frame.
+
+    The frame is a rectangle, so the half-angles solve separately: a fit satisfying only ``fovy``
+    throws away width. Only depth scales with ``distance``, so each point names a fit; take the max.
+    """
+    fovy = math.radians(float(sim.mj_model.cam_fovy[camera_id]))
+    # Half-angles of the actual frame: vertical is `fovy / 2`, horizontal widens it by the aspect.
+    half_tans = (math.tan(fovy / 2) * width / height, math.tan(fovy / 2))
+    offsets = np.asarray(points, dtype=float) - centre
+    distance = 0.0
+    for t in np.linspace(CAMERA_MOVE_START_TIME, CAMERA_MOVE_END_TIME, samples):
+        # The same move at a fitted distance of one metre, so `span` is the depth each fitted
+        # metre buys at this moment -- more than one, wherever the move is not at its closest.
+        offset = camera_position_at(float(t), np.zeros(3), 1.0)
+        span = float(np.linalg.norm(offset))
+        forward = -offset / span
+        depth = offsets @ forward
+        for axis, half_tan in zip(camera_basis(forward, CAMERA_UP), half_tans, strict=True):
+            required = (np.abs(offsets @ axis) / half_tan - depth).max() / span
+            distance = max(distance, float(required))
+    return distance * CAMERA_FIT_MARGIN
+
+
+def camera_position_at(t: float, centre: np.ndarray, distance: float) -> np.ndarray:
+    """Orbit the camera around the swarm and land at the configured end pose.
+
+    ``distance`` is the move's closest approach to ``centre``; the configured poses rescale around
+    it, so the push-in they encode survives at any swarm size.
+    """
     if CAMERA_MOVE_END_TIME <= CAMERA_MOVE_START_TIME:
         raise ValueError("CAMERA_MOVE_END_TIME must be larger than CAMERA_MOVE_START_TIME")
     alpha = (t - CAMERA_MOVE_START_TIME) / (CAMERA_MOVE_END_TIME - CAMERA_MOVE_START_TIME)
@@ -213,7 +264,11 @@ def camera_position_at(t: float) -> np.ndarray:
     start_elevation = math.atan2(start_offset[2], np.linalg.norm(start_offset[:2]))
     end_elevation = math.atan2(end_offset[2], np.linalg.norm(end_offset[:2]))
 
-    radius = (1.0 - alpha) * start_radius + alpha * end_radius
+    # Rescale the configured distances so the move keeps its ratio and its closest approach is
+    # `distance`. Pinning the closest point rather than the first one means the swarm still fits
+    # after the push-in, which is where a move framed only at its start crops.
+    scale = distance / min(start_radius, end_radius)
+    radius = ((1.0 - alpha) * start_radius + alpha * end_radius) * scale
     azimuth = start_azimuth + alpha * azimuth_delta
     elevation = (1.0 - alpha) * start_elevation + alpha * end_elevation
     planar_radius = radius * math.cos(elevation)
@@ -225,7 +280,23 @@ def camera_position_at(t: float) -> np.ndarray:
         ],
         dtype=float,
     )
-    return CAMERA_LOOKAT + orbit_offset
+    return centre + orbit_offset
+
+
+def camera_basis(forward: np.ndarray, up_hint: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Build the right and up axes of a camera looking along ``forward``.
+
+    Held apart from `look_at_quat` so the framing fit projects onto exactly the axes the renderer
+    uses, fallback included; two copies would disagree about up and crop the swarm sideways.
+    """
+    up = up_hint / np.linalg.norm(up_hint)
+    if abs(np.dot(forward, up)) > 0.99:
+        up = np.array([0.0, 1.0, 0.0], dtype=float)
+
+    right = np.cross(forward, up)
+    right /= np.linalg.norm(right)
+    true_up = np.cross(right, forward)
+    return right, true_up / np.linalg.norm(true_up)
 
 
 def look_at_quat(position: np.ndarray, target: np.ndarray, up_hint: np.ndarray) -> np.ndarray:
@@ -236,22 +307,14 @@ def look_at_quat(position: np.ndarray, target: np.ndarray, up_hint: np.ndarray) 
         raise ValueError("Camera position and look-at point must differ")
     forward /= forward_norm
 
-    up = up_hint / np.linalg.norm(up_hint)
-    if abs(np.dot(forward, up)) > 0.99:
-        up = np.array([0.0, 1.0, 0.0], dtype=float)
-
-    right = np.cross(forward, up)
-    right /= np.linalg.norm(right)
-    true_up = np.cross(right, forward)
-    true_up /= np.linalg.norm(true_up)
-
+    right, true_up = camera_basis(forward, up_hint)
     rotation = np.column_stack((right, true_up, -forward))
     quat_xyzw = Rotation.from_matrix(rotation).as_quat()
     return np.roll(quat_xyzw, 1)
 
 
-def get_camera_mocap_id(sim: Sim) -> int:
-    """Resolve the mocap slot that drives the camera rig."""
+def get_camera_ids(sim: Sim) -> tuple[int, int]:
+    """Resolve the ``(mocap id, camera id)`` of the camera rig and the camera riding on it."""
     body_id = mujoco.mj_name2id(sim.mj_model, mujoco.mjtObj.mjOBJ_BODY, CAMERA_BODY_NAME)
     if body_id < 0:
         raise ValueError(f"Body {CAMERA_BODY_NAME!r} not found in {SCENE_XML}")
@@ -261,13 +324,13 @@ def get_camera_mocap_id(sim: Sim) -> int:
     camera_id = mujoco.mj_name2id(sim.mj_model, mujoco.mjtObj.mjOBJ_CAMERA, CAMERA_NAME)
     if camera_id < 0:
         raise ValueError(f"Camera {CAMERA_NAME!r} not found in {SCENE_XML}")
-    return mocap_id
+    return mocap_id, camera_id
 
 
-def set_camera_pose(sim: Sim, mocap_id: int, t: float) -> None:
-    """Move the mocap camera rig and keep the camera aimed at the target."""
-    position = camera_position_at(t)
-    quat_wxyz = look_at_quat(position, CAMERA_LOOKAT, CAMERA_UP)
+def set_camera_pose(sim: Sim, mocap_id: int, t: float, centre: np.ndarray, distance: float) -> None:
+    """Move the mocap camera rig and keep the camera aimed at the swarm."""
+    position = camera_position_at(t, centre, distance)
+    quat_wxyz = look_at_quat(position, centre, CAMERA_UP)
     sim.mjx_data = sim.mjx_data.replace(
         mocap_pos=sim.mjx_data.mocap_pos.at[0, mocap_id].set(jnp.asarray(position)),
         mocap_quat=sim.mjx_data.mocap_quat.at[0, mocap_id].set(jnp.asarray(quat_wxyz)),
@@ -344,7 +407,7 @@ def render_preset(
         raise RuntimeError("No splines were generated by the simulation pipeline")
 
     sim = build_sim(backend)
-    mocap_id = get_camera_mocap_id(sim)
+    mocap_id, camera_id = get_camera_ids(sim)
     spline_ids = sorted(backend.splines)
     pos_splines = [backend.splines[i] for i in spline_ids]
     vel_splines = [spline.derivative() for spline in pos_splines]
@@ -354,6 +417,16 @@ def render_preset(
     t_end = float(backend.waypoints["time"][0, -1])
     if render_end_time is not None:
         t_end = min(t_end, float(render_end_time))
+    centre, points = swarm_points(pos_splines, t_end)
+    camera_distance = camera_fit_distance(sim, camera_id, centre, points, width, height)
+    logger.info(
+        "Framing %d drones in %dx%d: centre (%.2f, %.2f, %.2f) m, camera %.2f m out",
+        sim.n_drones,
+        width,
+        height,
+        *centre,
+        camera_distance,
+    )
     if fps <= 0:
         raise ValueError("fps must be positive")
     if sim.freq % sim.control_freq != 0:
@@ -376,13 +449,13 @@ def render_preset(
 
     def render_frame(frame_time: float) -> None:
         # Per frame, not once before the loop: the lighting timeline is a function of time.
-        paint_lighting(sim, lighting, frame_time)
+        paint_lighting(sim, lighting, frame_time, emission_gain=RENDER_EMISSION_GAIN)
         positions = np.asarray(sim.data.states.pos[0])
         for i, trail in enumerate(trails):
             trail.append(positions[i])
             if len(trail) > 1:
                 draw_line(sim, np.array(trail), rgba=TRAIL_RGBA, start_size=2, end_size=5)
-        set_camera_pose(sim, mocap_id, frame_time)
+        set_camera_pose(sim, mocap_id, frame_time, centre, camera_distance)
         frame = sim.render(mode=RENDER_MODE, camera=CAMERA_NAME, width=width, height=height)
         if frame is None:
             raise RuntimeError("Crazyflow returned no frame in rgb_array mode")
@@ -434,18 +507,9 @@ def render_preset(
 
 
 def _resolve_preset(name: str) -> Path:
-    """Find a preset directory by exact name, or by a substring that matches only one.
+    """Find a preset directory by exact name, or by a case-insensitive substring matching only one.
 
     Preset names carry the song, drone count and timestamp, so they are long to type in full.
-
-    Args:
-        name: Preset directory name, or any case-insensitive substring of one.
-
-    Returns:
-        The preset directory.
-
-    Raises:
-        SystemExit: If nothing matches, or more than one preset does.
     """
     if (exact := PRESET_DIR / name).is_dir():
         return exact
@@ -461,27 +525,13 @@ def _resolve_preset(name: str) -> Path:
 
 
 def _default_output(preset_path: Path) -> Path:
-    """Derive ``renders/<slug>.mp4`` from a preset directory name.
-
-    Args:
-        preset_path: The preset being rendered.
-
-    Returns:
-        The output path to write when ``--out`` is not given.
-    """
+    """Derive the ``renders/<slug>.mp4`` written when ``--out`` is not given."""
     slug = re.sub(r"[^a-z0-9]+", "_", preset_path.name.lower()).strip("_")
     return ROOT / "renders" / f"{slug}.mp4"
 
 
 def main(argv: list[str] | None = None) -> Path:
-    """Render a saved preset from the command line.
-
-    Args:
-        argv: Argument list to parse; defaults to ``sys.argv[1:]``.
-
-    Returns:
-        The path the video was written to.
-    """
+    """Render a saved preset from the command line, returning the path written to."""
     parser = argparse.ArgumentParser(description="Render a saved preset to a video.")
     parser.add_argument(
         "preset",

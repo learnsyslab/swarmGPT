@@ -1,8 +1,7 @@
 """Unit tests for the LLM-facing lighting primitive vocabulary.
 
-Companion to ``test_lighting.py``, which covers the engine underneath (selectors, waveforms,
-spreads, layers and the timeline). This file covers only the twelve catalogued primitives and the
-``build_look`` dispatch that turns an emitted actions array into a ``Look``.
+Companion to ``test_lighting.py``, which covers the engine underneath. This file covers only the
+twelve catalogued primitives and the ``build_look`` dispatch that turns actions into a ``Look``.
 """
 
 import dataclasses
@@ -69,19 +68,13 @@ def clamp_log(
 ) -> pytest.LogCaptureFixture:
     """`caplog`, wired so it actually sees this module's records.
 
-    The ROS `launch` package — autoloaded here as a pytest plugin via `launch_testing` — calls
-    `logging.setLoggerClass`, and its logger class defaults to ``propagate = False``. Every logger
-    created after that point therefore bypasses the root logger `caplog` listens on. Forcing
-    propagation back on for the one module under test keeps the assertion about the *logger*
-    rather than about whichever handler the environment happens to have installed.
+    The ROS `launch` pytest plugin calls `logging.setLoggerClass` with ``propagate = False``, so
+    every logger built after it bypasses the root logger `caplog` listens on.
     """
     logger = logging.getLogger("swarm_gpt.core.lighting")
     monkeypatch.setattr(logger, "propagate", True)
     caplog.set_level(logging.WARNING, logger=logger.name)
     return caplog
-
-
-# --- catalogue -------------------------------------------------------------------------
 
 
 def test_the_catalogue_holds_exactly_the_twelve_spec_primitives():
@@ -142,9 +135,6 @@ def test_colour_layers_keep_their_order_in_the_actions_array():
     assert len(look.brightness_layers) == 1
 
 
-# --- colour: light_color, gradient, rainbow -------------------------------------------------------
-
-
 def test_light_color_builds_a_named_colour_layer():
     look = _build(_action("light_color", sel=("even", ()), color="amber", deck="both"))
     assert look.brightness_layers == ()
@@ -166,9 +156,8 @@ def test_light_color_builds_a_named_colour_layer():
 def test_an_off_palette_colour_is_rejected_when_the_layer_is_built(params: dict):
     """The palette is resolved lazily at read-out, so an unchecked name fails far too late.
 
-    `ColourLayer.evaluate` indexes `cfg.palette` per frame and inside `compile_cues`, which puts a
-    bare `KeyError('chartreuse')` mid-render or mid-deploy — long past `response2lighting`'s
-    `try/except` and the reprompt loop it feeds.
+    `ColourLayer.evaluate` indexes `cfg.palette` per frame, putting a bare `KeyError` mid-render
+    or mid-deploy -- long past the reprompt loop.
     """
     params = dict(params)
     with pytest.raises(KeyError, match="chartreuse"):
@@ -178,9 +167,8 @@ def test_an_off_palette_colour_is_rejected_when_the_layer_is_built(params: dict)
 def test_gradient_interpolation_parameter_is_inclusive_so_color_b_is_reached():
     """`s` must hit 1.0 exactly at the far end.
 
-    ``spread_offsets`` is deliberately half-open (it must not collapse the two ends of a sweep onto
-    the same phase), so reusing it here would leave `color_b` unreachable — the far drone would sit
-    at `lerp(a, b, 5/6)` instead of at `b`.
+    ``spread_offsets`` is half-open so a sweep's two ends do not share a phase, which would leave
+    `color_b` unreachable -- the far drone sitting at `lerp(a, b, 5/6)`.
     """
     look = _build(
         _action("gradient", sel=ALL, color_a="red", color_b="blue", by="index", deck="both")
@@ -200,9 +188,8 @@ def test_gradient_interpolation_parameter_is_inclusive_so_color_b_is_reached():
 def test_gradient_by_index_ranks_within_the_selected_subset():
     """The subset is unevenly spaced on purpose: rank-in-subset and absolute index differ on it.
 
-    `ids(2, 4, 6)` cannot tell the two apart -- evenly spaced ids normalize to the same [0, 0.5, 1]
-    either way, so the assertion the name makes would hold against a gradient ranked over the whole
-    swarm. `ids(1, 2, 6)` ranks to [0, 0.5, 1] but normalizes absolutely to [0, 0.2, 1].
+    `ids(2, 4, 6)` normalizes to [0, 0.5, 1] either way and so cannot tell them apart.
+    `ids(1, 2, 6)` ranks to [0, 0.5, 1] but normalizes absolutely to [0, 0.2, 1].
     """
     look = _build(
         _action(
@@ -241,9 +228,8 @@ def test_gradient_by_radius_normalizes_distance_from_the_subset_centroid():
 def test_gradient_over_a_formation_with_no_extent_stays_finite():
     """A flat formation gives `gradient(by="z")` a zero span, which unguarded is 0 / 0.
 
-    Not an exotic case: any planar formation -- which is most of them -- has no extent in z, and
-    the resulting `nan` propagates through the whole read-out to `_apply_drone_color`, whose
-    `int()` packing and 0-255 assertion are the last thing between it and the radio.
+    Most formations are planar, and the resulting `nan` propagates to `_apply_drone_color`, whose
+    `int()` packing is the last thing between it and the radio.
     """
     flat = np.stack([np.arange(6.0), np.zeros(6), np.full(6, 1.5)], axis=1)
     look = _build(
@@ -279,9 +265,6 @@ def test_rainbow_takes_the_whole_spread_vocabulary():
     assert synced.colour_layers[0].params["offsets"] == pytest.approx(np.zeros(N6))
     swept = _build(_action("rainbow", sel=ALL, period_beats=8.0, spread="x", deck="both"))
     assert swept.colour_layers[0].params["offsets"] == pytest.approx(np.arange(N6) / N6)
-
-
-# --- brightness: the nine -------------------------------------------------------------------------
 
 
 def test_light_on_builds_a_constant_brightness_layer():
@@ -349,10 +332,8 @@ def _chase_action(**overrides: object) -> dict:
 def test_chase_is_a_square_running_along_the_neighbour_spread():
     """`chase` used to hardcode `index`, which is spatially scrambled by construction.
 
-    POSITIONS_6's y coordinates wander, so it is not a straight line and the walk skips past drone
-    2 -- picking it up last, off a long jump back from drone 5. That is the walk's seam, and it is
-    accepted cost. An evenly spaced line would rank identically to `index` and so could not tell the
-    two spreads apart at all.
+    POSITIONS_6 is not a straight line, so the walk picks drone 2 up last off a long jump back --
+    the walk's accepted seam. An evenly spaced line would rank identically to `index`.
     """
     (layer,) = _build(_chase_action()).brightness_layers
     assert layer.kind == "square"
@@ -365,9 +346,8 @@ def test_chase_is_a_square_running_along_the_neighbour_spread():
 def test_chase_honours_whichever_spread_it_is_given():
     """`index` stays reachable for a choreography that deliberately addresses drones by id.
 
-    The engine must read the emitted `spread` rather than pin its own: with `neighbour` recommended
-    everywhere the model reads, a `chase` that quietly ignored the parameter would look right on
-    every fixture whose walk happens to agree with id order.
+    A `chase` that ignored the emitted `spread` would look right on every fixture whose walk
+    happens to agree with id order.
     """
     by_walk = _build(_chase_action()).brightness_layers[0]
     by_id = _build(_chase_action(spread="index")).brightness_layers[0]
@@ -379,10 +359,8 @@ def test_chase_honours_whichever_spread_it_is_given():
 def test_chase_without_a_spread_fails_loudly():
     """`spread` is required, so a short emission raises rather than flying on a silent default.
 
-    The schema declares it and `_parse_lighting_actions` checks arity, so neither production path
-    can reach here missing it -- and a `.get(default)` would therefore be unreachable code masking a
-    required field, never masked by a default. `KeyError` is one of the three `_build_look`
-    turns into an `LLMFormatError`, so a hand-written block reprompts rather than escaping.
+    Neither production path can reach here missing it, so a `.get(default)` would be unreachable
+    code masking a required field. `KeyError` becomes an `LLMFormatError`, so it reprompts.
     """
     params = {"sel": ALL, "period_beats": 4.0, "length": 2, "group_size": 1, "deck": "both"}
     with pytest.raises(KeyError):
@@ -392,15 +370,8 @@ def test_chase_without_a_spread_fails_loudly():
 def test_a_built_look_colours_the_swarm_along_its_own_snapshot():
     """The default hue wheel end to end, through `build_look` rather than a hand-assembled `Look`.
 
-    The base colour is ranked against the look's snapshot at read-out time, so the snapshot has to
-    ride on the `Look` -- resolving the masks and offsets while building it is not enough. Dropping
-    it there is invisible to every other test in this file, and the swarm silently falls back to the
-    id-ordered wheel this spread exists to undo.
-
-    POSITIONS_6 walks as drones 0, 1, 3, 4, 5, 2, so drone 2 takes the *last* hue rather than the
-    third: walk order and id order genuinely disagree on this fixture. `first(4)` rather than `all`
-    on reprompt -- and it changes nothing here, because covered and uncovered drones both sit at
-    brightness 1.0, which is what makes the read-out the pure base colour.
+    The base colour ranks against the look's snapshot at read-out, so it has to ride on the `Look`.
+    POSITIONS_6 walks as 0, 1, 3, 4, 5, 2, so walk order and id order genuinely disagree here.
     """
     look = _build(_action("light_on", sel=("first", (4,)), deck="both"))
     out = LightingTimeline([look], N6, 100.0, CFG).evaluate(3.0)[:, 0]
@@ -411,8 +382,8 @@ def test_a_built_look_colours_the_swarm_along_its_own_snapshot():
 def test_chase_lights_exactly_length_drones_at_any_instant():
     """`duty = length / n_sel` is what makes the running light a window of fixed width.
 
-    The period and sample times are chosen so every phase is an exact binary fraction: at 120 BPM
-    16 beats is 8 s, and 0.25 s steps put `t / period` on multiples of 1/32 against offsets of 1/8.
+    Period and sample times keep every phase an exact binary fraction: 16 beats is 8 s at 120 BPM,
+    and 0.25 s steps put `t / period` on multiples of 1/32 against offsets of 1/8.
     """
     look = _build(_chase_action(period_beats=16.0, length=3), positions=POSITIONS_8, n=N8)
     (layer,) = look.brightness_layers
@@ -425,9 +396,8 @@ def test_chase_lights_exactly_length_drones_at_any_instant():
 def test_chase_duty_is_computed_over_the_selection_not_the_whole_swarm():
     """`duty = length / n_sel` is over the *selected* subset, which `sel=all` cannot distinguish.
 
-    On the full swarm the mask's population and its length agree, so a duty divided by the swarm
-    size passes every existing assertion. Over `first(4)` of eight they differ by a
-    factor of two, and `chase(first(4), length=2)` must light 2 drones at a time, not 1.
+    On the full swarm the mask's population and its length agree. Over `first(4)` of eight they
+    differ by two, and `chase(first(4), length=2)` must light 2 drones at a time, not 1.
     """
     look = _build(
         _chase_action(sel=("first", (4,)), period_beats=16.0), positions=POSITIONS_8, n=N8
@@ -442,12 +412,8 @@ def test_chase_duty_is_computed_over_the_selection_not_the_whole_swarm():
 def test_chase_over_an_empty_selection_builds_instead_of_dividing_by_zero():
     """`ids([])` now raises, but an empty selection is still reachable through `right`.
 
-    `_right_mask` splits on a strict `>` against the mean, so a formation with no extent along the
-    stage axis puts every drone stage left and none stage right. Every layer is then a no-op, so
-    the duty is irrelevant; the floor exists only because `chase` is the one primitive that would
-    divide by zero on it. The resulting `ZeroDivisionError` is not one of the `(KeyError,
-    ValueError, IndexError)` `Choreographer._build_look` catches, so it would escape the reprompt
-    path entirely rather than reporting as a format error.
+    Every layer is then a no-op and the duty irrelevant; the floor exists only because `chase` would
+    divide by zero, and `ZeroDivisionError` escapes the three `_build_look` catches.
     """
     no_x_extent = np.stack([np.zeros(N6), np.arange(6.0), np.ones(N6)], axis=1)
     look = _build(_chase_action(sel=("right", ())), positions=no_x_extent)
@@ -459,8 +425,8 @@ def test_chase_over_an_empty_selection_builds_instead_of_dividing_by_zero():
 def test_chase_group_size_quantizes_whichever_spread_it_runs_along():
     """The supervisor's "blinking with different group size": the window advances group-by-group.
 
-    POSITIONS_8 is an evenly spaced line, so the `neighbour` walk over it *is* id order and the
-    buckets are hand-writable. What the fixture pins is the bucketing, not which order it buckets.
+    POSITIONS_8 is an evenly spaced line, so the walk *is* id order and the buckets are
+    hand-writable. The fixture pins the bucketing, not which order it buckets.
     """
     look = _build(_chase_action(group_size=2), positions=POSITIONS_8, n=N8)
     (layer,) = look.brightness_layers
@@ -471,11 +437,8 @@ def test_chase_group_size_quantizes_whichever_spread_it_runs_along():
 def test_chase_group_size_is_never_silently_inert(group_size: int):
     """`group_size` is a plain `chase` parameter in the catalogue, carrying no spread restriction.
 
-    The validation used to sit inside the ranked-spread branch of `spread_offsets`, so
-    `chase(..., group_size=0, spread="x")` built happily while the identical call with
-    `spread="neighbour"` raised -- and a `group_size` of 2 on a spatial spread was accepted and
-    then ignored. `ValueError` is one of the three `Choreographer._build_look` turns into an
-    `LLMFormatError`, so the model is told rather than left to wonder why nothing changed.
+    Validation used to sit in the ranked-spread branch, so `group_size=0` with `spread="x"` built
+    happily while `spread="neighbour"` raised, and a `group_size` of 2 was accepted then ignored.
     """
     with pytest.raises(ValueError, match="group_size"):
         _build(_chase_action(group_size=group_size, spread="x"))
@@ -549,8 +512,6 @@ def test_offsets_are_full_swarm_shaped_even_for_a_subset():
     assert layer.offsets[[0, 1, 2]] == pytest.approx([0.0, 0.0, 0.0])
 
 
-# --- degenerate formations collapse a spatial spread ----------------------------------------------
-
 # A horizontal ring, built exactly the way `form_circle` builds one (`motion_primitives.py:473`):
 # no extent in z at all, and every drone the same distance from the centre. `cos`/`sin` rather than
 # hand-written axis coordinates, because that leaves the radii equal only to within a couple of
@@ -582,11 +543,8 @@ def test_a_spread_with_no_extent_to_run_along_warns(
 ):
     """`sweep(axis="z")` on a planar formation degrades into a synchronised blink, silently.
 
-    Every offset comes out 0, so the "sweep" fires the whole swarm at once — and `ripple_light` on
-    a ring is the same thing, since every radius is equal. Both are natural things for a model to
-    author over a `form_circle`, and both are legal: the show runs, so this warns rather than
-    raising. What it must not do is leave the author with no way to tell a collapsed effect from a
-    working one.
+    Every offset comes out 0, and `ripple_light` on a ring is the same. Both are natural to author
+    over a `form_circle` and both are legal, so this warns -- but it must warn.
     """
     look = _build(action, positions=RING_6, n=N6)
     assert _spread_offsets_of(look) == pytest.approx(np.zeros(N6)), "the collapse being reported"
@@ -613,14 +571,8 @@ def test_a_single_drone_selection_does_not_warn(clamp_log: pytest.LogCaptureFixt
 def test_gradient_by_radius_on_a_cos_sin_ring_collapses_rather_than_amplifying_float_noise():
     """The colour-axis twin of `_normalize_span`'s tolerance, and the same fixture forces it.
 
-    `form_circle` lays its slots out with `cos`/`sin`, so a ring's radii are equal in exact
-    arithmetic and equal only to within a couple of ulps in floats. Testing the span against exact
-    zero takes the *non-degenerate* branch there and divides by that rounding noise: `s` comes out
-    as [1, 1/3, 0, 0, 0, 1/3] rather than flat, so each drone lands somewhere between `color_a` and
-    `color_b` in whatever order the rounding happened to fall -- a per-drone random colour, not the
-    one flat colour a span-free axis has to give. Hand-written exactly-equal coordinates cannot
-    catch that (they take the degenerate branch either way), so the fixture has to be a real ring,
-    and the guard below is what keeps it one.
+    Against exact zero a `cos`/`sin` ring takes the non-degenerate branch and divides by rounding
+    noise, giving per-drone random colours. Equal literals cannot catch it, so this is a real ring.
     """
     ring = with_ulp_noise(RING_6)
     radii = np.linalg.norm(ring - ring.mean(axis=0), axis=1)
@@ -643,9 +595,7 @@ def test_gradient_by_radius_on_a_cos_sin_ring_collapses_rather_than_amplifying_f
 def test_a_gradient_with_no_extent_to_run_along_warns(clamp_log: pytest.LogCaptureFixture):
     """A collapsed gradient paints one flat colour, which no emission distinguishes from intent.
 
-    The same argument `_spread` makes for a collapsed sweep: `gradient(by="radius")` over a ring
-    puts every drone on `color_a`, which is `light_color` -- legal, so the show runs, but not what
-    was asked for, and nothing in the emission says so.
+    `gradient(by="radius")` over a ring puts every drone on `color_a`, which is `light_color`.
     """
     _build(
         _action("gradient", sel=ALL, color_a="red", color_b="blue", by="radius", deck="both"),
@@ -663,9 +613,6 @@ def test_a_gradient_with_extent_does_not_warn(clamp_log: pytest.LogCaptureFixtur
     """POSITIONS_6 runs 1.0 .. 2.0 in z, so the same `gradient` has a real span to interpolate."""
     _build(_action("gradient", sel=ALL, color_a="red", color_b="blue", by="z", deck="both"))
     assert not clamp_log.records
-
-
-# --- beats -> seconds, and the Nyquist clamp ------------------------------------------------------
 
 
 def test_period_beats_converts_through_the_song_bpm():
@@ -695,11 +642,8 @@ def test_the_clamp_guards_each_drones_lit_window_not_the_period(
 ):
     """`chase` divides the period into `length / n_sel`, so the period is the wrong quantity.
 
-    `chase(all, 1 beat, length=1)` over eight drones is a 0.5 s period at 120 BPM, comfortably
-    above the 0.2 s Nyquist floor — while each drone is lit for 0.0625 s, well under one 0.1 s cue
-    tick. Its whole on-interval then fits between two grid ticks and the drone is never lit in the
-    compiled cues at all. The condition that has to hold is `period_s >= n_sel / (length x
-    col_freq)`, four times the period-only floor here.
+    A 0.5 s period clears the 0.2 s Nyquist floor while each drone is lit for 0.0625 s, under one
+    cue tick, so its on-interval fits between two ticks: `period_s >= n_sel / (length x col_freq)`.
     """
     look = _build(_chase_action(period_beats=1.0, length=1), positions=POSITIONS_8, n=N8)
     assert look.brightness_layers[0].period_s == pytest.approx(N8 / CFG.col_freq)
@@ -712,9 +656,8 @@ def test_the_clamp_guards_each_drones_lit_window_not_the_period(
 def test_the_clamp_never_returns_a_period_below_the_nyquist_floor():
     """A `chase` wide enough to want a sub-Nyquist period still cannot have one.
 
-    `length = 8` of eight is a duty of 1.0, whose lit-window floor is a single tick — but a
-    waveform sampled fewer than twice per period aliases whatever its duty, so the two floors are a
-    `max`, not a replacement.
+    A duty of 1.0 has a single-tick lit-window floor, but a waveform sampled under twice per period
+    aliases whatever its duty -- so the two floors are a `max`, not a replacement.
     """
     look = _build(
         _chase_action(period_beats=0.1, length=N8), positions=POSITIONS_8, n=N8
@@ -727,10 +670,8 @@ def test_an_author_set_blink_duty_is_not_clamped_against_its_lit_window(
 ):
     """`blink` runs at `spread="none"`, where no drone can be skipped, so it keeps the Nyquist floor.
 
-    Every offset is 0, so the whole selection shares one phase: a short `duty` coarsens the flash
-    for all of them together rather than dropping it from some, which is the failure the lit-window
-    floor exists to prevent. Clamping `blink` against `duty` too would slow a legal 0.1-duty stab
-    by a factor of five for no benefit.
+    One shared phase means a short `duty` coarsens the flash for everyone rather than dropping it
+    from some. Clamping `blink` against `duty` would slow a legal 0.1-duty stab five-fold.
     """
     look = _build(_action("blink", sel=ALL, period_beats=1.0, duty=0.1, deck="both"))
     assert look.brightness_layers[0].period_s == pytest.approx(0.5)
@@ -753,10 +694,8 @@ def test_a_legal_period_is_left_alone(clamp_log: pytest.LogCaptureFixture):
 def test_the_clamp_floor_tracks_the_configured_cue_rate(clamp_log: pytest.LogCaptureFixture):
     """The floor is `2 / col_freq`, read from the one place the cue rate is written down.
 
-    A second hardcoded copy would silently mis-tune the moment `DroneSwarm.col_freq` moved: raise
-    the rate and the clamp throttles effects for no reason, lower it and the clamp stops guarding
-    against cue drift at all. The same emission must therefore survive at 20 Hz and be clamped
-    at 10 Hz, with the warning firing only in the second case.
+    A second hardcoded copy mis-tunes the moment `DroneSwarm.col_freq` moves: too high throttles
+    effects, too low stops guarding cue drift. So one emission survives 20 Hz and clamps at 10.
     """
     # 0.3 beats is 0.15 s at 120 BPM: above the 0.1 s floor at 20 Hz, below the 0.2 s floor at 10.
     action = _action("blink", sel=ALL, period_beats=0.3, duty=0.5, deck="both")

@@ -48,14 +48,9 @@ class DroneSwarm:
         col_freq: float = 10,
         lighthouse: bool = True,
     ):
-        """Create and connect a Crazyflie swarm.
+        """Create and connect a Crazyflie swarm from ``drones.toml`` entries.
 
-        Args:
-            drones: Dictionary of drones.toml entries including id, pos, and uri.
-            ctrl_freq: Control frequency (Hz). Defaults to 50.
-            update_freq: Frequency (Hz) of position updates sent to the drone. Defaults to 10.
-            col_freq: Maximum frequency (Hz) of color updates. Defaults to 10.
-            lighthouse: Whether to use lighthouse or mocap for localization. Defaults to True.
+        Frequencies are in Hz; ``lighthouse`` selects lighthouse over mocap for localization.
         """
         self.drones = drones
         self.ctrl_freq = ctrl_freq
@@ -148,12 +143,7 @@ class DroneSwarm:
         self._run(self._parallel_by_uri("Landing", self.uris, _land, timeout=duration + 1.0))
 
     def goto(self, target: dict[str, list], duration: float = 3.0):
-        """Execute a high-level goto command for all drones.
-
-        Args:
-            target: Position+Yaw references in the form {'uri1': [target], ...}.
-            duration: Duration of the motion in seconds.
-        """
+        """Execute a high-level goto to ``{uri: [x, y, z, yaw]}`` over ``duration`` seconds."""
         self._validate_required_uris("pos", target)
         for uri, setpoint in target.items():
             if len(setpoint) != 4:
@@ -170,11 +160,7 @@ class DroneSwarm:
         self._run(self._parallel_by_uri("Goto", self.uris, _goto, timeout=duration + 1.0))
 
     def setpoint(self, target: dict[str, list]):
-        """Send one position+yaw setpoint to all drones and return.
-
-        Args:
-            target: Position+Yaw references in the form {'uri1': [target], ...}.
-        """
+        """Send one ``{uri: [x, y, z, yaw]}`` setpoint to all drones and return."""
         self._validate_required_uris("pos", target)
         for uri, setpoint in target.items():
             if len(setpoint) != 4:
@@ -194,13 +180,9 @@ class DroneSwarm:
         color_top: dict[str, dict[float, Array]] = {},
         color_bot: dict[str, dict[float, Array]] = {},
     ):
-        """Execute a choreography with position, orientation, and light commands.
+        """Execute a choreography of 3D splines with per-deck light cues.
 
-        Args:
-            choreography: Reference in the form of a 3d spline.
-            t_end: End time of the choreography.
-            color_top: Top deck color cues in the form {uri: {time: wrgb}}.
-            color_bot: Bottom deck color cues in the form {uri: {time: wrgb}}.
+        Colour cues take the form ``{uri: {time: wrgb}}``.
         """
         self._validate_required_uris("choreography", choreography)
         if not color_top and not color_bot:
@@ -225,12 +207,7 @@ class DroneSwarm:
         )
 
     def apply_colors(self, color_top: dict[str, Array] | None, color_bot: dict[str, Array] | None):
-        """Apply colors to the drones.
-
-        Args:
-            color_top: Top deck colors in the form {uri: wrgb}.
-            color_bot: Bottom deck colors in the form {uri: wrgb}.
-        """
+        """Apply ``{uri: wrgb}`` colors to each deck; ``None`` blacks that deck out."""
         if color_top is None:
             color_top = dict.fromkeys(self.uris, np.zeros(4))
         if color_bot is None:
@@ -247,12 +224,7 @@ class DroneSwarm:
         self._run(self._parallel_by_uri("Applying colors", self.uris, _apply_colors, timeout=0.5))
 
     def set_param(self, param: str, value: float):
-        """Set a Crazyflie parameter on all active drones.
-
-        Args:
-            param: Parameter name in ``group.name`` format.
-            value: Value to set.
-        """
+        """Set a ``group.name`` Crazyflie parameter on all active drones."""
 
         async def _set_param(uri: str) -> None:
             await self._cf(uri).param().set(param, value)
@@ -348,9 +320,8 @@ class DroneSwarm:
     def _run(self, coroutine: Awaitable[Any]) -> Any:
         """Run a cflib2 coroutine on the swarm event loop.
 
-        Dispatches cross-thread when the loop runs in another thread or is already running
-        (e.g. a deployment driving it), so an emergency stop from the request thread that
-        handles the frontend button still reaches the swarm mid-performance.
+        Dispatches cross-thread when the loop is elsewhere or already running, so an emergency stop
+        from the frontend's request thread still reaches the swarm mid-performance.
         """
         if self._loop_thread is not None or self._loop.is_running():
             return asyncio.run_coroutine_threadsafe(coroutine, self._loop).result()

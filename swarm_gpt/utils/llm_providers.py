@@ -56,9 +56,8 @@ def prepare_responses_messages(
 ) -> tuple[list[dict[str, str]], str | None]:
     """Split chat-style messages for ``responses.create``.
 
-    Ollama's ``/v1/responses`` returns empty ``output_text`` when multiple ``system``
-    messages are interleaved with ``user``/``assistant`` turns. Hoist all system content
-    into ``instructions`` and keep only dialogue roles in ``input``.
+    Ollama's ``/v1/responses`` returns empty ``output_text`` when ``system`` messages interleave
+    with dialogue turns, so system content is hoisted into ``instructions``.
     """
     system_parts: list[str] = []
     input_messages: list[dict[str, str]] = []

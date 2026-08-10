@@ -1,9 +1,7 @@
 """Simulation module for swarm_gpt.
 
-Before we deploy the choreography to the drones, we run a simulation to check if the modified paths
-from AMSwarm are collision-free and can be executed. While there is no guarantee that the
-trajectories work in reality, it is a good sanity check to ensure that the drones do not crash into
-each other or have to perform infeasible maneuvers.
+A pre-deploy sanity check that the AMSwarm paths are collision-free and flyable. It guarantees
+nothing about reality, but it does catch crashes and infeasible maneuvers.
 """
 
 from __future__ import annotations
@@ -38,18 +36,10 @@ TRAIL_RGBA = np.array([0.5, 0.5, 0.5, 0.0])
 def simulate_axswarm(
     waypoints: dict[str, NDArray], settings: dict, gui: bool = False
 ) -> dict[int, NDArray]:
-    """Run the crazyflow simulation from waypoints.
+    """Run the crazyflow simulation from waypoints, yielding progress then the sim log.
 
-    Args:
-        waypoints: The waypoints to fly to. Dictionary of drone IDs to waypoints. Each waypoint
-            consists of [time, x, y, z, vx, vy, vz].
-        settings: Settings for the simulation and AMSwarm.
-        gui: Flag to render the simulation.
-
-    Returns:
-        A collection of data from the simulation.
+    ``waypoints`` maps drone IDs to ``[time, x, y, z, vx, vy, vz]`` entries.
     """
-    # Set up the simulation
     sim = Sim(
         n_worlds=1,
         n_drones=waypoints["pos"].shape[0],
@@ -65,13 +55,11 @@ def simulate_axswarm(
     fps = 60
     sim.max_visual_geom = 100_000
 
-    # JIT compile the simulation
     sim.reset()
     sim.state_control(np.random.random((sim.n_worlds, sim.n_drones, 13)))
     sim.step(sim.freq // sim.control_freq)
     sim.reset()
 
-    # Set up solver
     solver_settings = {
         k: v if not isinstance(v, list) else np.asarray(v) for k, v in settings["axswarm"].items()
     }
@@ -106,14 +94,12 @@ def simulate_axswarm(
         "control freq {sim.control_freq} must be divisible by amswarm freq {solver_settings.freq}"
     )
 
-    # Set up initial states
     control = np.zeros((sim.n_worlds, sim.n_drones, 13), dtype=np.float32)
     pos = sim.data.states.pos.at[0, ...].set(waypoints["pos"][:, 0])
     sim.data = sim.data.replace(states=sim.data.states.replace(pos=pos))
     pos, vel = np.asarray(sim.data.states.pos[0]), np.asarray(sim.data.states.vel[0])
-    states, controls, solve_times = [], [], []  # logging variables
+    states, controls, solve_times = [], [], []
 
-    # Set up colours for tracking lines
     rng = np.random.default_rng(0)
     rgbas = rng.random((sim.n_drones, 4))
     rgbas[..., 3] = 1
@@ -140,14 +126,11 @@ def simulate_axswarm(
             control[0, :, :3] = solver_data.u_pos[:, 0]
             control[0, :, 3:6] = solver_data.u_vel[:, 0]
 
-            # Log inputs
             controls.append(control[0, :, :6].copy())
 
-        # Run the simulation
         sim.state_control(control)
         sim.step(sim.freq // sim.control_freq)
 
-        # Store the state
         states.append(
             np.concatenate(
                 (
@@ -160,7 +143,6 @@ def simulate_axswarm(
             )
         )
 
-        # Render simulation with visualizations of the planned trajectories
         if ((step * fps) % sim.control_freq) < fps and gui:
             for i in range(sim.n_drones):
                 draw_line(sim, solver_data.u_pos[i, :], rgba=rgbas[i % len(rgbas)])
@@ -193,41 +175,30 @@ def simulate_axswarm(
         "solve_times": np.array(solve_times),
     }
     yield "result", sim_log, "placeholder"
-    # return sim_log
 
 
-def paint_lighting(sim: Sim, lighting: LightingTimeline, t: float) -> None:
-    """Evaluate the lighting timeline at ``t`` and paint both LED rings.
+def paint_lighting(
+    sim: Sim, lighting: LightingTimeline, t: float, emission_gain: float = 1.0
+) -> None:
+    """Evaluate the lighting timeline at ``t`` and paint both LED rings, shared by both viewers.
 
-    Shared by the debug replay viewer below and `render.py`'s offline renderer. The two had this
-    same body twice and got it wrong the same two ways, and only one of them sits behind a
-    unit-testable seam — `render_preset` runs the whole backend, the axswarm pass and an offscreen
-    MuJoCo context. Holding the body here puts both behind one test.
-
-    Each ring gets **its own deck** of one `evaluate` call, because the two decks resolve
-    independently and painting both rings from one deck makes every ``deck="bot"`` action invisible
-    in the preview. `evaluate_rgb01` is the obvious read-out and is *not* used: it resolves both
-    decks internally and throws one away, doubling the work in a function that runs 60x/s in the
-    offline renderer. Its W-into-RGB fold is repeated here instead.
-
-    The timeline is read *from the ``t`` the caller passes* rather than once before a frame loop.
-    It is a function of time, so a hoisted read-out freezes the show on its first frame.
-
-    **It paints the LEDs and returns nothing.** Nothing else in a frame reads the lighting: the
-    trails are `TRAIL_RGBA`, one fixed grey.
-
-    Args:
-        sim: The simulation whose ``led_top`` and ``led_bot`` materials are painted.
-        lighting: The compiled lighting timeline.
-        t: Show time in seconds.
+    Each ring gets its own deck of one `evaluate` call, or ``deck="bot"`` actions are invisible.
+    ``emission_gain`` is kneed against the brightest channel, so it cannot clip or move a hue.
     """
     wrgb = lighting.evaluate(t)
     rgba = np.ones((sim.n_drones, 2, 4))
     rgba[..., :3] = np.clip((wrgb[..., 1:] + wrgb[..., :1]) / 255.0, 0.0, 1.0)
     drone_ids = np.arange(sim.n_drones)
-    emission = np.ones((sim.n_drones,))
-    for mat_name, deck in (("led_top", rgba[:, 0]), ("led_bot", rgba[:, 1])):
-        change_material(sim, mat_name=mat_name, drone_ids=drone_ids, rgba=deck, emission=emission)
+    peak = rgba[..., :3].max(axis=-1)
+    emission = emission_gain / (1.0 + (emission_gain - 1.0) * peak)
+    for mat_name, deck_idx in (("led_top", 0), ("led_bot", 1)):
+        change_material(
+            sim,
+            mat_name=mat_name,
+            drone_ids=drone_ids,
+            rgba=rgba[:, deck_idx],
+            emission=emission[:, deck_idx],
+        )
 
 
 def replay_sim_states(
@@ -236,14 +207,10 @@ def replay_sim_states(
     lighting: LightingTimeline,
     music_manager: MusicManager | None = None,
 ) -> None:
-    """Replay a previously recorded Crazyflow state log in MuJoCo.
+    """Replay a recorded Crazyflow state log in MuJoCo as a debug viewer.
 
-    This is a debug viewer for the exact states produced by ``simulate_axswarm``. Unlike
-    ``simulate_spline``, it does not run another controller/physics pass.
-
-    ``lighting`` drives the LED colours per frame; the trails are `TRAIL_RGBA` and do not follow
-    it, so the only colour on screen is the lighting. A choreography with no lighting still
-    compiles to the default hue wheel, so there is no colourless case to handle.
+    Unlike ``simulate_spline``, this runs no further controller/physics pass. ``lighting`` drives
+    the LED colours per frame; the trails are `TRAIL_RGBA` and do not follow it.
     """
     timestamps = np.asarray(sim_data["timestamps"], dtype=float)
     states = np.asarray(sim_data["states"], dtype=np.float32)

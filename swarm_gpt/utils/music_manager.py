@@ -28,11 +28,7 @@ class MusicManager:
     min_beat_time: float = 2.0  # Minimum time between beats in seconds
 
     def __init__(self, music_dir: Path):
-        """Read in all available songs from the music directory.
-
-        Args:
-            music_dir: Path to the music directory.
-        """
+        """Read in all available songs from the music directory."""
         self.music_dir = music_dir
         self.songs = [f.stem for f in music_dir.glob("*.mp3") if not f.stem.endswith("[deploy]")]
         assert not any("|" in s for s in self.songs), "Songs cannot contain |"
@@ -76,11 +72,7 @@ class MusicManager:
 
     @song.setter
     def song(self, song: str):
-        """Set the song to choreograph.
-
-        Args:
-            song: The song to choreograph. This song needs to be present in the music directory.
-        """
+        """Set the song to choreograph; it must be present in the music directory."""
         assert (self.music_dir / (song + ".mp3")).is_file(), "Song not found in music dir"
         self._song = song
 
@@ -93,8 +85,7 @@ class MusicManager:
     def verify_libvlc(self) -> bool:
         """Return True if the native VLC library can be initialized.
 
-        ``import vlc`` only checks the ``python-vlc`` package; libvlc must be installed
-        separately (e.g. ``sudo apt install vlc`` on Linux, VLC.app on macOS).
+        ``import vlc`` only checks the ``python-vlc`` package; libvlc is installed separately.
         """
         try:
             self._get_vlc_instance()
@@ -111,16 +102,9 @@ class MusicManager:
         start_s: float = 0.0,
         end_s: float | None = None,
     ) -> bool:
-        """Play the song with VLC.
+        """Play the song with VLC over ``[start_s, end_s]``, returning True if it accepted.
 
-        Args:
-            wait: If True, block briefly until VLC reports active playback.
-            timeout: Maximum time to wait for playback to start.
-            start_s: Seek to this offset in seconds before playback begins.
-            end_s: Stop playback at this offset in seconds. ``None`` plays to the end of the file.
-
-        Returns:
-            True if VLC accepted the play request and, when ``wait`` is set, started playback.
+        ``wait`` blocks up to ``timeout`` seconds until VLC reports active playback.
         """
         assert self.song, "Song not set"
         media_path = str(self.music_dir / (self.song + ".mp3"))
@@ -197,37 +181,20 @@ class MusicManager:
         return music_info
 
     def dbfs(self) -> np.ndarray:
-        """Compute the dBFS of the song.
-
-        Returns:
-            The dBFS of the song.
-        """
-        # RMS energy
+        """Compute the dBFS of the song from its RMS energy."""
         path = self.music_dir / (self.song + ".mp3")
         assert path.exists(), "Could not find the song in the music directory"
         wav, sr = librosa.load(path)
         N = max(int(0.2 * sr), 1)  # 200ms window size
         H = max(int(0.02 * sr), 1)  # 20ms hop size
         rms = librosa.feature.rms(y=wav, frame_length=N, hop_length=H)[0]
-        # Convert to dBFS
         return 20 * np.log10(np.abs(rms) + np.finfo(float).eps)
 
     def spectral_novelty(self, song: str) -> tuple[np.ndarray, int]:
-        """Compute the novelty of the song using a spectral approach.
+        """Compute the song's spectral novelty, returning it with its sample rate.
 
-        See https://www.audiolabs-erlangen.de/resources/MIR/FMP/C6/C6S1_OnsetDetection.html for more
-        information.
-
-        Note:
-            This function calls the libfmp library, which uses numba to jit compile its code. This
-            may cause the first call to this function to take longer for each session. Subsequent
-            calls in the same session are faster.
-
-        Args:
-            song: The song to compute the novelty for.
-
-        Returns:
-            The novelty of the song and the sample rate.
+        See https://www.audiolabs-erlangen.de/resources/MIR/FMP/C6/C6S1_OnsetDetection.html. The
+        first call per session is slow: libfmp jit-compiles through numba.
         """
         path = self.music_dir / (song + ".mp3")
         assert path.exists(), "Could not find the song in the music directory"
@@ -244,17 +211,9 @@ class MusicManager:
         return nov, fs_nov
 
     def _peak_detection(self, nov: np.ndarray, fs_nov: int) -> np.ndarray:
-        """Find the peaks in the novelty of the song for musical onset detection.
+        """Find the novelty-function peak indices for musical onset detection.
 
-        See https://www.audiolabs-erlangen.de/resources/MIR/FMP/C6/C6S1_PeakPicking.html for more
-        information.
-
-        Args:
-            nov: The novelty function of the song.
-            fs_nov: The sample rate of the novelty function.
-
-        Returns:
-            The indices of the peaks in the novelty function.
+        See https://www.audiolabs-erlangen.de/resources/MIR/FMP/C6/C6S1_PeakPicking.html.
         """
         distance = self.min_beat_time * fs_nov  # minimum distance between peaks
         peak_idx, _ = find_peaks(
@@ -263,26 +222,14 @@ class MusicManager:
         return peak_idx
 
     def chord_analysis(self, song: str, plot: bool = False) -> list[str]:
-        """Perform chord analysis on the song.
+        """Perform chord analysis on the song, optionally plotting the chromagram.
 
-        See https://www.audiolabs-erlangen.de/resources/MIR/FMP/C5/C5S3_ChordRec_HMM.html
-
-        Note:
-            This function calls the libfmp library, which uses numba to jit compile its code. This
-            may cause the first call to this function to take longer for each session. Subsequent
-            calls in the same session are faster.
-
-        Args:
-            song: The song to perform the chord analysis on.
-            plot: Whether to plot the chords or not.
-
-        Returns:
-            The chords of the song.
+        See https://www.audiolabs-erlangen.de/resources/MIR/FMP/C5/C5S3_ChordRec_HMM.html. The
+        first call per session is slow: libfmp jit-compiles through numba.
         """
         path = self.music_dir / (song + ".mp3")
         assert path.exists(), "Could not find the song in the music directory"
         wav, sr = librosa.load(path)
-        # Create chroma Short-Time Fourier Transform features
         N = max(int(0.2 * sr), 1)  # 0.2 seconds
         H = max(int(0.02 * sr), 1)
         chords = librosa.feature.chroma_stft(
@@ -293,7 +240,7 @@ class MusicManager:
         C = 1 / 24 * np.ones((1, 24))
         chord_HMM, _, _, _ = libfmp.c5.viterbi_log_likelihood(A, C, chord_sim)
         chord_labels = libfmp.c5.get_chord_labels()
-        if plot:  # Plot the chromagram
+        if plot:
             librosa.display.specshow(
                 10 * np.log10(chords + np.finfo(float).eps),
                 x_axis="time",
@@ -308,10 +255,8 @@ class MusicManager:
     def animate_peaks(self):
         """Play the song, plot its novelty peaks and animate the current time as a moving line."""
         assert self.song, "Song not set"
-        # Detect peaks
         nov, fs_nov = self.spectral_novelty(self.song)
         peak_idx = self._peak_detection(nov, fs_nov)
-        # Create plot
         plt.ion()
         fig, ax = plt.subplots(1, 1, figsize=(13, 5))
         t_nov = np.linspace(0, self.song_length, len(nov))
@@ -324,7 +269,6 @@ class MusicManager:
         ax.scatter(t_nov[peak_idx], nov[peak_idx], c="r", label="Novelty peaks")
         ax.legend()
         t_bar = ax.plot([0, 0], [0, 1], c="b")
-        # Play the song, animate current time as blue line on the novelty plot
         self.play()
         while not self.is_playing:
             time.sleep(0.001)  # Wait for the player to start
@@ -334,5 +278,4 @@ class MusicManager:
             t_bar[0].set_xdata([dt, dt])
             fig.canvas.draw()
             fig.canvas.flush_events()
-            # Reduce loop iterations
-            time.sleep(0.001)
+            time.sleep(0.001)  # Keep the redraw loop off a busy spin

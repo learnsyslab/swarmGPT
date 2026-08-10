@@ -14,6 +14,7 @@ from swarm_gpt.core.lighting import LIGHTING_PRIMITIVES, Look, build_look, load_
 from swarm_gpt.core.structured_output_schema import (
     LIGHTING_PRIMITIVE_ARG_ORDER,
     action_to_lighting_primitive,
+    action_to_motion_primitive,
     build_motion_primitive_response_schema,
     decode_key,
     encode_key,
@@ -388,8 +389,6 @@ def test_form_cone_schema_includes_time_to_finish_s():
     assert "time_to_finish_s" in form_cone_variant["properties"]["params"]["required"]
 
 
-# --- lighting track -------------------------------------------------------------------------------
-
 # The catalogue, restated deliberately: this table is the pin between the documented
 # parameter names and what the schema actually offers. Deriving it from the code would test nothing.
 LIGHTING_CATALOGUE: dict[str, list[str]] = {
@@ -478,10 +477,8 @@ def test_schema_carries_a_lighting_track_keyed_to_all_keys():
 def test_the_lighting_track_points_at_the_lighting_action_list():
     """The two tracks share a shape but not a vocabulary, and the `$ref` is where that lives.
 
-    Pointing `lighting`'s `actions` at `#/$defs/action_list` leaves the lighting action schema
-    perfectly valid but orphaned — nothing references it — and tells the model to emit *motion*
-    primitives into the lighting array. Every other assertion here reads `$defs` directly, so all
-    of them still pass; only the reference itself says which vocabulary the track carries.
+    Pointing `lighting`'s `actions` at the motion `action_list` orphans the lighting schema and
+    tells the model to emit motion primitives. Every other assertion here reads `$defs` directly.
     """
     schema = _lighting_schema()
     tracks = schema["properties"]
@@ -507,10 +504,8 @@ def test_lighting_colour_enum_is_exactly_the_shipped_palette():
 def test_lighting_colour_enum_is_resolved_when_the_schema_is_built(monkeypatch: pytest.MonkeyPatch):
     """The palette is read at schema-build time, not at import.
 
-    This module is imported widely, so reading `lighting.toml` from disk at import made a
-    malformed calibration file an import error — surfacing far from its cause, and unfixable by
-    anything downstream. Patching the loader and seeing the new palette in the enum is what says
-    the read happens where it can be reasoned about.
+    This module is imported widely, so an import-time read made a malformed calibration file an
+    import error, surfacing far from its cause.
     """
     trimmed = dataclasses.replace(LIGHTING_CFG, palette={"red": LIGHTING_CFG.palette["red"]})
     monkeypatch.setattr(
@@ -680,9 +675,6 @@ def test_action_to_lighting_primitive_rejects_wrong_params():
         action_to_lighting_primitive(action)
 
 
-# --- lighting prompt ------------------------------------------------------------------------------
-
-
 def _choreographer() -> Choreographer:
     return Choreographer(
         config_file=virtual_crazyswarm_config(n_drones=4),
@@ -700,8 +692,7 @@ def _lighting_prompt_section() -> str:
 def _json_objects_at(text: str, marker: str) -> list[dict[str, Any]]:
     """Every complete JSON object in ``text`` beginning at ``marker``, found by brace matching.
 
-    Candidates containing the prompt's own ``...`` placeholder are skipped; anything else that
-    fails to parse is a real syntax error in the prompt and is allowed to raise.
+    Candidates holding the prompt's ``...`` placeholder are skipped; other parse failures raise.
     """
     objects: list[dict[str, Any]] = []
     for start in (i for i in range(len(text)) if text.startswith(marker, i)):
@@ -757,10 +748,8 @@ def _prompt_spread_enumeration() -> str:
 def test_lighting_prompt_documents_every_primitive_signature_exactly():
     """The prose signatures are the fourth place a lighting parameter lives.
 
-    Only the structured JSON examples below were validated; the signature lines the model actually
-    reads were merely grepped for `name(`. That is the shape of the `form_circle` bug this repo
-    already shipped: dropping `duty` from `blink`, or renaming `sweep`'s `axis` to `direction`,
-    leaves the model unable to emit a call the parser will accept and nothing notices.
+    Only the JSON examples were validated; the signature lines the model reads were merely grepped
+    for `name(`. That is the shape of the `form_circle` bug this repo already shipped.
     """
     assert _documented_signatures() == dict(LIGHTING_PRIMITIVE_ARG_ORDER)
 
@@ -778,8 +767,7 @@ def test_lighting_prompt_offers_exactly_the_selector_vocabulary():
 def test_lighting_prompt_documents_ids_as_one_indexed():
     """`select` shifts `ids` down by one, and rejects 0 outright.
 
-    Advertising a 0-indexed list is therefore an off-by-one on every `ids` selection the model
-    writes, and an outright failure whenever it picks the first drone.
+    Advertising 0-indexed ids is an off-by-one on every selection, and a failure on drone 1.
     """
     ids_line = next(
         line for line in _prompt_sel_block().splitlines() if line.strip().startswith("ids")
@@ -822,9 +810,8 @@ def _prompt_bullet(name: str) -> str:
 def test_lighting_prompt_says_which_formations_collapse_a_spatial_spread():
     """A spread with no extent to run along degrades into a synchronised blink.
 
-    `sweep(axis="z")` over any `form_circle` or `form_star` output, and `ripple_light` over a ring,
-    are both natural things to author and both silently stop travelling. The engine logs it, but
-    only the prompt can stop the model writing it in the first place.
+    `sweep(axis="z")` over a `form_circle`, and `ripple_light` over a ring, are natural to author
+    and silently stop travelling. Only the prompt stops the model writing them.
     """
     assert "extent" in _prompt_bullet("sweep"), "sweep needs spread along its axis"
     assert "flat" in _prompt_bullet("sweep"), "and z is the axis a formation usually lacks"
@@ -834,8 +821,8 @@ def test_lighting_prompt_says_which_formations_collapse_a_spatial_spread():
 def test_lighting_prompt_restricts_group_size_to_the_ranked_spreads():
     """`group_size` buckets a rank, and only `neighbour` and `index` produce one.
 
-    The engine rejects the other combinations rather than ignoring them, so a prompt that offers
-    `group_size` as unconditional spends a reprompt on every emission that pairs it with `x`.
+    The engine rejects the other combinations, so an unconditional prompt spends a reprompt on
+    every emission pairing `group_size` with `x`.
     """
     bullet = _prompt_bullet("chase")
     assert "group_size" in bullet
@@ -862,3 +849,93 @@ def test_output_format_structured_lighting_examples_are_valid_actions():
     assert {action["primitive"] for action in examples} >= {"light_color", "pulse", "chase"}
     for action in examples:
         assert action_to_lighting_primitive(action).startswith(action["primitive"] + "(")
+
+
+def _form_circle_variant(schema: dict) -> dict:
+    return next(
+        v
+        for v in schema["$defs"]["action"]["anyOf"]
+        if v["properties"]["primitive"]["enum"] == ["form_circle"]
+    )
+
+
+def test_drone_ids_is_a_pattern_constrained_string():
+    """The array form costs hundreds of tokens at 100 drones; the schema now asks for "1-50"."""
+    structure = _simple_structure(n_segments=1, n_bars=1, n_beats=1)
+    schema = build_motion_primitive_response_schema(
+        all_keys=structure.all_keys(), required_keys=structure.required_keys(), num_drones=100
+    )
+    drone_ids = _form_circle_variant(schema)["properties"]["params"]["properties"]["drone_ids"]
+    assert drone_ids["type"] == "string"
+    pattern = re.compile(drone_ids["pattern"])
+    assert pattern.match("1-50") and pattern.match("7") and pattern.match("1-20,31,45-60")
+    assert not pattern.match("[1,2,3]")
+    assert not pattern.match("1-")
+    assert not pattern.match("")
+
+
+def test_action_to_motion_primitive_renders_the_compact_form():
+    action = {
+        "primitive": "form_circle",
+        "params": {
+            "drone_ids": "1-50",
+            "radius_cm": 120,
+            "z_coord_cm": 110,
+            "time_to_finish_s": 1.0,
+        },
+    }
+    assert action_to_motion_primitive(action) == "form_circle('1-50', 120, 110, 1.0)"
+
+
+def test_action_to_motion_primitive_still_renders_plain_lists():
+    """Saved presets replay through this path, so the list form must keep converting."""
+    action = {"primitive": "move_z", "params": {"drone_ids": [1, 2, 3], "delta_cm": 30}}
+    assert action_to_motion_primitive(action) == "move_z([1, 2, 3], 30)"
+
+
+def test_structured_payload_accepts_range_specs():
+    config_path = virtual_crazyswarm_config(n_drones=4)
+    choreographer = Choreographer(
+        config_file=config_path, llm_provider="openai", use_motion_primitives=True
+    )
+    payload = {
+        "choreography": [
+            {
+                "key": "s1b1t1",
+                "actions": [
+                    {
+                        "primitive": "form_circle",
+                        "params": {
+                            "drone_ids": "1-2",
+                            "radius_cm": 100,
+                            "z_coord_cm": 100,
+                            "time_to_finish_s": 1.5,
+                        },
+                    },
+                    {"primitive": "move_z", "params": {"drone_ids": "3-4", "delta_cm": 10}},
+                ],
+            }
+        ]
+    }
+    assert choreographer._structured_payload_to_choreography(payload) == {
+        (1, 1, 1): "form_circle('1-2', 100, 100, 1.5); move_z('3-4', 10)"
+    }
+
+
+@pytest.mark.parametrize(
+    ("spec", "message"), [("1-50,50-100", "more than once"), ("50-1", "runs backwards")]
+)
+def test_conversion_rejects_bad_specs_before_the_primitive_runs(spec: str, message: str):
+    """Caught at conversion time so the reprompt loop gets a precise, early message."""
+    action = {
+        "primitive": "form_circle",
+        "params": {"drone_ids": spec, "radius_cm": 120, "z_coord_cm": 110, "time_to_finish_s": 1.0},
+    }
+    with pytest.raises(LLMFormatError, match=message):
+        action_to_motion_primitive(action)
+
+
+def test_conversion_still_rejects_duplicate_ids_in_a_list():
+    action = {"primitive": "center", "params": {"drone_ids": [1, 2, 2]}}
+    with pytest.raises(LLMFormatError, match="unique drone_ids"):
+        action_to_motion_primitive(action)

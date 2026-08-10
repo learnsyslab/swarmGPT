@@ -1,5 +1,6 @@
 """Motion primitive library."""
 
+import re
 import sys
 from types import EllipsisType
 from typing import Callable
@@ -52,8 +53,7 @@ def rotate(
     """Rotate all drones by angle theta."""
     angle, axis = params
     angle = np.deg2rad(float(angle))
-    steps = max(1, min(int(tend - tstart), 2))  # Number of steps to rotate
-    # override rotation to be around z axis atm
+    steps = max(1, min(int(tend - tstart), 2))
     if "z" in axis:
         axis = np.array([0, 0, 1])
     elif "y" in axis:
@@ -63,12 +63,11 @@ def rotate(
     else:
         raise LLMFormatError("Invalid axis for rotation")
     max_radius = np.max(np.linalg.norm(swarm_pos[..., :2], axis=-1))
-    vmax = 1.0  # Maximum velocity in m/s
+    vmax = 1.0  # m/s
     max_angle = (vmax * 100) / max_radius * (tend - tstart)
     angle = np.clip(angle, -max_angle, max_angle)
     r = R.identity() if steps == 0 else R.from_rotvec(axis * angle / steps)
 
-    # Apply the rotation to the vector
     waypoints = {}
     for t in np.linspace(tstart, tend, steps + 1)[1:]:
         swarm_pos = r.apply(swarm_pos)
@@ -86,14 +85,12 @@ def spiral(
     """Spiral primitive."""
     n_drones = swarm_pos.shape[0]
     steps, height = params
-    # steps = 4
-    min_spacing = 60  # Minimum distance between drones in cm
+    min_spacing = 60  # cm
 
-    # Calculate the circumference needed to place all drones with at least the minimum spacing
+    # Chord formula: the radius whose circumference seats every drone min_spacing apart.
     start_radius = min_spacing / (2 * np.sin(np.pi / n_drones))
     end_radius = min(2 * start_radius, limits["upper"][0] * 100)
     angles = np.linspace(0, 2 * np.pi, n_drones, endpoint=False)
-    # Match start positions to drones
     x = start_radius * np.cos(angles)
     y = start_radius * np.sin(angles)
     # TODO: Vary height over time?
@@ -104,8 +101,7 @@ def spiral(
     waypoints = {}
     for t in np.linspace(tstart, tend, steps + 1)[1:]:
         radius = start_radius + (end_radius - start_radius) * ((t - tstart) / (tend - tstart))
-        # Either full rotation around the circle or max angular velocity with 100cm/s linear
-        # velocity hard-coded as drone limit
+        # Whichever is slower: a full revolution, or the 100 cm/s linear velocity drone limit.
         rot_rate = min(100 / radius, 2 * np.pi / (tend - tstart))
         angles += rot_rate * dt
         swarm_pos = np.array(
@@ -125,14 +121,13 @@ def spiral_speed(
     """Spiral primitive with speed control."""
     steps, height, degrees, increase = params
     n_drones = swarm_pos.shape[0]
-    min_spacing = 60  # Minimum distance between drones in cm
+    min_spacing = 60  # cm
     steps = max(1, min(int(tend - tstart), 2))
 
-    # Calculate the circumference needed to place all drones with at least the minimum spacing
+    # Chord formula: the radius whose circumference seats every drone min_spacing apart.
     start_radius = min_spacing / (2 * np.sin(np.pi / n_drones))
     end_radius = min(increase * start_radius, limits["upper"][0] * 100)
     angles = np.linspace(0, 2 * np.pi, n_drones, endpoint=False)
-    # Match start positions to drones
     x = start_radius * np.cos(angles)
     y = start_radius * np.sin(angles)
     des_pos = np.array([x, y, [height] * n_drones]).T
@@ -142,8 +137,7 @@ def spiral_speed(
     waypoints = {}
     for t in np.linspace(tstart, tend, steps + 1)[1:]:
         radius = start_radius + (end_radius - start_radius) * ((t - tstart) / (tend - tstart))
-        # Either full rotation around the circle or max angular velocity with 100cm/s linear
-        # velocity hard-coded as drone limit
+        # Whichever is slower: the requested sweep, or the 100 cm/s linear velocity drone limit.
         rot_rate = min(100 / radius, np.deg2rad(degrees) / (tend - tstart))
         angles += rot_rate * dt
         des_pos = np.array(
@@ -161,16 +155,12 @@ def zig_zag(
     tend: float,
     limits: dict[str, NDArray],
 ) -> tuple[NDArray, dict[float, dict[int, NDArray]]]:
-    """Moves drones in a zigzag pattern.
+    """Move drones in a zigzag pattern, with ``params`` of ``[steps, delta, delta_h]``.
 
-    Params:
-        params: [steps, delta, delta_h]
-        steps: Number of steps (an integer).
-        delta: Horizontal displacement per step (an integer).
-        delta_h: Vertical displacement per step (an integer).
+    ``delta`` is the horizontal displacement per step and ``delta_h`` the vertical one.
     """
     steps, delta, delta_h = params
-    delta = abs(delta)  # Ensure delta is positive for displacement
+    delta = abs(delta)
     delta_xy = np.abs(np.array([delta, delta, 0]))
     delta_z = np.array([0, 0, delta_h])
 
@@ -181,7 +171,7 @@ def zig_zag(
             pos = _form_grid(swarm_pos, limits=limits)
             waypoints[t] = {i: p.copy() for i, p in enumerate(pos)}
             continue
-        displacement_factor = (-1) ** i  # Alternates between 1 and -1
+        displacement_factor = (-1) ** i
         pos += displacement_factor * delta_xy + delta_z
         waypoints[t] = {i: p.copy() for i, p in enumerate(pos)}
 
@@ -195,22 +185,18 @@ def helix(
     tend: float,
     limits: dict[str, NDArray],
 ) -> tuple[NDArray, dict[float, dict[int, NDArray]]]:
-    """Helix primitive.
-
-    Drones rise up and circle around the center at the same time.
-    """
+    """Rise the drones up while they circle around the center."""
     steps, delta_h, height = params
     n_drones = swarm_pos.shape[0]
-    min_spacing = 60  # Minimum distance between drones in cm
-    # Calculate the circumference needed to place all drones with at least the minimum spacing
+    min_spacing = 60  # cm
+    # Chord formula: the radius whose circumference seats every drone min_spacing apart.
     radius = min_spacing / (2 * np.sin(np.pi / n_drones))
     angles = np.linspace(0, 2 * np.pi, n_drones, endpoint=False)
-    # Match start positions to drones
     x = radius * np.cos(angles)
     y = radius * np.sin(angles)
     des_pos = np.array([x, y, [height] * n_drones]).T
     assignment = _assign_positions(swarm_pos, des_pos)
-    vmax = 100  # Maximum velocity in cm/s
+    vmax = 100  # cm/s
     rot_rate = min(vmax / radius, 2 * np.pi / (tend - tstart))
     dt = (tend - tstart) / steps
 
@@ -234,39 +220,28 @@ def wave(
     tend: float,
     limits: dict[str, NDArray],
 ) -> tuple[NDArray, dict[float, dict[int, NDArray]]]:
-    """Specific wave pattern.
-
-    Args:
-        params: [steps, height_cm]
-        swarm_pos: Current positions of the drones.
-        tstart: Start time of the primitive.
-        tend: End time of the primitive.
-        limits: Spatial limits for the drones.
-    """
+    """Run a standing-wave pattern over a grid, with ``params`` of ``[steps, height_cm]``."""
     steps, height = params
     steps = int(steps)
     # TODO: Tune default values
     a = 100.0  # Rectangle length
-    b = 100.0  # Rectangle Width
+    b = 100.0  # Rectangle width
     c = np.pi  # Speed of wave propagation
-    a_mu = np.array([[0.0, 0.0, 0.25]])  # Shape: (N, 3)
-    b_mu = np.array([[0.0, 0.0, 0.25]])  # Shape: (N, 3)
-    mu1_mu2 = np.array([[0.4, 0.4]])  # Shape: (N, 2)
-    height = max(height, 150)  # Restrict to 75cm for ground effect avoidance
+    a_mu = np.array([[0.0, 0.0, 0.25]])  # (N, 3)
+    b_mu = np.array([[0.0, 0.0, 0.25]])  # (N, 3)
+    mu1_mu2 = np.array([[0.4, 0.4]])  # (N, 2)
+    height = max(height, 150)  # Floored to stay out of ground effect.
 
     # Frequencies dictated by dispersion relation
     omega = c * np.pi * np.sqrt((mu1_mu2[:, 0] ** 2) / a**2 + (mu1_mu2[:, 1] ** 2) / b**2)
 
-    # Arrange all drones in a grid like formation
     grid_time = np.linspace(tstart, tend, steps + 1)[1]
-    # First step is to form a grid
     waypoints = {}
     swarm_pos = _form_grid(swarm_pos, limits=limits, height=height, spacing=50)
     waypoints[grid_time] = {i: p.copy() for i, p in enumerate(swarm_pos)}
 
     start_pos = swarm_pos.copy()
     for t in np.linspace(tstart, tend, steps + 1)[2:]:
-        # Calculate all sum terms vectorized
         sin_mu1 = np.sin(mu1_mu2[None, :, 0] / a * np.pi * start_pos[:, [0]])  # (n_drones, N)
         sin_mu2 = np.sin(mu1_mu2[None, :, 1] / b * np.pi * start_pos[:, [1]])  # (n_drones, N)
         sin2_term = sin_mu1 * sin_mu2  # (n_drones, N)
@@ -298,7 +273,7 @@ def form_star(
     drones_per_circle = n_drones // 2
     height = int(height)
 
-    # Calculate the circumference needed to place all drones with at least the minimum spacing
+    # Chord formula: the radius whose circumference seats every drone min_spacing apart.
     radius = min_spacing / (2 * np.sin(np.pi / drones_per_circle))
 
     radii = [radius, radius + delta_radius]
@@ -313,7 +288,7 @@ def form_star(
             des_pos = np.array([x, y, [height] * drones_per_circle]).T
         else:
             des_pos = np.vstack([des_pos, np.array([x, y, [height] * drones_per_circle]).T])
-    # If odd number of drones, put the drone at the center
+    # An odd swarm leaves one drone over; it goes in the centre.
     if n_drones != drones_per_circle * 2:
         des_pos = np.vstack([des_pos, np.array([0, 0, height]).T])
 
@@ -334,14 +309,12 @@ def form_cone(
     delta_height, spacing, is_inverted, time_to_finish_s = params
     n_drones = swarm_pos.shape[0]
 
-    # Define limits
     start_height = (limits["lower"][2] if is_inverted else limits["upper"][2]) * 100
     delta_height = delta_height * (1 if is_inverted else -1)
 
     drones_left = n_drones
     drone_increase_per_layer = 4
 
-    # Place first drone
     radius = 0
     z = start_height
     des_pos = np.array([0, 0, z]).T
@@ -382,20 +355,32 @@ def twister(
     # LLM will output omega that is 10x to avoid decimals. TODO: Change this
     omega = omega / 10
     max_omega = 2
-    omega = min(omega, max_omega)  # Restrict angular velocity
+    omega = min(omega, max_omega)
 
     lim_lower, lim_upper = limits["lower"], limits["upper"]
-    max_radius = min(np.min(lim_upper[:2] - lim_lower[:2] * 100) / 2, 400)
-    min_radius = 30
+    min_spacing = 60  # cm
+    turns = 2  # Full revolutions the helix winds through
+    # The drones are spread evenly along the winding, so consecutive ones sit
+    # 2*pi*turns/(n_drones - 1) apart in angle and the innermost pair is the tightest. Size the
+    # inner radius from that step the way the ring primitives do, rather than from a fixed 30cm
+    # that only cleared the collision envelope for a handful of drones. Capped at a half turn so
+    # a swarm small enough to put neighbours on opposite sides does not inflate the cone.
+    half_step = min(np.pi * turns / max(n_drones - 1, 1), np.pi / 2)
+    min_radius = min_spacing / (2 * np.sin(half_step))
+    # The cone opens out to fill the arena. Small swarms lean on that taper for their spacing:
+    # at n_drones - 1 <= turns the angular step is a whole revolution, so every drone lands on
+    # one ray and only the radial step keeps them apart. Floored at the inner radius so a swarm
+    # too large for the arena keeps its spacing and reaches past the limits, as helix does.
+    arena_radius = np.min(lim_upper[:2] - lim_lower[:2]) * 100 / 2
+    max_radius = max(float(arena_radius), min_radius)
 
     z_center = 100 * (lim_lower[2] + (lim_upper[2] - lim_lower[2]) / 2)
     max_height = min(z_center + z_spacing * n_drones / 2, lim_upper[2] * 100)
     min_height = max(z_center - z_spacing * n_drones / 2, lim_lower[2] * 100)
 
-    # Calculate the radius and height for each drone
     radius = np.linspace(min_radius, max_radius, n_drones)
     z = np.linspace(min_height, max_height, n_drones)
-    angles = np.linspace(0, 4 * np.pi, n_drones)
+    angles = np.linspace(0, 2 * np.pi * turns, n_drones)
     x = radius * np.cos(angles)
     y = radius * np.sin(angles)
     des_pos = np.array([x, y, z]).T
@@ -413,7 +398,7 @@ def twister(
 
 
 def center(
-    params: tuple[list[int]],
+    params: tuple[str | list[int]],
     swarm_pos: NDArray,
     tstart: float,
     tend: float,
@@ -423,8 +408,8 @@ def center(
     drone_ids = _sanitize_drone_ids(params[0], swarm_pos.shape[0])
     n_drones = len(drone_ids)
     centroid = np.mean(swarm_pos, axis=0)
-    min_spacing = 60  # Minimum distance between drones in cm
-    # Calculate the circumference needed to place all drones with at least the minimum spacing
+    min_spacing = 60  # cm
+    # Chord formula: the radius whose circumference seats every drone min_spacing apart.
     radius = min_spacing / (2 * np.sin(np.pi / n_drones))
     angles = np.linspace(0, 2 * np.pi, n_drones, endpoint=False)
     x = radius * np.cos(angles)
@@ -439,7 +424,7 @@ def center(
 
 
 def form_circle(
-    params: tuple[list[int], int, int, float],
+    params: tuple[str | list[int], int, int, float],
     swarm_pos: NDArray,
     tstart: float,
     tend: float,
@@ -450,7 +435,7 @@ def form_circle(
     drone_ids = _sanitize_drone_ids(drone_ids, swarm_pos.shape[0])
     n_drones = len(drone_ids)
     z_coord = int(z_coord_cm)
-    min_spacing = 80  # Minimum distance between drones in cm
+    min_spacing = 80  # cm
     min_radius = min_spacing / (2 * np.sin(np.pi / n_drones))
     # Respect LLM-specified radius but enforce minimum safe spacing
     radius = max(float(radius_cm), min_radius)
@@ -506,7 +491,7 @@ def swap(
 
 
 def move_z(
-    params: tuple[list[int], int],
+    params: tuple[str | list[int], int],
     swarm_pos: NDArray,
     tstart: float,
     tend: float,
@@ -548,11 +533,9 @@ def _form_grid(
     spacing: int | None = None,
 ) -> NDArray:
     """Form a grid of drones at the current position."""
-    # Get the number of rows and columns
     n_drones = swarm_pos.shape[0]
     rows = int(np.sqrt(n_drones))
     cols = int(np.ceil(n_drones / rows))
-    # Get the spacing between the drones
     min_spacing = 50
     spacing = min_spacing if spacing is None else max(spacing, min_spacing)
     x, y = np.meshgrid(np.arange(cols) * spacing, np.arange(rows) * spacing)
@@ -577,9 +560,69 @@ def _form_grid(
     return des_pos[assignment]
 
 
-def _sanitize_drone_ids(drone_ids: list[int], n_drones: int) -> list[int]:
+# Comma-separated 1-indexed ids and inclusive ranges, e.g. "1-50" or "1-20,31,45-60". Also the
+# `pattern` the structured-output schema puts on `drone_ids`, so the syntax the model is
+# constrained to and the syntax the backend accepts are one string. `expand_drone_id_spec`
+# additionally tolerates whitespace around the tokens, so a preset is not rejected over a space.
+DRONE_ID_SPEC_PATTERN = r"^\d+(-\d+)?(,\d+(-\d+)?)*$"
+_DRONE_ID_TOKEN_RE = re.compile(r"^(\d+)(?:-(\d+))?$")
+
+
+def expand_drone_id_spec(spec: str) -> list[int]:
+    """Expand a compact drone selection into the explicit 1-indexed ids it names, in order.
+
+    BOTH ENDPOINTS OF A RANGE ARE INCLUSIVE: ``"1-50"`` contains drone 50, so the next block starts
+    at 51. A drone named twice is rejected rather than flown to two targets at once.
+    """
+    if not isinstance(spec, str):
+        raise LLMFormatError(f"Drone IDs must be a range string like '1-50', got {spec}")
+    ids: list[int] = []
+    seen: set[int] = set()
+    for token in spec.split(","):
+        token = token.strip()
+        match = _DRONE_ID_TOKEN_RE.match(token)
+        if match is None:
+            raise LLMFormatError(
+                f"Drone ID selection '{spec}' is malformed at '{token}'. Write comma-separated "
+                "ids and inclusive ranges, e.g. '7', '1-50' or '1-20,31,45-60'"
+            )
+        start = int(match.group(1))
+        end = int(match.group(2)) if match.group(2) is not None else start
+        if start > end:
+            raise LLMFormatError(
+                f"Drone ID range '{token}' in '{spec}' runs backwards. Write it as '{end}-{start}'"
+            )
+        if start < 1:
+            raise LLMFormatError(f"Drone IDs are 1-indexed, but '{spec}' names drone 0")
+        block = range(start, end + 1)
+        if repeated := sorted(seen.intersection(block)):
+            raise LLMFormatError(
+                f"Drone ID selection '{spec}' names drone(s) {repeated} more than once. Range "
+                "endpoints are inclusive, so consecutive blocks must not share one: split the "
+                "swarm as '1-50' then '51-100', never '1-50' then '50-100'"
+            )
+        seen.update(block)
+        ids.extend(block)
+    return ids
+
+
+def _sanitize_drone_ids(drone_ids: str | list[int], n_drones: int) -> list[int]:
+    """Resolve a 1-indexed drone selection into 0-indexed swarm indices, in selection order.
+
+    Accepts the compact spec the LLM emits (``"1-50"``), a plain 1-indexed list, or a list holding
+    ``...`` for the whole swarm. Bounds on the list form are left to callers (`lighting.select`).
+    """
+    if isinstance(drone_ids, str):
+        ids = expand_drone_id_spec(drone_ids)
+        if out_of_range := sorted({i for i in ids if i > n_drones}):
+            raise LLMFormatError(
+                f"Drone IDs {out_of_range} in '{drone_ids}' are outside the 1..{n_drones} swarm"
+            )
+        return [i - 1 for i in ids]
     if not isinstance(drone_ids, list):
-        raise LLMFormatError(f"Drone IDs must be a list of integers, got {drone_ids}")
+        raise LLMFormatError(
+            f"Drone IDs must be a range string like '1-50' or a list of integers, got {drone_ids}"
+        )
     if any(isinstance(i, EllipsisType) for i in drone_ids):
         return list(range(n_drones))
     if not all(isinstance(id, int) for id in drone_ids):
@@ -588,47 +631,32 @@ def _sanitize_drone_ids(drone_ids: list[int], n_drones: int) -> list[int]:
 
 
 def _assign_positions(pos: NDArray, des_pos: NDArray) -> NDArray:
-    """Assign drones to the closest desired positions.
-
-    Returns:
-        The assigned IDs as a numpy array.
-    """
-    # Get the distance matrix
+    """Assign drones to the closest desired positions, returning the assigned IDs."""
     dist = np.linalg.norm(pos[:, None, :] - des_pos[None, :, :], axis=-1)
-    # Use the Hungarian algorithm to find the optimal assignment
+    # The Hungarian algorithm gives the globally optimal assignment.
     return linear_sum_assignment(dist)[1]
 
 
-# Effective speed cap used when scheduling formation arrivals. Held below axswarm's
-# vel_max=1.73 m/s to leave the MPC headroom; matches the convention used by `rotate`
-# and `spiral`. HEADROOM is a multiplicative buffer for the solver's smoothness and
-# input-continuity penalties; T_MIN prevents trivially small moves from scheduling
+# Effective speed cap used when scheduling formation arrivals. Held below axswarm's vel_max=1.73
+# m/s to leave the MPC headroom. HEADROOM is a multiplicative buffer for the solver's smoothness
+# and input-continuity penalties; T_MIN prevents trivially small moves from scheduling
 # zero-duration arrivals that the MPC can't track cleanly.
 _FORMATION_V_EFF_MPS = 1.0
 _FORMATION_HEADROOM = 1.3
 _FORMATION_T_MIN_S = 0.5
-# MPC lookahead window length (K=50 timesteps at freq=10 Hz). Hold waypoints are
-# only emitted when the remaining interval exceeds this, so the axswarm lookahead
-# is never empty without flooding the waypoints array for normal-length intervals.
+# MPC lookahead window length (K=50 timesteps at freq=10 Hz). Hold waypoints are only emitted when
+# the remaining interval exceeds this, so the axswarm lookahead is never empty without flooding the
+# waypoints array for normal-length intervals.
 _MPC_HORIZON_S = 5.0
 
 
 def _formation_arrival_time(
     target_pos: NDArray, current_pos: NDArray, tstart: float, tend: float
 ) -> float:
-    """Estimate the earliest feasible arrival time for a formation primitive.
+    """Estimate the earliest feasible arrival time, in ``[tstart, tend]``.
 
-    Sizes the interval to the bottleneck drone's displacement at an effective max
-    velocity (with headroom for MPC smoothness), then clamps to ``[tstart, tend]``.
-
-    Args:
-        target_pos: Desired post-assignment drone positions in cm, shape (n, 3).
-        current_pos: Current positions of the same drones in cm, shape (n, 3).
-        tstart: Interval start time in seconds.
-        tend: Interval end time in seconds.
-
-    Returns:
-        Arrival time in seconds, in ``[tstart, tend]``.
+    Sizes the interval to the bottleneck drone's displacement at an effective max velocity, with
+    headroom for MPC smoothness. Positions are in cm.
     """
     max_travel_m = float(np.linalg.norm(target_pos - current_pos, axis=-1).max()) / 100
     travel_time = max(max_travel_m / _FORMATION_V_EFF_MPS * _FORMATION_HEADROOM, _FORMATION_T_MIN_S)
@@ -643,26 +671,10 @@ def _formation_waypoints(
     time_to_finish_s: float,
     drone_ids: list[int] | None = None,
 ) -> dict[float, dict[int, NDArray]]:
-    """Schedule a formation arrival at the LLM-chosen time (clamped to physics + interval).
+    """Schedule a formation arrival at the LLM-chosen time, clamped to physics and the interval.
 
-    The physics floor is the existing ``_formation_arrival_time`` duration; ``time_to_finish_s``
-    is clamped between that floor and the full interval. Hold waypoints are emitted only when
-    the remaining interval exceeds ``_MPC_HORIZON_S`` — i.e. only when axswarm's lookahead
-    would otherwise be empty — spaced ``_MPC_HORIZON_S`` apart. For typical inter-beat
-    intervals (< 5s) no hold waypoints are emitted, keeping the waypoints array small.
-
-    Args:
-        target_pos: Desired post-assignment drone positions in cm, shape (n, 3).
-        current_pos: Current positions of the same drones in cm, shape (n, 3).
-        tstart: Interval start time in seconds.
-        tend: Interval end time in seconds.
-        time_to_finish_s: LLM-requested arrival duration in seconds. Clamped to
-            ``[physics_min_duration, tend - tstart]``.
-        drone_ids: Global 0-indexed drone IDs corresponding to rows of ``target_pos``.
-            When ``None``, indices 0..n-1 are used (full-swarm primitives).
-
-    Returns:
-        ``{time: {drone_id: pos}}`` waypoints covering ``[arrival, tend]``.
+    The physics floor is ``_formation_arrival_time``'s duration. Holds are emitted only when the
+    remaining interval exceeds ``_MPC_HORIZON_S``, i.e. when axswarm's lookahead would be empty.
     """
     ids = drone_ids if drone_ids is not None else list(range(len(target_pos)))
     physics_min_duration = _formation_arrival_time(target_pos, current_pos, tstart, tend) - tstart
@@ -670,7 +682,6 @@ def _formation_waypoints(
     arrival = tstart + duration
     entry = {d: p.copy() for d, p in zip(ids, target_pos)}
     waypoints: dict[float, dict[int, NDArray]] = {arrival: entry}
-    # Only emit holds when the lookahead window would otherwise be empty.
     t = arrival + _MPC_HORIZON_S
     while t < tend:
         waypoints[t] = {d: p.copy() for d, p in zip(ids, target_pos)}

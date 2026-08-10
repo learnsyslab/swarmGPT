@@ -56,10 +56,8 @@ def _timeline(actions: list[dict], t_end: float, cfg: LightingConfig = CFG) -> L
 def _lit_grid_samples(cues: dict[float, np.ndarray], t_end: float) -> int:
     """Count the grid ticks on which a drone-deck's compiled cue stream is not dark.
 
-    The cues are step events under zero-order hold, so what the hardware and the browser actually
-    show at a tick is the last cue at or before it — which is what this replays. The grid is
-    rebuilt the way `_sample_times` builds it, ``k / col_freq`` rather than ``k * (1 / col_freq)``,
-    so the query times are bit-identical to the ones that were compiled.
+    Cues are step events under zero-order hold, so a tick shows the last cue at or before it. The
+    grid is rebuilt as ``k / col_freq``, bit-identical to the times that were compiled.
     """
     times = np.arange(int(round((t_end - BLACKOUT_LEAD_S) * COL_FREQ))) / COL_FREQ
     cue_times = np.array(sorted(cues))
@@ -68,22 +66,11 @@ def _lit_grid_samples(cues: dict[float, np.ndarray], t_end: float) -> int:
     return int(np.count_nonzero(held.any(axis=1)))
 
 
-# --- the cue-drift regression ---------------------------------------------------------------------
-
-
 def test_minimum_cue_spacing_is_never_denser_than_col_freq():
     """The cue-drift regression test, and the sharpest constraint in the design.
 
-    `_stream_reference` consumes at most one cue per deck per `1 / col_freq` tick, in order, and
-    never drops. A denser cue list therefore plays back *slowed*, and the lag accumulates for the
-    remainder of the show — the lights desynchronize from the music permanently rather than
-    glitching once. Uniform sampling at exactly `col_freq` makes that structurally impossible, so
-    this holds for every drone, every deck, and the fastest effects the vocabulary can express.
-
-    The `t_end` values matter: the blackout cue is emitted at `t_end - 0.1` whatever the grid
-    does, so a show whose end does *not* fall on a `col_freq` tick is exactly where an unguarded
-    implementation crowds that final cue up against the tick before it. An on-grid `t_end` hides
-    that, because the two land on the same time and collapse into one dict key.
+    `_stream_reference` drains one cue per deck per tick and never drops, so a denser list plays
+    back slowed. An off-grid `t_end` is where an unguarded compile crowds the blackout.
     """
     # `period_beats = 0.05` is 0.025 s at 120 BPM, so `rainbow` and `blink` are both clamped to the
     # 0.2 s Nyquist floor: the show does contain the fastest legal effect. `sweep` sits just above
@@ -115,30 +102,12 @@ def test_minimum_cue_spacing_is_never_denser_than_col_freq():
                 assert gaps.min() >= period - GRID_SLACK, f"{deck} {uri} at t_end={t_end}"
 
 
-# --- the clamp guards the lit window, not the period ----------------------------------------------
-
-
 @pytest.mark.parametrize("bpm", [120.0, 120.0000001])
 def test_a_chase_lights_every_drone_on_the_compile_grid(bpm: float):
     """The quantity that has to survive the sampling grid is each drone's lit window.
 
-    A `chase` spreads the phases evenly, so one drone's on-interval is `period_s x length / n_sel`
-    — a tenth of the period at `length = 1` on ten drones. Clamping the *period* to `2 / col_freq`
-    leaves that window at 0.05 s, half a grid tick, so a drone's whole on-interval can fall between
-    two ticks and it is never lit in the compiled cues. Continuously-sampled `evaluate` gives all
-    ten equal on-time, so the MuJoCo preview looks right while the hardware and the browser are
-    broken — the preview-versus-flight divergence one shared timeline exists to prevent.
-
-    The second tempo is the same emission a ten-millionth of a BPM away. Under the period-only
-    clamp it flips which drones are dropped (measured: five of ten never light at all), because
-    ticks and phase offsets are exact multiples of the same rational and the last bit decides.
-    Under the correct clamp both tempos land on the same 1.0 s period and neither drops anyone.
-
-    The evenness bound is deliberately loose. The clamp guards one tick, not two, so
-    a window straddles a tick boundary on some periods and not others: measured on-times run 71-94
-    grid samples where the continuous on-time is 6.01 s for all ten. That ±1 tick per period is
-    inherent to the boundary the clamp sets. A drone getting a quarter of another's on-time, which
-    is what the period-only clamp produces, is not.
+    Clamping the *period* leaves a ten-drone chase's window at half a tick, so a drone is never lit
+    while the preview looks right. The second tempo flipped which five dropped under the old clamp.
     """
     t_end = 60.1  # so the grid is exactly 0.0 .. 59.9 plus the blackout at 60.0
     action = _action(
@@ -156,9 +125,8 @@ def test_a_chase_lights_every_drone_on_the_compile_grid(bpm: float):
 def test_a_chase_period_the_clamp_stretches_still_lights_every_drone():
     """The case where the old clamp fired and still produced a broken show.
 
-    `chase(all, 0.25 beats, length=1)` is 0.125 s at 120 BPM, so the period-only clamp *did* fire
-    and logged "clamping to 0.200 s" — as though the effect were now representable. It was not:
-    measured over ten drones, six of them never lit at all.
+    The period-only clamp logged "clamping to 0.200 s" as though the effect were representable.
+    Measured over ten drones, six never lit at all.
     """
     t_end = 60.1
     action = _action(
@@ -169,9 +137,6 @@ def test_a_chase_period_the_clamp_stretches_still_lights_every_drone():
     lit = np.array([_lit_grid_samples(top[uri], t_end) for uri in URIS_10])
     assert lit.min() > 0, f"drones {np.flatnonzero(lit == 0)} are dark all show"
     assert lit.max() - lit.min() <= 0.5 * lit.mean(), f"uneven on-time: {lit}"
-
-
-# --- dedup is what makes the design cheap ---------------------------------------------------------
 
 
 def test_a_static_look_dedups_to_one_cue_plus_the_terminal_blackout():
@@ -204,10 +169,8 @@ def test_a_gradient_look_dedups_like_a_static_one():
 def test_rainbow_cue_count_tracks_hue_steps_over_the_period():
     """`hue_steps` is what keeps a continuously advancing hue from defeating dedup.
 
-    A continuously advancing hue changes on every tick, so nothing collapses; quantizing to
-    `hue_steps` makes it piecewise-constant and brings the rate to `min(col_freq, hue_steps /
-    period)`. At 24 steps over a 12 s cycle that is 2 Hz, a fifth of the 10 Hz ceiling — the
-    property that keeps the radio budget viable.
+    Quantizing makes the hue piecewise-constant and brings the rate to `min(col_freq, hue_steps /
+    period)` -- 2 Hz at 24 steps over a 12 s cycle, a fifth of the ceiling.
     """
     period_s = 12.0
     t_end = period_s + BLACKOUT_LEAD_S  # the sample grid then covers exactly one cycle
@@ -226,9 +189,8 @@ def test_rainbow_cue_count_tracks_hue_steps_over_the_period():
 def test_brightness_steps_collapses_a_slow_brightness_waveform():
     """`brightness_steps` is to `sine`/`ramp` what `hue_steps` is to `rainbow`.
 
-    Unquantized, a 16 s breathe changes on nearly every tick and compiles to most of the undeduped
-    ceiling. Bucketing the merged brightness makes it piecewise-constant, so dedup collapses the
-    runs and the rate drops to roughly two buckets' worth of edges per period.
+    Unquantized, a 16 s breathe changes on nearly every tick. Bucketing lets dedup collapse the
+    runs to roughly two buckets' worth of edges per period.
     """
     t_end = 60.0
     action = _action("pulse", sel=ALL, period_beats=32.0, deck="both")
@@ -279,9 +241,6 @@ def test_decks_compile_independently():
     assert len(top[URIS_6[0]]) > 20
 
 
-# --- the terminal blackout ------------------------------------------------------------------------
-
-
 def test_the_terminal_blackout_cue_is_emitted_explicitly():
     """The timeline implements the blackout as an early return, which guarantees zeros *from*
     `t_end - 0.1` but does not put a sample there: a uniform grid anchored at 0 lands on that
@@ -295,9 +254,6 @@ def test_the_terminal_blackout_cue_is_emitted_explicitly():
             assert blackout in cues[uri], "the drones must never land lit"
             assert cues[uri][blackout] == pytest.approx(np.zeros(4))
             assert max(cues[uri]) == blackout, "and nothing may be emitted after it"
-
-
-# --- the interface the deploy path consumes ---------------------------------------------
 
 
 def test_cue_dicts_are_keyed_by_uri_for_both_decks():
@@ -345,15 +301,8 @@ def test_a_lighting_less_show_compiles_to_todays_static_cue_structure():
 def test_a_show_too_short_for_the_cue_grid_raises(t_end: float):
     """Below `1 / col_freq + 0.1` the grid cannot open at 0 and can open before it.
 
-    The blackout at `t_end - 0.1` is appended unconditionally, and grid ticks it would crowd are
-    dropped first, so a show shorter than one tick plus the blackout lead loses every tick and
-    keeps only the blackout: `t_end = 0.15` compiles to a single cue at 0.05 and `t_end = 0.05` to
-    a single cue at **-0.05**. The browser payload contract says every cue list is non-empty and
-    starts at t = 0, and a negative time would be handed straight to `DroneSwarm`.
-
-    Unreachable through `deploy` — `response2waypoints` appends return-to-home legs, so a real
-    flight is minutes long — but `compile_cues` is a public entry point, and this is the one input
-    on which it silently produces a payload no consumer can honour.
+    A show shorter than one tick plus the blackout lead loses every tick: `t_end = 0.05` compiles to
+    a single cue at **-0.05**. Unreachable via `deploy`, but `compile_cues` is a public entry point.
     """
     with pytest.raises(ValueError, match="too short"):
         compile_cues(LightingTimeline([], N6, t_end, CFG), URIS_6, COL_FREQ, t_end)

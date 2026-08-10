@@ -1,11 +1,7 @@
 """Unit tests for the sim read-out: what `replay_sim_states` actually draws per frame.
 
-`test_backend.py` pins `LightingTimeline.evaluate_rgb01` itself. That is not the same thing as
-pinning the render path, which is where the two read-out mistakes live: sampling the timeline once
-before the loop instead of per frame, and painting both LED rings from the same deck. Both survive
-a green timeline test, so these tests drive the real loop with a fake `Sim` and record what
-`change_material` is handed — plus what `draw_line` is handed, since the trails must stay one
-neutral grey no matter what the lighting does.
+The two read-out mistakes -- sampling once instead of per frame, and painting both rings from one
+deck -- survive a green timeline test, so these drive the real loop against a fake `Sim`.
 """
 
 import dataclasses
@@ -121,8 +117,7 @@ def _replay(
 ) -> dict[str, list]:
     """Run the replay loop against fakes and return the rgba each LED material was handed.
 
-    ``trails`` collects the rgba every ``draw_line`` call is handed, in call order, for the tests
-    that assert on the trail colour rather than the LED colour.
+    ``trails`` collects every ``draw_line`` rgba in call order, for the trail-colour tests.
     """
     painted: dict[str, list] = {"led_top": [], "led_bot": []}
 
@@ -154,8 +149,8 @@ def _paint(
 ) -> tuple[dict[str, np.ndarray], Any]:
     """Call `paint_lighting` once; return what each material got, and what it handed back.
 
-    The return value is passed through untouched rather than coerced to an array, because what it
-    has to be is `None` — coercing would turn that into a NaN array and hide it.
+    The return value is passed through untouched: it has to be `None`, and coercing to an array
+    would turn that into a NaN array and hide it.
     """
     painted: dict[str, np.ndarray] = {}
 
@@ -166,15 +161,11 @@ def _paint(
     return painted, paint_lighting(_FakeSim(N4), timeline, t)
 
 
-# --- the shared helper: what both `replay_sim_states` and `render.py` draw -----------------
-
-
 def test_paint_lighting_gives_each_ring_its_own_deck(monkeypatch: pytest.MonkeyPatch):
     """The two decks resolve independently, so one shared array cannot express both.
 
-    Both call sites used to hand the same array to both `change_material` calls, and
-    `evaluate_rgb01` fills it from the *top* deck by default — every `deck="bot"` action was
-    invisible in the preview. Here the top ring is lit red and the bottom killed outright.
+    Both call sites used to share an array that `evaluate_rgb01` fills from the *top* deck, making
+    every `deck="bot"` action invisible. Here the top ring is red and the bottom killed outright.
     """
     timeline = _timeline(
         [
@@ -191,13 +182,10 @@ def test_paint_lighting_gives_each_ring_its_own_deck(monkeypatch: pytest.MonkeyP
 
 
 def test_paint_lighting_reads_the_timeline_at_the_time_it_is_given(monkeypatch: pytest.MonkeyPatch):
-    """The helper takes ``t`` and evaluates from it, so a hoisted read-out cannot go unnoticed here.
+    """The helper takes ``t`` and evaluates from it, so a hoisted read-out cannot go unnoticed.
 
-    This covers the shared logic `render.py` executes, and makes hoisting less likely there by
-    requiring a visibly stale argument rather than a deleted line. It does **not** pin `render.py`'s
-    own frame loop, which could still pass a stale time: `render_preset` needs a full backend, the
-    axswarm pass and an offscreen MuJoCo context, so it has no unit-testable seam. That gap is known
-    and accepted.
+    This does not pin `render.py`'s own frame loop, which could still pass a stale time:
+    `render_preset` has no unit-testable seam. That gap is known and accepted.
     """
     timeline = _timeline(
         [
@@ -220,9 +208,8 @@ def test_paint_lighting_reads_the_timeline_at_the_time_it_is_given(monkeypatch: 
 def test_paint_lighting_hands_nothing_back(monkeypatch: pytest.MonkeyPatch):
     """It paints the LED materials and returns nothing — the trails are not a read-out of it.
 
-    This return value has flipped three times across the lighting work, so it is pinned rather than
-    left implicit. The trails are one fixed grey, so nothing downstream needs a resolved
-    deck, and handing one back would invite a caller to colour something from it again.
+    Pinned rather than left implicit because it has flipped three times; handing a resolved deck
+    back would invite a caller to colour something from it again.
     """
     timeline = _timeline(
         [
@@ -238,16 +225,11 @@ def test_paint_lighting_hands_nothing_back(monkeypatch: pytest.MonkeyPatch):
     assert np.allclose(painted["led_top"][:, :3], RED)
 
 
-# --- the replay loop, which must call the helper once per frame ----------------------------
-
-
 def test_replay_paints_each_deck_from_its_own_deck_of_the_timeline(monkeypatch: pytest.MonkeyPatch):
     """A `deck="bot"` action must be visible in the preview.
 
-    Both `change_material` calls used to be handed the same array, which `evaluate_rgb01` fills
-    from the *top* deck by default — so the bottom ring silently mirrored the top one and every
-    bottom-deck action was invisible. Here the top ring is lit red and the bottom is killed
-    outright, which no single shared array can express.
+    Both `change_material` calls used to share a top-deck array, so the bottom ring silently
+    mirrored it. Here the top is red and the bottom killed -- no shared array expresses that.
     """
     timeline = _timeline(
         [
@@ -269,8 +251,8 @@ def test_replay_paints_each_deck_from_its_own_deck_of_the_timeline(monkeypatch: 
 def test_replay_resamples_the_timeline_on_every_frame(monkeypatch: pytest.MonkeyPatch):
     """The colour is a function of time, so the loop must resample it, not hoist it.
 
-    The blink is a 2s square wave at 120 BPM, so the fixture's five frames straddle two on-phases
-    and one off-phase. Sampling once before the loop would paint all five identically.
+    The five frames straddle two on-phases and one off-phase of a 2s square wave, so sampling once
+    before the loop would paint all five identically.
     """
     timeline = _timeline(
         [
@@ -297,16 +279,8 @@ def test_replay_trails_are_one_neutral_grey_whatever_the_lighting_does(
 ):
     """Every trail is `TRAIL_RGBA`, for every drone, at every frame, ignoring the lighting.
 
-    Trails carrying colour oversold the effect — one LED changing repainted a whole streak, so the
-    preview showed a bigger cue than the hardware will fly. Grey makes the trail scene furniture
-    and leaves every coloured pixel in the frame as signal.
-
-    The fixture is chosen so a regression to the previous behaviour cannot pass: the blink drives
-    the top deck red -> black -> red across the five frames and `light_off(bot)` holds the bottom
-    deck dark throughout, so a trail tracking either deck differs from the grey on every frame, and
-    one tracking the top deck also differs *between* frames. The two assertions at the end pin that
-    the fixture really does vary, so the constancy claimed above is a claim about the trail and not
-    about a fixture that happens to be constant.
+    Coloured trails oversold the effect: one LED changing repainted a whole streak. The fixture
+    varies both decks, and the closing assertions pin that -- else the claim is about the fixture.
     """
     timeline = _timeline(
         [

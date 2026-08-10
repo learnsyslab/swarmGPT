@@ -28,19 +28,14 @@ def lighting_log(
 ) -> pytest.LogCaptureFixture:
     """`caplog`, wired so it actually sees this module's records.
 
-    The ROS `launch` package -- autoloaded here as a pytest plugin via `launch_testing` -- calls
-    `logging.setLoggerClass`, and its logger class defaults to ``propagate = False``. Every logger
-    created after that point therefore bypasses the root logger `caplog` listens on. Forcing
-    propagation back on for the one module under test keeps the assertion about the *logger* rather
-    than about whichever handler the environment happens to have installed.
+    The ROS `launch` pytest plugin calls `logging.setLoggerClass` with ``propagate = False``, so
+    every logger built after it bypasses the root logger `caplog` listens on.
     """
     logger = logging.getLogger("swarm_gpt.core.lighting")
     monkeypatch.setattr(logger, "propagate", True)
     caplog.set_level(logging.WARNING, logger=logger.name)
     return caplog
 
-
-# --- config and palette ---------------------------------------------------------------------------
 
 # The names the prompt offers the LLM as the `color` enum.
 PALETTE_NAMES = (
@@ -113,10 +108,8 @@ def test_blue_is_dimmed_relative_to_constant_channel_sum():
 def test_every_palette_entry_carries_the_same_gain_corrected_output():
     """One invariant over the whole palette, which is what says the thirteen are calibrated alike.
 
-    `channel_gain` is a correction multiplier, so the quantity a palette entry holds constant is
-    the *gain-corrected* channel sum -- the same quantity `hue_to_wrgb` holds constant across the
-    wheel. Checking `red`'s raw sum and `blue`'s dim covers two entries of thirteen: miscalibrating
-    `indigo` passes both and renders one colour visibly brighter than the rest of the show.
+    The constant quantity is the *gain-corrected* channel sum, the one `hue_to_wrgb` holds across
+    the wheel. Spot-checking two entries lets a miscalibrated `indigo` through.
     """
     cfg = load_lighting_config()
     for name, entry in cfg.palette.items():
@@ -153,17 +146,13 @@ def test_the_synthetic_config_fixture_loads_when_it_is_complete(tmp_path: Path):
 def test_every_required_key_is_indexed_directly(key: str, tmp_path: Path):
     """The loader indexes required keys directly, so a truncated file fails loudly (CLAUDE.md 6.2).
 
-    One case per key, because a single fixture missing two keys is satisfied by whichever the
-    loader happens to read first: seven of the eight could quietly become `.get(key, default)` and
-    still fly on a silent default.
+    One case per key: a fixture missing two is satisfied by whichever the loader reads first, so
+    seven of the eight could become `.get(key, default)` and still fly on a silent default.
     """
     path = tmp_path / "lighting.toml"
     path.write_text(_config_toml(omit=key))
     with pytest.raises(KeyError, match=key):
         load_lighting_config(path)
-
-
-# --- selectors ------------------------------------------------------------------------------------
 
 
 def test_select_all_covers_every_drone():
@@ -182,10 +171,8 @@ def test_select_ids_is_one_indexed():
 def test_select_ids_outside_the_swarm_raise(sel: tuple):
     """Both ends, not just the top one — the schema is not the only path into `select`.
 
-    `_sanitize_drone_ids` shifts 1-indexed ids down by one and checks neither bound, so an id of 0
-    used to become -1 and quietly select the *last* drone. The structured-output schema's
-    ``minimum: 1`` blocks that, but a preset or a hand-written `lighting:` block reaches
-    `build_look` with no schema at all — which is the path the shipped demo preset takes.
+    An id of 0 shifts to -1 and quietly selects the *last* drone. The schema's ``minimum: 1``
+    blocks that, but a preset or hand-written `lighting:` block reaches `build_look` without one.
     """
     cfg = load_lighting_config()
     with pytest.raises(IndexError, match="1..6"):
@@ -240,10 +227,8 @@ def test_flipping_stage_axis_swaps_left_and_right():
 def test_select_ids_naming_no_drones_raises():
     """`ids([])` yielded an all-False mask and a layer that did nothing at all.
 
-    That is the same silent wrong answer the bounds checks above exist to stop, and `first(0)` --
-    the other way to ask for nothing -- already raises. The two must not disagree. `IndexError`
-    matches those bounds checks, and is one of the three `Choreographer._build_look` turns into an
-    `LLMFormatError`, so a malformed emission still reprompts.
+    `first(0)` -- the other way to ask for nothing -- already raises, and the two must not
+    disagree. `IndexError` is one of the three `_build_look` turns into an `LLMFormatError`.
     """
     cfg = load_lighting_config()
     with pytest.raises(IndexError, match="no drones"):
@@ -256,10 +241,8 @@ def test_select_ids_naming_no_drones_raises():
 def test_select_with_the_wrong_argument_count_raises(sel: tuple):
     """Arity was never checked: `all` dropped extra arguments silently and `first` had none to drop.
 
-    A hand-written `("all", (1, 2, 3))` reads as "drones 1-3" and quietly selected all of them,
-    while `("first", ())` surfaced as a bare ``IndexError: tuple index out of range`` from indexing
-    the argument tuple -- the right type by accident, with a message that names neither the
-    selector nor the problem. Both now report the same way the bounds checks do.
+    A hand-written `("all", (1, 2, 3))` reads as "drones 1-3" and selected all of them, while
+    `("first", ())` raised a bare tuple-index `IndexError` naming neither selector nor problem.
     """
     cfg = load_lighting_config()
     with pytest.raises(IndexError, match="takes"):
@@ -271,8 +254,6 @@ def test_unknown_selector_raises():
     with pytest.raises(KeyError):
         select(("middle", ()), 6, POSITIONS_6, cfg)
 
-
-# --- waveforms and phase spreads ------------------------------------------------------------------
 
 QUARTER_PHASES = np.array([0.0, 0.25, 0.5, 0.75])
 
@@ -351,7 +332,6 @@ def test_spread_index_over_the_whole_swarm_is_rank_over_n():
     assert offsets == pytest.approx(np.arange(10) / 10)
 
 
-# --- `neighbour`: spatial order, which drone id order is not --------------------------------------
 #
 # Every formation primitive routes through `_assign_positions` (motion_primitives.py:590), a
 # Hungarian assignment that returns whichever drone -> slot permutation is cheapest to fly. Drone 6
@@ -391,10 +371,8 @@ def _ranks(offsets: np.ndarray, mask: np.ndarray) -> np.ndarray:
 def test_spread_neighbour_recovers_ring_order_from_a_scrambled_id_assignment():
     """The bug `neighbour` exists for, on the formation that shows it worst.
 
-    With the ids in an arbitrary rotation an `index` chase visits 1->5 and then jumps clean across
-    the stage to 10->6, and an `index` rainbow reads as a jumble rather than a wheel. So the
-    assertion is on *ring* order and never on id order: consecutive ranks must land on adjacent ring
-    slots, all the way round, in one consistent direction.
+    Under an arbitrary id rotation an `index` chase jumps clean across the stage. So the assertion
+    is on *ring* order: consecutive ranks land on adjacent slots, all the way round, one direction.
     """
     cfg = load_lighting_config()
     offsets = spread_offsets("neighbour", ALL_10, RING_10, 1, cfg)
@@ -429,9 +407,8 @@ def test_spread_neighbour_on_a_grid_keeps_adjacent_ranks_spatially_adjacent():
 def test_spread_neighbour_ranks_the_same_positions_however_the_ids_are_permuted():
     """Determinism: the ranking is a function of the positions alone, never of the id assignment.
 
-    A ring is where this is hardest, because the start's two neighbours are exactly equidistant --
-    an implementation that broke that tie by array order would let the permutation choose which way
-    round the ring the walk runs, and reverse the whole ordering.
+    A ring is hardest: the start's two neighbours are equidistant, so breaking that tie by array
+    order would let the permutation choose which way round the walk runs.
     """
     cfg = load_lighting_config()
     slot_ranks = _ranks(spread_offsets("neighbour", ALL_10, RING_SLOTS, 1, cfg), ALL_10)
@@ -513,13 +490,8 @@ def test_spread_radius_ripples_out_from_the_centre():
 def test_spread_radius_on_a_cos_sin_ring_collapses_rather_than_amplifying_float_noise():
     """A ring's radii are equal only to ~1e-16, so an exact-zero span test is the wrong test.
 
-    `form_circle` builds its slots from `cos`/`sin`, which leaves every radius equal to within a
-    couple of ulps rather than bit-for-bit. Testing the span against exact zero therefore takes the
-    *non-degenerate* branch on the one formation `ripple_light` is most obviously authored over, and
-    divides by that noise: the offsets come out spread across the whole turn in whatever order the
-    rounding happened to fall, which is a random per-drone phase rather than a ripple. Hand-written
-    exactly-equal coordinates cannot catch that -- they take the degenerate branch either way --
-    so the fixture has to be a real ring, and the guard below is what keeps it one.
+    Against exact zero a `cos`/`sin` ring takes the non-degenerate branch and divides by that noise,
+    giving a random per-drone phase. Equal literals cannot catch it, so the fixture is a real ring.
     """
     cfg = load_lighting_config()
     ring = with_ulp_noise(RING_10)
@@ -550,10 +522,8 @@ def test_spread_group_size_quantizes_into_ceil_buckets():
 def test_spread_offsets_of_an_empty_selection_are_all_zero(kind: str):
     """An empty selection is reachable: `right` on a formation with no extent along the stage axis.
 
-    `_right_mask` splits on a strict `>` against the mean, so `select` hands down an all-False mask
-    there. Every layer is then a no-op, but the spatial spreads reduce over the selected rows --
-    `values.max()` on a zero-size array raises `ValueError`, and the `neighbour` walk has no point
-    to start from -- so the offsets have to be short-circuited first.
+    The layers are then no-ops, but the spatial spreads reduce over the selected rows --
+    `values.max()` raises on a zero-size array -- so the offsets are short-circuited first.
     """
     cfg = load_lighting_config()
     empty = np.zeros(10, dtype=bool)
@@ -564,9 +534,8 @@ def test_spread_offsets_of_an_empty_selection_are_all_zero(kind: str):
 def test_spread_group_size_below_one_raises_whatever_the_spread(kind: str):
     """The check used to sit inside the ranked-spread branch, so only ranked spreads saw it.
 
-    `chase(sel, p, length, group_size=0, spread="x")` then succeeded silently while the same call
-    with `spread="neighbour"` raised, and the catalogue lists `group_size` as a plain parameter
-    with no spread restriction -- so nothing tells the model the combination is different.
+    `group_size=0` with `spread="x"` then succeeded silently while `spread="neighbour"` raised, and
+    the catalogue lists `group_size` as a plain parameter with no spread restriction.
     """
     cfg = load_lighting_config()
     with pytest.raises(ValueError, match="group_size"):
@@ -577,11 +546,8 @@ def test_spread_group_size_below_one_raises_whatever_the_spread(kind: str):
 def test_spread_group_size_above_one_is_rejected_by_the_spreads_that_cannot_honour_it(kind: str):
     """Bucketing is defined over `rank_i`, which only `neighbour` and `index` produce.
 
-    The spatial spreads carry a normalized *coordinate*, not a rank, so there is no bucketing to
-    apply that would not silently redefine what the spread means -- an evenly bucketed `x` is a
-    different effect from a proportional one on any unevenly spaced formation. The combination is
-    therefore rejected rather than honoured with invented semantics or, as before, accepted and
-    ignored. `ValueError` reprompts the model, which is the only way it finds out.
+    A spatial spread carries a normalized coordinate, so an evenly bucketed `x` is a different
+    effect from a proportional one. Rejected rather than accepted-and-ignored, so it reprompts.
     """
     cfg = load_lighting_config()
     with pytest.raises(ValueError, match="group_size"):
@@ -602,10 +568,8 @@ def test_a_stage_axis_with_no_extent_warns_that_the_split_collapsed(
 ):
     """`left`/`right` on a planar formation is a silent no-op, and must not stay silent.
 
-    `_right_mask` splits on a strict `>` against the mean, so a formation with no extent along the
-    stage axis puts *everything* stage left and nothing stage right -- `light_color(right, ...)`
-    then paints nobody. The show still runs, which is why this warns rather than raising, but the
-    author has to be told which axis collapsed.
+    A formation with no extent along the stage axis goes entirely left, so `light_color(right,...)`
+    paints nobody. The show still runs, hence a warning -- but it has to name the axis.
     """
     cfg = load_lighting_config()
     flat = np.stack([np.zeros(6), np.arange(6.0), np.ones(6)], axis=1)
@@ -621,15 +585,8 @@ def test_a_stage_axis_degenerate_only_to_float_noise_collapses_left_rather_than_
 ):
     """The stage axis collapses on edge-on formations, whose coordinate is equal only to ~1e-16.
 
-    A ring standing edge-on to the audience is built by projecting `cos`/`sin` onto a horizontal
-    heading, and the heading perpendicular to the stage axis has a `cos` of 6.1e-17 rather than 0 --
-    so every drone shares a stage-axis coordinate to within an ulp or two rather than bit-for-bit.
-    Testing the span against exact zero takes the *non-degenerate* branch there, and
-    `coord > coord.mean()` then deals the swarm into two arbitrary halves on rounding noise instead
-    of the documented all-left / none-right: `left` and `right` each paint a random subset, the
-    warning stays silent, and `alternate_side` puts that same random subset into antiphase.
-    Hand-written equal literals cannot catch it -- they take the degenerate branch either way -- so
-    the fixture has to be a real edge-on ring, and the guard below is what keeps it one.
+    A heading perpendicular to the stage axis has a `cos` of 6.1e-17, not 0, so `coord >
+    coord.mean()` deals the swarm into arbitrary halves on noise and the warning stays silent.
     """
     cfg = load_lighting_config()
     angles = np.linspace(0.0, 2.0 * np.pi, 10, endpoint=False)
@@ -670,8 +627,6 @@ def test_unknown_spread_raises():
     with pytest.raises(KeyError):
         spread_offsets("spiral", ALL_10, POSITIONS_10, 1, cfg)
 
-
-# --- colour sources -------------------------------------------------------------------------------
 
 # Hand-computed from HSV at full saturation and value, normalized to a constant channel sum of 255,
 # and only then multiplied by channel_gain [1, 1, 1, 0.8].
@@ -718,9 +673,8 @@ def test_every_hue_stays_within_the_addressable_range():
 def test_hue_gain_holds_perceived_output_constant_across_the_wheel():
     """A rainbow that visibly throbs as it sweeps would show up here as a varying output.
 
-    `channel_gain` is a correction multiplier, so the quantity held constant is the *gain-corrected*
-    sum. Asserting on the raw sum instead would pass trivially even if the gain were applied before
-    the normalization rather than after, which is the ordering bug this pins.
+    The constant quantity is the *gain-corrected* sum; asserting on the raw sum would pass even
+    with the gain applied before the normalization, which is the ordering bug this pins.
     """
     cfg = load_lighting_config()
     out = hue_to_wrgb(np.arange(cfg.hue_steps) / cfg.hue_steps, cfg)
@@ -795,9 +749,8 @@ def test_colour_layer_cycled_applies_the_spread_offsets():
 def test_colour_layer_cycled_travels_forward_along_the_offsets():
     """The hue a drone carries is handed on to the *next* drone in the spread, never the previous.
 
-    `phase = t / period - offset` is what sets that direction, and offsets of 0 and 0.5 cannot see
-    it: 0.5 is its own negative mod 1, so the sign of the offset term is invisible on every other
-    fixture in this file. Quarter-turn offsets break the symmetry.
+    Offsets of 0 and 0.5 cannot see the direction `phase = t / period - offset` sets: 0.5 is its
+    own negative mod 1. Quarter-turn offsets break that symmetry.
     """
     cfg = load_lighting_config()
     offsets = np.array([0.0, 0.25, 0.5, 0.75])
@@ -831,8 +784,6 @@ def test_colour_layer_rejects_an_unknown_kind():
         ColourLayer(np.ones(2, dtype=bool), ("top",), "strobe", {}).evaluate(0.0, cfg)
 
 
-# --- layers, merge rules and the timeline ---------------------------------------------------------
-
 # Six drones, so even/odd split them three and three. The merge rules are position-free -- they see
 # the swarm only through the masks the caller hands them -- so these tests never need positions.
 N6 = 6
@@ -854,8 +805,7 @@ AMBER = np.array([0.0, 146.0, 109.0, 0.0])
 def _linear_cfg() -> LightingConfig:
     """Shipped config with gamma = 1, so a merged brightness reads straight off the WRGB output.
 
-    Pinning the merge tests to the shipped gamma would make retuning it by eye on hardware (spec
-    12.2) break tests that are not about gamma at all.
+    Otherwise retuning gamma by eye on hardware breaks tests that are not about gamma.
     """
     return dataclasses.replace(load_lighting_config(), gamma=1.0)
 
@@ -905,8 +855,7 @@ def _both_decks(mask: np.ndarray) -> np.ndarray:
 def _base_colours() -> np.ndarray:
     """The base colour of a look-less timeline: drone i carries hue i / n, in id order.
 
-    With six drones the hues land on the six primaries, so drone 0 is pure red, drone 2 pure green
-    and drone 4 pure blue.
+    Six drones land on the six primaries, so drone 0 is red, 2 green and 4 blue.
     """
     return np.round(hue_to_wrgb(np.arange(N6) / N6, load_lighting_config()))
 
@@ -920,9 +869,6 @@ LINE_SLOTS_6 = np.stack(
 )
 SLOT_OF = np.array([2, 5, 0, 3, 1, 4])
 LINE_6 = LINE_SLOTS_6[SLOT_OF]
-
-
-# --- BrightnessLayer ------------------------------------------------------------------------------
 
 
 def test_brightness_layer_constant_is_one_on_the_masked_rows():
@@ -942,12 +888,10 @@ def test_brightness_layer_applies_its_phase_offsets():
 
 
 def test_brightness_layer_travels_forward_along_the_offsets():
-    """A chase runs from low drone index to high, and `phase = t / period - offset` is what says so.
+    """A chase runs from low drone index to high, and `phase = t / period - offset` says so.
 
-    Every other offset fixture here is 0 or 0.5, and 0.5 is its own negative mod 1 -- so the sign of
-    the offset term is invisible and a chase running backwards reads identically. That is
-    the most visible thing this feature can get wrong, so it is pinned on quarter-turn offsets,
-    where the two differ.
+    At offsets of 0 or 0.5 the sign of the offset term is invisible and a backwards chase reads
+    identically, so this is pinned on quarter-turn offsets, where the two differ.
     """
     offsets = np.array([0.0, 0.25, 0.5, 0.75])
     layer = BrightnessLayer(np.ones(4, dtype=bool), BOTH_DECKS, "square", 4.0, 0.25, offsets)
@@ -964,9 +908,6 @@ def test_brightness_layer_rejects_an_unknown_kind():
         BrightnessLayer(ALL_6, BOTH_DECKS, "sawtooth", 4.0, 0.5, np.zeros(N6)).evaluate(0.0)
 
 
-# --- colour and brightness are orthogonal and multiply --------------------------------------------
-
-
 def test_final_wrgb_is_colour_times_brightness():
     """At t = 1 a period-4 ramp is exactly 0.75, so 255 * 0.75 = 191.25 rounds to 191."""
     cfg = _linear_cfg()
@@ -979,7 +920,7 @@ def test_final_wrgb_is_colour_times_brightness():
 def test_gamma_applies_to_the_brightness_and_not_to_the_colour():
     """gamma = 2 turns b = 0.75 into 0.5625, so 255 * 0.5625 = 143.4 rounds to 143.
 
-    At full brightness the two gammas must agree, which is what says gamma never touches the colour.
+    At full brightness the two gammas must agree, which says gamma never touches the colour.
     """
     squared = dataclasses.replace(load_lighting_config(), gamma=2.0)
     dimmed = LightingTimeline(
@@ -1017,14 +958,8 @@ def test_a_colour_layer_never_changes_the_brightness():
 def test_brightness_below_b_min_goes_fully_dark():
     """Below b_min the LED is quantization noise and coloured fringing, so it is cut.
 
-    The floor is applied to the *merged* brightness, before `brightness_steps` quantizes it: the
-    two are a floor and a resolution, and quantizing first makes the floor inert because the
-    smallest non-zero bucket is larger than any b_min anyone would set.
-
-    That is also why this needs a finer dimmer than the shipped one. At 16 steps the bottom bucket
-    is 0.0625, over 3x b_min, so the quantizer already answers for every value the floor would
-    catch and the assertion below would pass with the floor deleted outright. At 255 steps b = 0.01
-    has a lit bucket of its own, so only the floor can darken it.
+    The floor precedes quantization, or it is inert -- the smallest non-zero bucket exceeds any
+    b_min. Hence the finer dimmer: at 16 steps the bottom bucket answers for every such value.
     """
     cfg = dataclasses.replace(_linear_cfg(), brightness_steps=255)
     timeline = LightingTimeline(
@@ -1039,14 +974,10 @@ def test_brightness_below_b_min_goes_fully_dark():
     assert timeline.evaluate(0.75)[0, TOP] == pytest.approx([0.0, 63.0, 0.0, 0.0])
 
 
-# --- brightness quantization, the second half of the cue-budget device ----------------------------
-
-
 def test_brightness_is_quantized_to_brightness_steps_before_the_multiply():
     """`brightness_steps` buckets the merged brightness, which is what lets dedup collapse a ramp.
 
-    Four steps over a period-4 ramp: sixteen samples across the period land on the four bucket
-    floors plus the exact-1.0 peak, rather than on sixteen distinct levels.
+    Sixteen samples over a period-4 ramp land on four bucket floors plus the exact-1.0 peak.
     """
     cfg = dataclasses.replace(_linear_cfg(), brightness_steps=4)
     timeline = LightingTimeline(
@@ -1071,15 +1002,8 @@ def test_brightness_quantization_leaves_a_ramp_monotone():
 def test_quantization_floors_rather_than_rounds_so_it_can_only_darken():
     """`floor` and `round` differ only at the bottom of the range, and `floor` is the darker one.
 
-    A merged brightness in ``[1/(2*steps), 1/steps)`` rounds *up* into the first lit bucket but
-    floors to zero. `floor` is chosen so quantization can only ever darken relative to intent,
-    never brighten -- the conservative direction for a physical output. The top of the
-    range does not distinguish the two, so it cannot pin the choice: `round(1.0 * steps) / steps`
-    is also exactly 1.0.
-
-    `brightness_steps` is set explicitly rather than taken from the shipped config, because the
-    sample time below is chosen against this bucket boundary and the shipped value is a tuning
-    lever.
+    A brightness in ``[1/(2*steps), 1/steps)`` rounds *up* into the first lit bucket but floors to
+    zero, and only darkening is safe. `brightness_steps` is explicit: the shipped value is a lever.
     """
     cfg = dataclasses.replace(_linear_cfg(), brightness_steps=16)
     timeline = LightingTimeline(
@@ -1100,9 +1024,6 @@ def test_quantization_never_dims_a_fully_lit_drone():
         assert timeline.evaluate(1.0)[0, TOP] == pytest.approx(RED), steps
 
 
-# --- colour vs colour is Latest-Takes-Precedence --------------------------------------------------
-
-
 def test_colour_ltp_later_layer_wins_on_its_subset():
     """light_color(all, blue) then light_color(even, amber) is two colours from two primitives."""
     cfg = _linear_cfg()
@@ -1115,10 +1036,8 @@ def test_colour_ltp_later_layer_wins_on_its_subset():
 def test_colour_ltp_overwrites_by_mask_not_by_non_zero_channels():
     """A merge that keeps whichever channel is non-zero blends a layer into whatever it covers.
 
-    Drone 2's base colour is pure green [0, 0, 255, 0] and `red` is [0, 255, 0, 0]: they share no
-    non-zero channel, so a channel-wise "non-zero wins" merge yields [0, 255, 255, 0] there instead
-    of pure red. The stacked case pins the same trap between two layers rather than against the base
-    -- `white` is [255, 0, 0, 0], which likewise overlaps `red` in no channel at all.
+    Drone 2's base green and `red` share no non-zero channel, so a "non-zero wins" merge yields
+    yellow. The stacked case pins the same trap between two layers rather than against the base.
     """
     cfg = _linear_cfg()
     over_base = LightingTimeline([_look(0.0, (_named(EVEN_6, "red"),))], N6, 100.0, cfg)
@@ -1149,9 +1068,6 @@ def test_colour_ltp_precedence_is_by_position_not_by_kind():
     )
 
 
-# --- brightness vs brightness is Highest-Takes-Precedence -----------------------------------------
-
-
 def test_brightness_htp_takes_the_max_not_the_sum():
     """Two ramps half a turn apart read 0.75 and 0.25 at t = 1: max is 191, a sum would be 255."""
     cfg = _linear_cfg()
@@ -1166,14 +1082,8 @@ def test_brightness_htp_takes_the_max_not_the_sum():
 def test_light_off_kills_drones_that_a_competing_layer_lights():
     """light_off is a post-reduction kill mask, not an HTP participant.
 
-    The fixture deliberately runs an active ramp over *every* drone. As an HTP participant a
-    light_off layer contributes 0, and `max(0, ramp)` is just `ramp` -- so the even drones would go
-    on pulsing and this test would pass against the wrong implementation without that competing
-    layer present.
-
-    The sample times stay clear of the ramp's last bucket: `brightness_steps` floors a brightness
-    below 1 / 16 to zero, so the tail of a ramp is legitimately dark and would not distinguish the
-    two implementations.
+    The ramp runs over *every* drone deliberately: as an HTP participant light_off contributes 0
+    and `max(0, ramp)` is just `ramp`. Sample times stay clear of the ramp's dark last bucket.
     """
     cfg = _linear_cfg()
     look = _look(0.0, (_named(ALL_6, "red"),), (_ramp(ALL_6),), off=_both_decks(EVEN_6))
@@ -1196,8 +1106,7 @@ def test_light_on_dominates_a_pulse_underneath_it():
 def test_a_layer_reading_zero_still_suppresses_the_base():
     """Base suppression is decided by the layer's mask, never by the value it happens to return.
 
-    A square wave in its off phase returns exactly 0 for drones it covers. Deciding the base from
-    the value would light those drones full-on during every off phase -- inverting the blink.
+    A square wave off-phase returns exactly 0, so deciding from the value inverts the blink.
     """
     cfg = _linear_cfg()
     blink = BrightnessLayer(
@@ -1212,9 +1121,6 @@ def test_a_layer_reading_zero_still_suppresses_the_base():
     out = timeline.evaluate(3.0)  # phase 0.75, past the duty, so the layer reads 0
     assert out[0, TOP] == pytest.approx(np.zeros(4)), "covered drone stays dark in the off phase"
     assert out[1, TOP] == pytest.approx(RED), "an uncovered drone still sits on the base"
-
-
-# --- across keys, a look replaces the previous one entirely ---------------------------------------
 
 
 def test_a_look_does_not_inherit_the_previous_looks_layers():
@@ -1244,9 +1150,6 @@ def test_look_dispatch_is_by_start_time_and_independent_of_emission_order():
     assert timeline.evaluate(0.0)[1, TOP] == pytest.approx(base), "the base survives a look"
 
 
-# --- the base state -------------------------------------------------------------------------------
-
-
 def test_an_empty_timeline_is_full_on():
     """One forgetful emission must not black out the show, so the base is a fallback at 1.0."""
     cfg = _linear_cfg()
@@ -1260,9 +1163,8 @@ def test_an_empty_timeline_is_full_on():
 def test_the_base_colour_is_each_drones_own_hue_off_the_wheel():
     """A colour-less emission reproduces today's per-drone colouring exactly.
 
-    Distinctness is the point: a swarm flattened to one hue is unidentifiable in the viewer and in
-    flight. The base walks the same evenly spaced hue wheel `generate_default_colors` does, with the
-    blue dim now carried by `channel_gain` rather than applied separately.
+    A swarm flattened to one hue is unidentifiable in the viewer and in flight. Same wheel as
+    `generate_default_colors`, with the blue dim now carried by `channel_gain`.
     """
     cfg = _linear_cfg()
     out = LightingTimeline([], N6, 100.0, cfg).evaluate(0.0)[:, TOP]
@@ -1275,9 +1177,8 @@ def test_the_base_colour_is_each_drones_own_hue_off_the_wheel():
 def test_the_base_colour_within_a_look_follows_neighbour_order_not_id_order():
     """The default wheel must read as a wheel *around the formation*, not around the id list.
 
-    `_assign_positions` hands drone ids out by whichever assignment is cheapest to fly, so an
-    id-keyed wheel puts unrelated hues side by side and neighbouring hues across the stage. Within a
-    look the wheel is assigned along that look's nearest-neighbour walk instead.
+    `_assign_positions` hands ids out by cheapest assignment, so an id-keyed wheel puts unrelated
+    hues side by side. Within a look the wheel follows that look's nearest-neighbour walk.
     """
     cfg = _linear_cfg()
     out = LightingTimeline([_look(0.0, positions=LINE_6)], N6, 100.0, cfg).evaluate(3.0)[:, TOP]
@@ -1291,12 +1192,8 @@ def test_the_base_colour_within_a_look_follows_neighbour_order_not_id_order():
 def test_no_drone_changes_colour_when_the_first_look_takes_over():
     """A timeline whose first key resolves to t > 0 must not re-colour the whole swarm at it.
 
-    The synthetic pre-show look carries no layers, so the only thing it decides is which drone gets
-    which base hue -- and with no snapshot of its own it falls back to id order, which is precisely
-    the `_assign_positions` scramble the walk exists to remove. The swarm would fly the scramble
-    until the first real look and snap out of it in one frame: measured, 10 of 10 drones changed
-    colour at the boundary. Id order is sanctioned for a timeline with *no looks at all*, not for
-    one that simply has not reached its first.
+    Without a snapshot the pre-show look falls back to the id-order scramble the walk exists to
+    remove, and the swarm snaps out of it in one frame -- measured, 10 of 10 drones changed.
     """
     cfg = _linear_cfg()
     timeline = LightingTimeline([_look(20.0, positions=LINE_6)], N6, 100.0, cfg)
@@ -1323,8 +1220,7 @@ def test_the_pre_show_base_takes_the_earliest_looks_snapshot_whatever_the_emissi
 def test_a_timeline_with_no_looks_keeps_the_id_ordered_base():
     """Nothing was authored and there is no snapshot to order against, so id order stands.
 
-    This is what keeps the failure-safe claim exact: a show carrying no lighting at all
-    reproduces today's `generate_default_colors` assignment drone for drone.
+    A show carrying no lighting reproduces `generate_default_colors` drone for drone.
     """
     cfg = _linear_cfg()
     out = LightingTimeline([], N6, 100.0, cfg).evaluate(3.0)[:, TOP]
@@ -1334,8 +1230,8 @@ def test_a_timeline_with_no_looks_keeps_the_id_ordered_base():
 def test_each_look_orders_the_base_colour_against_its_own_snapshot():
     """The wheel re-sorts as formations change, which is why the snapshot rides on the look.
 
-    The second look flies the same six slots with the assignment mirrored end to end, so every
-    drone's base hue must mirror with it. A single wheel computed once for the timeline could not.
+    The second look mirrors the assignment end to end, so every base hue must mirror with it --
+    which a single wheel computed once for the timeline could not do.
     """
     cfg = _linear_cfg()
     reformed = LINE_SLOTS_6[(N6 - 1) - SLOT_OF]
@@ -1380,9 +1276,6 @@ def test_a_colour_only_look_is_full_brightness():
         assert timeline.evaluate(t) == pytest.approx(np.tile([0.0, 0.0, 146.0, 87.0], (N6, 2, 1)))
 
 
-# --- decks resolve independently ------------------------------------------------------------------
-
-
 def test_a_top_only_brightness_effect_leaves_bot_on_the_base():
     cfg = _linear_cfg()
     look = _look(0.0, (_named(ALL_6, "red"),), (_ramp(ALL_6, decks=("top",)),))
@@ -1412,9 +1305,6 @@ def test_light_off_is_per_deck():
     assert out[:, BOT] == pytest.approx(np.tile(RED, (N6, 1)))
 
 
-# --- end of show ----------------------------------------------------------------------------------
-
-
 def test_the_terminal_blackout_is_present_whatever_was_emitted():
     """The drones never land lit, and this is not the LLM's to override."""
     cfg = _linear_cfg()
@@ -1429,9 +1319,6 @@ def test_a_look_after_the_blackout_cannot_relight_the_swarm():
     cfg = _linear_cfg()
     late = _look(9.95, (_named(ALL_6, "white"),), (_on(ALL_6),))
     assert np.all(LightingTimeline([late], N6, 10.0, cfg).evaluate(9.96) == 0.0)
-
-
-# --- the read-out shapes --------------------------------------------------------------------------
 
 
 def test_evaluate_returns_integral_wrgb_per_drone_and_deck():

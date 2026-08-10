@@ -18,6 +18,20 @@ from swarm_gpt.exception import LLMFormatError
 from swarm_gpt.utils.music_analyzer import Bar, Beat, Segment, SongStructure
 
 
+def _single_bar_structure() -> SongStructure:
+    """One 4-beat bar at 120 BPM, running to 20s."""
+    beats = [Beat(id=j + 1, time_s=j * 0.5, position_in_bar=j + 1) for j in range(4)]
+    bar = Bar(id=1, start_s=0.0, beats=beats)
+    return SongStructure(
+        schema_version=2,
+        source_path="test.mp3",
+        song_sha256="abc",
+        analyzer="test",
+        bpm=120,
+        segments=[Segment(id=1, label="chorus", start_s=0.0, end_s=20.0, bars=[bar])],
+    )
+
+
 def test_form_should_drop_holds_when_overlapping_motion_follows():
     """form_star (full swarm) + rotate (full swarm) → overlap, drop holds."""
     action_list = [{"form_star": (100, 60, 80, 1.0)}, {"rotate": (45, "z")}]
@@ -73,6 +87,31 @@ def test_overlapping_drone_set_move():
     assert _overlapping_drone_set({"move": (100, 0, 150, 5)}, num_drones=10) == frozenset({4})
 
 
+def test_overlapping_drone_set_compact_range():
+    """A range spec must resolve to the same drones as the list it replaces."""
+    compact = _overlapping_drone_set({"form_circle": ("1-5", 150, 100, 1.0)}, num_drones=10)
+    explicit = _overlapping_drone_set(
+        {"form_circle": ([1, 2, 3, 4, 5], 150, 100, 1.0)}, num_drones=10
+    )
+    assert compact == explicit == frozenset({0, 1, 2, 3, 4})
+    assert _overlapping_drone_set({"move_z": ("2,4", 50)}, num_drones=10) == frozenset({1, 3})
+    assert _overlapping_drone_set({"center": ("1-3",)}, num_drones=10) == frozenset({0, 1, 2})
+
+
+def test_overlapping_drone_set_ellipsis_is_the_whole_swarm():
+    """`[...]` means every drone; the check must agree with the primitive that flies it."""
+    assert _overlapping_drone_set({"center": ([...],)}, num_drones=4) == frozenset({0, 1, 2, 3})
+
+
+def test_form_should_drop_holds_reads_range_specs():
+    """The disjoint/overlap decision must survive the compact form, both ways."""
+    disjoint = [{"form_circle": ("1-5", 150, 100, 1.0)}, {"move_z": ("6-10", 50)}]
+    assert _form_should_drop_holds(disjoint, 0, num_drones=10) is False
+    # Inclusive endpoints: "5-10" shares drone 5 with "1-5", so the holds must drop.
+    overlapping = [{"form_circle": ("1-5", 150, 100, 1.0)}, {"move_z": ("5-10", 50)}]
+    assert _form_should_drop_holds(overlapping, 0, num_drones=10) is True
+
+
 def test_schema_allows_multiple_actions_per_entry():
     """After F3 rollback, action_list must not have maxItems: 1."""
     from swarm_gpt.core.structured_output_schema import build_motion_primitive_response_schema
@@ -118,6 +157,38 @@ def test_form_star_hold_pruning_in_pipeline():
     assert waypoints["pos"].shape[1] > 2
 
 
+def test_range_and_list_forms_produce_identical_waypoints():
+    """End-to-end through the text pipeline: the encoding changes, the choreography does not.
+
+    Saved presets store explicit id lists, so both spellings reach `_choreo2waypoints`.
+    """
+    config_path = virtual_crazyswarm_config(n_drones=10)
+    structure = _single_bar_structure()
+
+    def _waypoints(drone_ids: str) -> np.ndarray:
+        choreographer = Choreographer(
+            config_file=config_path, llm_provider="openai", use_motion_primitives=True
+        )
+        for i in choreographer.starting_pos:
+            choreographer.starting_pos[i] = np.array([(i - 5) * 0.3, 0.0, 1.0])
+        choreography = {(1, 1, 1): f"form_circle({drone_ids}, 120, 100, 1.0)"}
+        return choreographer._choreo2waypoints(choreography, structure)["pos"]
+
+    np.testing.assert_allclose(_waypoints("'1-5'"), _waypoints("[1, 2, 3, 4, 5]"))
+
+
+def test_out_of_bounds_range_reprompts_rather_than_crashing():
+    """An id above the swarm must raise a format error the self-correct loop can act on."""
+    config_path = virtual_crazyswarm_config(n_drones=10)
+    choreographer = Choreographer(
+        config_file=config_path, llm_provider="openai", use_motion_primitives=True
+    )
+    with pytest.raises(LLMFormatError, match=r"outside the 1\.\.10 swarm"):
+        choreographer._choreo2waypoints(
+            {(1, 1, 1): "form_circle('1-50', 120, 100, 1.0)"}, _single_bar_structure()
+        )
+
+
 def test_load_drone_config_uses_active_list(tmp_path: Path) -> None:
     """Loader must respect active list order and build uri from addr and channel."""
     cfg = tmp_path / "drones.toml"
@@ -142,8 +213,6 @@ def test_load_drone_config_uses_active_list(tmp_path: Path) -> None:
     assert c.uris[0] == "radio://0/40/2M/E7E7E7E729"  # cf41, channel=40, addr=0x29
     assert c.uris[1] == "radio://0/30/2M/E7E7E7E71F"  # cf31, channel=30, addr=0x1F
 
-
-# --- lighting track -------------------------------------------------------------------------------
 
 LIGHTING_CFG = load_lighting_config()
 LIGHTING_N = 6
@@ -289,10 +358,8 @@ def test_lighting_block_stays_out_of_the_choreography_slice():
 def test_lighting_slice_ignores_the_word_lighting_inside_a_multi_line_plan():
     """The ``lighting:`` header is anchored to a line of its own, so prose cannot claim it.
 
-    The structured path keeps the plan on one line -- `json.dumps` escapes the newlines -- but a
-    free-text response can wrap it. An unanchored header would then match inside the prose and
-    slice from there to the *choreography's* END, handing the motion track's actions to the
-    lighting parser and dropping the real lighting block entirely.
+    A free-text response can wrap the plan onto several lines. An unanchored header would match
+    inside that prose and hand the motion track's actions to the lighting parser.
     """
     text = (
         'song_mood: "steady"\n'
@@ -339,9 +406,8 @@ def test_response2lighting_puts_each_look_at_its_resolved_time():
 def test_response2lighting_converts_period_beats_with_the_songs_own_tempo():
     """`period_beats` is beats, so the song's tempo has to reach every effect it builds.
 
-    Every other fixture in this file is 120 BPM, where a hardcoded 120.0 is indistinguishable from
-    the forwarded `structure.bpm` — and a tempo that never arrives runs every
-    `period_beats` effect in the show at the wrong rate, for the whole show.
+    Every other fixture here is 120 BPM, where a hardcoded 120.0 is indistinguishable from the
+    forwarded `structure.bpm`; a tempo that never arrives mistimes the whole show.
     """
     choreographer = _lighting_choreographer()
     text = (
@@ -381,9 +447,8 @@ def test_response2lighting_snapshots_once_per_look_and_at_no_other_time():
 def test_response2lighting_snapshots_where_the_formation_has_arrived_not_where_it_starts():
     """The bug this exists for: a look emitted alongside a formation must not read the old one.
 
-    Motion primitives play forward from their own key, so a lighting key sharing that address
-    lands at the instant the formation *begins*. Sampling there froze the outgoing formation for
-    the whole look — a `left`/`right` split of the shape the swarm was just leaving.
+    A lighting key sharing a motion key's address lands where the formation *begins*, so sampling
+    there froze the outgoing formation for the whole look.
     """
     choreographer = _lighting_choreographer()
     structure = _lighting_structure()
@@ -444,8 +509,7 @@ def test_response2lighting_falls_back_to_the_look_start_without_a_motion_track()
 def test_a_payload_without_lighting_yields_a_full_on_timeline(lighting: list | None):
     """An absent key and an empty array both mean 'no lighting', never an error.
 
-    ``None`` here is the payload predating the feature — this repo's own fixtures — and ``[]`` is
-    what strict mode forces a model with nothing to say into emitting.
+    ``None`` is a payload predating the feature; ``[]`` is what strict mode forces.
     """
     choreographer = _lighting_choreographer()
     calls: list[float] = []
@@ -524,10 +588,9 @@ def test_response2lighting_reports_a_wrong_argument_count_as_a_format_error():
 
 
 def test_response2lighting_blacks_out_at_the_end_of_the_flight_not_the_music():
-    """The blackout is `t_end - 0.1` where `t_end` is the flight, as at `backend.py:332`.
+    """The blackout is `t_end - 0.1` where `t_end` is the flight, not the music.
 
-    Deriving it from the song structure instead would darken the swarm for the whole
-    return-to-home leg — the drones would fly home and land dark rather than lit.
+    Deriving it from the song structure would fly the whole return-to-home leg dark.
     """
     choreographer = _lighting_choreographer()
     text = choreographer._structured_payload_to_text(_payload(_blue_then_blink()))
@@ -544,9 +607,8 @@ def test_response2lighting_blacks_out_at_the_end_of_the_flight_not_the_music():
 def test_validate_lighting_rejects_a_malformed_emission_without_positions():
     """A malformed lighting track must reprompt, and cannot wait for the axswarm pass.
 
-    Positions do not exist until `Backend.simulate` has run, so the full compile cannot happen at
-    generation time — but the vocabulary and arity can be checked, and that is what catches a
-    hallucinated primitive early enough for `self_correct` to act on it.
+    Positions do not exist yet, so the full compile cannot run at generation time -- but the
+    vocabulary and arity can, which catches a hallucinated primitive in time for `self_correct`.
     """
     choreographer = _lighting_choreographer()
 
@@ -577,10 +639,8 @@ def test_validate_lighting_rejects_a_malformed_emission_without_positions():
 def test_validate_lighting_rejects_every_name_the_engine_would_reject(emission: str, match: str):
     """Names, not just primitives: none of these checks needs a position, so all belong here.
 
-    A bad colour, deck, selector kind, spread or gradient axis used to escape this gate and raise
-    a bare `KeyError` much later — inside `compile_cues` during `deploy`, or per frame mid-render,
-    where nothing reprompts. The colour was the worst of them: the engine resolves palette names
-    lazily at read-out, so it did not even fail when the timeline was compiled.
+    A bad colour, deck, selector, spread or axis used to escape and raise a bare `KeyError` at
+    deploy or render time. Colour was worst: palette names resolve lazily at read-out.
     """
     choreographer = _lighting_choreographer()
 
@@ -593,11 +653,8 @@ def test_validate_lighting_does_not_warn_about_its_own_dry_run_snapshot(
 ):
     """The dry run discards every position-dependent result, so it must not diagnose one.
 
-    Positions do not exist at generation time, so the looks are built against a synthetic
-    snapshot. A snapshot with no extent along an axis is exactly what the collapse warnings
-    report, so a snapshot of zeros makes every `sweep`, `ripple_light` and `left`/`right` emission
-    warn on every generation — noise about the fixture rather than about the show, which trains
-    the reader to ignore the one case that is real.
+    A synthetic snapshot of zeros has no extent along any axis, which is exactly what the collapse
+    warnings report -- noise about the fixture that trains the reader to ignore the real case.
     """
     name = "swarm_gpt.core.lighting"
     monkeypatch.setattr(logging.getLogger(name), "propagate", True)

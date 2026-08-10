@@ -1,12 +1,7 @@
 """SongStructure data model and per-song analysis orchestration.
 
-Provides the hierarchical music-structure types the choreographer addresses moments by
-(``segment``, ``bar``, ``beat``), plus :func:`analyze_song` which runs all-in-one on an
-MP3 and caches the result as JSON.
-
 At runtime the choreographer reads JSONs from ``music/analyzed/`` and never invokes
-``allin1.analyze`` itself. ``allin1`` is an optional import so this module can still be
-imported in environments (e.g. ``tests``) that do not have allin1.
+``allin1.analyze`` itself, so ``allin1`` is an optional import.
 """
 
 from __future__ import annotations
@@ -43,13 +38,7 @@ _HOP_LENGTH = 1024
 
 @dataclass
 class Beat:
-    """One beat within a bar.
-
-    Attributes:
-        id: 1-indexed beat number within the bar.
-        time_s: Time in seconds since song start.
-        position_in_bar: Metric position (1 = downbeat, 2/3/4 = off-beats).
-    """
+    """One beat within a bar; ``position_in_bar`` is 1 for the downbeat."""
 
     id: int
     time_s: float
@@ -58,13 +47,7 @@ class Beat:
 
 @dataclass
 class Bar:
-    """One bar (measure) within a segment.
-
-    Attributes:
-        id: 1-indexed bar number within the segment.
-        start_s: Time in seconds when this bar starts.
-        beats: Beats within this bar, in time order.
-    """
+    """One bar (measure) within a segment, holding its beats in time order."""
 
     id: int
     start_s: float
@@ -73,15 +56,7 @@ class Bar:
 
 @dataclass
 class Segment:
-    """One functional segment (intro / verse / chorus / etc.) of the song.
-
-    Attributes:
-        id: 1-indexed segment number within the song.
-        label: Functional label from all-in-one (e.g. ``"intro"``, ``"chorus"``).
-        start_s: Time in seconds when this segment starts.
-        end_s: Time in seconds when this segment ends.
-        bars: Bars within this segment, in time order.
-    """
+    """One functional segment of the song, labelled by all-in-one (e.g. "intro", "chorus")."""
 
     id: int
     label: str
@@ -94,13 +69,7 @@ class Segment:
 class SongStructure:
     """Hierarchical music structure for a single song.
 
-    Attributes:
-        schema_version: Format version of the JSON serialization.
-        source_path: Path to the source audio file, as a string relative to project root.
-        song_sha256: SHA-256 of the source audio file, used to detect MP3 changes.
-        analyzer: Identifier of the analysis engine that produced this structure.
-        bpm: Tempo in beats per minute.
-        segments: Functional segments of the song, in time order.
+    ``song_sha256`` detects MP3 changes; ``source_path`` is relative to the project root.
     """
 
     schema_version: int
@@ -116,21 +85,10 @@ class SongStructure:
     def from_allin1(
         cls, result: Any, source_path: str, song_sha256: str, analyzer: str
     ) -> SongStructure:
-        """Build a SongStructure from an ``allin1.AnalysisResult``.
+        """Build a SongStructure from a duck-typed ``allin1.AnalysisResult``.
 
-        Groups flat ``beats`` / ``beat_positions`` into bars by detecting position
-        resets, then assigns bars to segments by the start time of the bar's first beat.
-
-        Args:
-            result: An ``allin1.AnalysisResult`` (duck-typed: needs ``bpm``, ``beats``,
-                ``beat_positions``, and ``segments`` whose entries expose ``start``,
-                ``end``, ``label``).
-            source_path: Source audio file path, as a string relative to project root.
-            song_sha256: SHA-256 hex digest of the source audio file.
-            analyzer: Identifier of the analyzer used (e.g. ``"allin1@1.1.0"``).
-
-        Returns:
-            A populated SongStructure.
+        Groups flat ``beats`` / ``beat_positions`` into bars by detecting position resets, then
+        assigns bars to segments by the start time of the bar's first beat.
         """
         bars_flat = _group_beats_into_bars(list(result.beats), list(result.beat_positions))
         segments_out = _drop_empty_segments(
@@ -156,17 +114,7 @@ class SongStructure:
 
     @classmethod
     def from_json(cls, path: Path) -> SongStructure:
-        """Load a SongStructure from its JSON serialization.
-
-        Args:
-            path: Path to the JSON file.
-
-        Returns:
-            A populated SongStructure.
-
-        Raises:
-            ValueError: If the JSON's ``schema_version`` is missing or unsupported.
-        """
+        """Load a SongStructure from its JSON serialization."""
         data = json.loads(path.read_text())
         version = data["schema_version"]
         if version != SCHEMA_VERSION:
@@ -211,27 +159,11 @@ class SongStructure:
         )
 
     def to_json(self, path: Path) -> None:
-        """Serialize this SongStructure to JSON.
-
-        Args:
-            path: Where to write the JSON file. Parent directory must exist.
-        """
+        """Serialize this SongStructure to JSON; the parent directory must exist."""
         path.write_text(json.dumps(asdict(self), indent=2))
 
     def time_of(self, seq: int, bar: int, beat: int) -> float:
-        """Look up the absolute time of a ``(segment, bar, beat)`` address.
-
-        Args:
-            seq: 1-indexed segment id.
-            bar: 1-indexed bar id within the segment.
-            beat: 1-indexed beat id within the bar.
-
-        Returns:
-            Time in seconds since song start.
-
-        Raises:
-            KeyError: If the ``(seq, bar, beat)`` tuple does not exist.
-        """
+        """Look up the seconds-since-song-start of a 1-indexed ``(segment, bar, beat)``."""
         for segment in self.segments:
             if segment.id != seq:
                 continue
@@ -244,22 +176,10 @@ class SongStructure:
         raise KeyError(f"No beat at (seq={seq}, bar={bar}, beat={beat})")
 
     def required_keys(self, bars_per_required: int = 1) -> list[tuple[int, int, int]]:
-        """Return the ``(seq, bar, beat)`` tuples the LLM must emit actions at.
+        """Return the ``(seq, bar, beat)`` tuples the LLM must emit actions at, in time order.
 
-        The downbeat (first beat) of every ``bars_per_required``-th bar, counted from the start
-        of each segment. The first bar of every segment is always required (segment openings are
-        musically load-bearing); the stride only thins the bars in between. A stride of 1
-        requires every bar's downbeat; a stride of 4 requires bars 1, 5, 9, ... within each
-        segment. Beats not returned here remain addressable as optional accents.
-
-        Args:
-            bars_per_required: Stride between required downbeats within a segment (>= 1).
-
-        Returns:
-            List of ``(seq, bar, beat)`` tuples, in time order.
-
-        Raises:
-            ValueError: If ``bars_per_required`` is less than 1.
+        The first bar of every segment is always required and ``bars_per_required`` only thins the
+        bars between; unreturned beats stay addressable as optional accents.
         """
         if bars_per_required < 1:
             raise ValueError(f"bars_per_required must be >= 1, got {bars_per_required}")
@@ -271,11 +191,7 @@ class SongStructure:
         ]
 
     def all_keys(self) -> list[tuple[int, int, int]]:
-        """Return every addressable ``(seq, bar, beat)`` tuple in the song.
-
-        Returns:
-            Tuples in time order.
-        """
+        """Return every addressable ``(seq, bar, beat)`` tuple in the song, in time order."""
         return [
             (segment.id, bar.id, beat.id)
             for segment in self.segments
@@ -284,22 +200,10 @@ class SongStructure:
         ]
 
     def crop(self, start_s: float, end_s: float) -> SongStructure:
-        """Return a copy restricted to the window ``[start_s, end_s]``, rebased to 0.
+        """Return a copy restricted to the song-absolute window ``[start_s, end_s]``, rebased to 0.
 
-        Keeps only beats whose time falls within the window, drops bars and segments left
-        empty, renumbers all ids contiguously from 1, and shifts every time so the window
-        starts at 0:00. The simulator and player both expect a 0-based timeline, so this is
-        applied at load time while the on-disk full-song JSON is left untouched.
-
-        Args:
-            start_s: Window start in seconds (song-absolute).
-            end_s: Window end in seconds (song-absolute).
-
-        Returns:
-            A new SongStructure spanning ``[0, end_s - start_s]``.
-
-        Raises:
-            ValueError: If ``end_s`` is not greater than ``start_s``.
+        Empty bars and segments are dropped and ids renumbered contiguously. Both consumers expect
+        a 0-based timeline, so this runs at load time and leaves the on-disk JSON untouched.
         """
         if end_s <= start_s:
             raise ValueError(f"crop end ({end_s}) must be greater than start ({start_s})")
@@ -360,18 +264,8 @@ def compute_dynamics_per_2bar(
 ) -> tuple[tuple[float, ...], tuple[float, ...]]:
     """Per-2-bar RMS amplitude and spectral centroid, normalized to [0, 1].
 
-    Computes two audio features for each 2-bar window in the song. Windows reset at segment
-    boundaries so each window cleanly belongs to one segment. Both features are normalized by
-    the song-wide maximum so values are scale-invariant across songs.
-
-    Args:
-        structure: The full-song SongStructure (pre-crop). Bars in ``structure.segments``
-            define the window boundaries.
-        mp3_path: Path to the source audio file.
-
-    Returns:
-        ``(rms_tuple, centroid_tuple)`` of equal length
-        ``sum(ceil(len(seg.bars) / 2) for seg in structure.segments)``.
+    Windows reset at segment boundaries, and both features normalize by the song-wide maximum so
+    they are scale-invariant. ``structure`` must be pre-crop: its bars define the windows.
     """
     windows: list[tuple[float, float]] = []
     for seg in structure.segments:
@@ -410,14 +304,7 @@ def compute_dynamics_per_2bar(
 def dynamics_window_keys(structure: SongStructure) -> tuple[str, ...]:
     """Generate the s#b#t# key for the start of each 2-bar window, in order.
 
-    Pure function of the bar layout — not persisted; regenerated whenever the prompt is
-    built. Length matches ``structure.rms_per_2bar``.
-
-    Args:
-        structure: The SongStructure whose bar layout defines the windows.
-
-    Returns:
-        Tuple of key strings, one per 2-bar window.
+    A pure function of the bar layout, not persisted. Length matches ``structure.rms_per_2bar``.
     """
     keys: list[str] = []
     for seg in structure.segments:
@@ -434,16 +321,8 @@ def _group_beats_into_bars(
 ) -> list[list[tuple[float, int]]]:
     """Group flat ``(beat_time, position_in_bar)`` pairs into bars.
 
-    A new bar starts whenever ``position_in_bar`` does not strictly increase relative to
-    the previous beat. Handles variable meters (3/4, 4/4, etc.) and anacrusis (a partial
-    first bar) implicitly.
-
-    Args:
-        beats: Beat times in seconds, in time order.
-        positions: Position-in-bar for each beat (1-indexed), parallel to ``beats``.
-
-    Returns:
-        List of bars, where each bar is a list of ``(time, position)`` pairs.
+    A new bar starts whenever ``position_in_bar`` does not strictly increase, which handles
+    variable meters and anacrusis implicitly.
     """
     bars: list[list[tuple[float, int]]] = []
     current: list[tuple[float, int]] = []
@@ -460,16 +339,7 @@ def _group_beats_into_bars(
 def _assign_bars_to_segments(
     bars_flat: list[list[tuple[float, int]]], segments_in: list[Any]
 ) -> list[Segment]:
-    """Assign each flat bar to the segment containing its first beat.
-
-    Args:
-        bars_flat: Bars as produced by :func:`_group_beats_into_bars`.
-        segments_in: Segments from an ``allin1.AnalysisResult`` (duck-typed: ``start``,
-            ``end``, ``label``).
-
-    Returns:
-        Segments populated with their child bars, in the same order as ``segments_in``.
-    """
+    """Assign each flat bar to the segment containing its first beat, preserving segment order."""
     segments_out: list[Segment] = []
     bar_cursor = 0
     for seg_id, raw_seg in enumerate(segments_in, start=1):
@@ -507,15 +377,8 @@ def _assign_bars_to_segments(
 def _drop_empty_segments(segments: list[Segment]) -> list[Segment]:
     """Drop segments that contain no beats and renumber the survivors from 1.
 
-    allin1 can emit segment boundaries that no beat falls within (e.g. very short
-    sections). Such segments carry nothing to choreograph and would only mislead the LLM,
-    so they are removed and the remaining segment ids are made contiguous.
-
-    Args:
-        segments: Segments in time order, possibly including empty ones.
-
-    Returns:
-        The non-empty segments with ``id`` renumbered to be contiguous from 1.
+    allin1 can emit segment boundaries no beat falls within; they carry nothing to choreograph
+    and would only mislead the LLM.
     """
     kept = [seg for seg in segments if seg.bars]
     for new_id, seg in enumerate(kept, start=1):
@@ -524,14 +387,7 @@ def _drop_empty_segments(segments: list[Segment]) -> list[Segment]:
 
 
 def sha256_of(path: Path) -> str:
-    """Compute the SHA-256 hex digest of a file.
-
-    Args:
-        path: File to hash.
-
-    Returns:
-        Hex-encoded SHA-256 digest.
-    """
+    """Compute the SHA-256 hex digest of a file."""
     h = hashlib.sha256()
     with path.open("rb") as f:
         for chunk in iter(lambda: f.read(1 << 20), b""):
@@ -542,16 +398,7 @@ def sha256_of(path: Path) -> str:
 def save_visualization(result: Any, viz_dir: Path, stem: str) -> Path:
     """Save all-in-one's RMS-over-segments visualization as a PNG.
 
-    Renders the same figure as ``allin1.visualize`` (which only writes PDFs) but saves it
-    as a raster image instead.
-
-    Args:
-        result: An ``allin1.AnalysisResult``.
-        viz_dir: Directory to write the PNG into. Created if missing.
-        stem: Output file stem (the song's MP3 stem, no extension).
-
-    Returns:
-        Path to the written PNG.
+    Renders the same figure as ``allin1.visualize``, which only writes PDFs.
     """
     fig = allin1.visualize(result, out_dir=None, multiprocess=False)
     viz_dir.mkdir(parents=True, exist_ok=True)
@@ -566,18 +413,8 @@ def analyze_song(
 ) -> SongStructure:
     """Analyze a single MP3 and cache the result as JSON.
 
-    If ``cache_dir/<song_stem>.json`` already exists, loads and returns it without
-    re-running analysis (and without regenerating any visualization).
-
-    Args:
-        mp3_path: Path to the MP3 file.
-        cache_dir: Directory to read/write JSON caches in. Created if missing.
-        device: Torch device for analysis (``"cuda"`` or ``"cpu"``).
-        viz_dir: If given, save a PNG visualization of the analysis here when the song is
-            analyzed (skipped on a cache hit). Created if missing.
-
-    Returns:
-        The SongStructure for the song.
+    An existing ``cache_dir/<song_stem>.json`` is returned as-is, without re-running analysis or
+    regenerating the optional ``viz_dir`` visualization.
     """
     cache_path = cache_dir / f"{mp3_path.stem}.json"
     if cache_path.exists():

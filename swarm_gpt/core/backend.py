@@ -32,16 +32,12 @@ logging.basicConfig(level=logging.WARNING)
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
-P = ParamSpec("P")  # Represents arbitrary parameters
-R = TypeVar("R")  # Represents the return type
+P = ParamSpec("P")
+R = TypeVar("R")
 
 
 def self_correct(n_retries: int) -> Callable[[Callable[P, R]], Callable[P, R]]:
-    """Create a decorator that retries a function n times if it fails.
-
-    Args:
-        n_retries: Number of times to retry the function
-    """
+    """Create a decorator that retries a function ``n_retries`` times if it fails."""
 
     def decorator(fn: Callable[P, R]) -> Callable[P, R]:
         """Decorator that retries a function n times if it fails."""
@@ -75,27 +71,10 @@ def self_correct(n_retries: int) -> Callable[[Callable[P, R]], Callable[P, R]]:
 
 
 def _fold_cues_to_rgb(cues: dict[float, Array]) -> dict[str, list]:
-    """Fold one drone-deck's WRGB cue dict into the browser's parallel arrays.
+    """Fold a ``{time: (4,) WRGB}`` cue dict into JSON-serializable ``{"times", "rgb"}`` arrays.
 
-    Three.js has no white channel, so W folds into all three exactly as
-    :meth:`LightingTimeline.evaluate_rgb01` does it -- ``clip(rgb + w, 0, 255)``, where the clip is
-    load-bearing because a near-white cue overflows without it. The truncation to integers matches
-    ``DroneSwarm._apply_drone_color``, which packs each channel with ``int()``, so quantization can
-    only ever darken relative to intent.
-
-    **Note: that truncation requirement is currently vacuous, and byte-level agreement holds for a
-    different reason than it claims.** :meth:`LightingTimeline.evaluate` already rounds, so every
-    value arriving here is integral and ``.astype(int)`` is bit-identical to
-    ``np.round(...).astype(int)`` -- there is no fractional part left to truncate, and no test can
-    tell the two apart. The browser and the hardware agree because both are handed the same already
-    rounded WRGB, not because this line truncates. Keep the truncation anyway: it is what stays
-    correct if ``evaluate`` ever stops rounding.
-
-    Args:
-        cues: One drone-deck's ``{time: (4,) WRGB}`` cue dict, as ``compile_cues`` returns it.
-
-    Returns:
-        ``{"times": [...], "rgb": [[r, g, b], ...]}``, JSON-serializable and index-parallel.
+    Three.js has no white channel, so W folds into all three as ``clip(rgb + w, 0, 255)``; without
+    that clip a near-white cue overflows. The truncation matches ``_apply_drone_color``.
     """
     wrgb = np.stack(list(cues.values()))
     rgb = np.clip(wrgb[:, 1:] + wrgb[:, :1], 0, 255).astype(int)
@@ -119,26 +98,16 @@ class AppBackend:
     ):
         """Initialize the backend by loading the music files and initializing the choreographer.
 
-        Args:
-            config_file: Path to the config file.
-            music_dir: Path to the music directory.
-            preset_dir: Path to the preset directory.
-            strict_processing: Flag to raise an error on waypoint collisions.
-            strict_drone_match: Flag to raise an error when preset drones do not match the current
-                swarm.
-            model_id: The OpenAI or Ollama model name (see LLM selector in the UI).
-            use_motion_primitives: If we want LLM to use motion primitives for choreography
-            llm_provider: ``openai`` or ``ollama`` for the choreographer backend.
+        The ``strict_*`` flags raise rather than warn on, respectively, waypoint collisions and a
+        preset whose drone count does not match the current swarm.
         """
         self.root_path = Path(__file__).resolve().parents[2]
         self.preset_dir = preset_dir or self.root_path / "swarm_gpt/data/presets"
         with open(self.root_path / "swarm_gpt/data/settings.yaml", "r") as f:
             self.settings = yaml.safe_load(f)
-        # Initialize drone control elements
         self.waypoints: Array | None = None  # High-level LLM commands
         self.splines = {}  # Low-level optimized commands from axswarm
         self.drone_controller = None  # TODO Controller for the Crazyflie drones
-        # Initialize chat elements
         self.choreographer = Choreographer(
             config_file=config_file,
             model_id=model_id,
@@ -205,14 +174,9 @@ class AppBackend:
 
     @self_correct(n_retries=2)
     def initial_prompt(self, song: str, *, response: str | None = None) -> list[dict[str, str]]:
-        """Set the song and generate the choreography.
+        """Set the song and generate the choreography, returning the chat history.
 
-        Args:
-            song: Name of the song or preset to use.
-            response: Optional, predefined response. Used for testing.
-
-        Returns:
-            The chat history as a list of dictionaries with the role and content.
+        ``response`` supplies a predefined response instead of calling the LLM; used for testing.
         """
         logger.info(f"Generating initial choreography for song: {song}")
         song_name = self._load_song(song)
@@ -221,13 +185,13 @@ class AppBackend:
         prompt = self.choreographer.format_initial_prompt(song_name, structure)
 
         fixed_response = response is not None
-        if preset := song in self.presets:  # Preset was provided
+        if preset := song in self.presets:
             logger.debug(f"Loading preset: {song}")
             response = self.load_preset(song)
-        elif fixed_response:  # Response was provided, do not use LLM
+        elif fixed_response:
             logger.debug(f"Using predefined response: {response}")
             self.choreographer.messages.append({"role": "assistant", "content": response})
-        else:  # Use LLM to generate the choreography
+        else:
             logger.debug(f"Using LLM to generate choreography for song: {song_name}")
             response = self.choreographer.generate_choreography(prompt, structure=structure)
 
@@ -240,9 +204,8 @@ class AppBackend:
             # positions here is what lets a malformed lighting track reprompt.
             self.choreographer.validate_lighting(response)
         except LLMException as e:
-            # We do not want to retry if we are using a preset or a fixed response. This
-            # would use the LLM. We raise an error type that is not caught by
-            # self_correct to exit immediately.
+            # Retrying a preset or fixed response would call the LLM, so raise an error type
+            # `self_correct` does not catch and exit immediately.
             if preset or fixed_response:
                 raise RuntimeError("Initial prompt failed") from e
             raise e
@@ -251,14 +214,7 @@ class AppBackend:
 
     @self_correct(n_retries=3)
     def reprompt(self, message: str) -> list[dict[str, str]]:
-        """Reprompt the LLM to generate new waypoints based on the previous choreography.
-
-        Args:
-            message: The reprompt.
-
-        Returns:
-            The chat history as a list of dictionaries with the role and content.
-        """
+        """Reprompt the LLM for new waypoints, returning the chat history."""
         logger.info(f"Reprompting with message: {message}")
         if message == "":
             logger.warning("No message provided, returning current history")
@@ -276,14 +232,8 @@ class AppBackend:
     def simulate(self, gui: bool = False) -> dict[str, Any]:
         """Run the simulation with waypoints generated by the choreographer.
 
-        Before the simulation is run, the waypoints are interpolated by axswarm to ensure that the
-        trajectories are collision-free.
-
-        Args:
-            gui: Whether to show the MuJoCo debug replay after filtering. Use for debugging only.
-
-        Returns:
-            A collection of data from the simulation.
+        Waypoints are first interpolated by axswarm so the trajectories are collision-free.
+        ``gui`` shows the MuJoCo debug replay afterwards; for debugging only.
         """
         logger.info("Simulating trajectories with axswarm")
         assert self.waypoints is not None, "Please generate a choreography first"
@@ -306,16 +256,10 @@ class AppBackend:
         return sim_data
 
     def lighting_timeline(self) -> LightingTimeline:
-        """Compile the current response's lighting track into a timeline.
+        """Compile the current response's lighting track into a timeline covering the flight.
 
-        Each look freezes a position snapshot taken from the axswarm splines, so this is only
-        available once :meth:`simulate` has run.
-
-        Every read-out goes through here, including for a response carrying no lighting at all:
-        that compiles to the default hue wheel, so the preview and the hardware still agree.
-
-        Returns:
-            The compiled timeline, covering the whole flight.
+        Each look freezes a snapshot from the axswarm splines, so this needs :meth:`simulate` to
+        have run. A response with no lighting compiles to the default hue wheel rather than skipping.
         """
         assert self.splines, "Please run the simulation first!"
         assert self.waypoints is not None, "Please generate a choreography first"
@@ -329,27 +273,10 @@ class AppBackend:
         )
 
     def browser_cues(self) -> dict[str, list[dict[str, list]]]:
-        """Adapt the compiled lighting cues for the browser viewer.
+        """Adapt the compiled lighting cues into ``{"top", "bot"}`` lists, one entry per drone.
 
-        The browser is the third read-out, and it plays back the same baked cue list the hardware
-        does, so the preview shows the ``col_freq`` quantization that will actually fly. That is
-        deliberately *not* the sim's per-frame ``evaluate``, which is smoother than either.
-
-        ``compile_cues`` output is not browser-ready: it is URI-keyed, holds ``NDArray`` values in
-        ``{time: wrgb}`` dicts, and carries four channels. This is the whole of the adaptation, so
-        ``normalize_playback`` stays a pure reshaper and deploy's ``col_freq``/``t_end`` plumbing
-        does not spread into the API layer.
-
-        **Known divergence: editing `lighting.toml` between preview and flight desynchronizes
-        them.** This runs once per job and caches into ``job.playback``, while :meth:`deploy`
-        recompiles from scratch and ``load_lighting_config`` re-reads the file every call with no
-        cache, so the viewer can show the old palette while the drones fly the new one. Re-running
-        the job resyncs. Nothing else can diverge: there is no RNG in the lighting path, and both
-        paths take ``t_end``, ``col_freq``, the response text and the positions from one source.
-
-        Returns:
-            ``{"top": [...], "bot": [...]}``, each a list of one ``{"times", "rgb"}`` entry per
-            drone, indexed like the payload's ``states`` rows rather than keyed by radio URI.
+        The browser replays the hardware's baked cue list, so the preview shows the quantization
+        that will fly. Gotcha: editing `lighting.toml` mid-job desyncs the two until it is re-run.
         """
         cfg = load_lighting_config()
         # Index keys, not radio URIs: `compile_cues` keys its output by whatever it is handed, and
@@ -371,14 +298,7 @@ class AppBackend:
         return message["content"]
 
     def deploy(self, drone_ids: list[int] | None = None) -> bool:
-        """Run the Crazyflie drones with waypoints generated by the choreographer.
-
-        We call the waypoint_helpers.py script from the Crazyflie ROS package to run the drones.
-
-        Returns:
-            The chat history as a list of prompts and answers.
-        """
-        # Check if even in deploy environment
+        """Run the Crazyflie drones with waypoints generated by the choreographer."""
         if not self.settings["lighthouse"]:
             try:
                 import rclpy
@@ -403,8 +323,7 @@ class AppBackend:
         # Bake the lighting before connecting any radio, so a malformed track fails cheaply.
         # `cfg.col_freq` reaches both the cue consumer and the cue compiler from the same config
         # field, so the Nyquist clamp in `build_look` can never disagree with the rate the cues
-        # are actually drained at. A response with no lighting track compiles from the default
-        # hue wheel, which is the one-colour-then-black cue pair the deploy path always sent.
+        # are actually drained at.
         cfg = load_lighting_config()
         t_end = float(self.waypoints["time"][0, -1])
         uris = [d["uri"] for d in self.choreographer.drones.values()]
@@ -416,7 +335,6 @@ class AppBackend:
         self._active_swarm = swarm
         logger.info("Swarm connected...")
 
-        # generate references
         correct_positions = True
         init_pos_dict = {}
         final_pos_dict = {}
@@ -442,7 +360,6 @@ class AppBackend:
             if not correct_positions:
                 raise RuntimeError("Some drone(s) are not in the expected initial positions.")
             swarm.goto(init_pos_dict)  # takeoff
-            # Check active drones after the initial climb.
             taken_off = True
             for d in self.choreographer.drones.values():
                 uri = d["uri"]
@@ -456,7 +373,7 @@ class AppBackend:
                     logger.debug(f"got obs for {uri}")
                     z = obs["pos"][2]
                     qw = np.abs(obs["quat"][-1])
-                # Demo fix: If the drone is disconnected, we cannot get its position. We assume it has not taken off.
+                # A disconnected drone has no position, so assume it has not taken off.
                 # TODO: Replace the general exception catch with the specific cflib2 exception.
                 except Exception as e:
                     logger.warning(f"Could not get position for drone {uri} after takeoff: {e}")
@@ -482,7 +399,7 @@ class AppBackend:
             swarm.goto(final_pos_dict, duration=2.0)  # Transition from ideal point to hover pos
             if self.settings["land_on_docks"]:
                 swarm.goto(final_pos_dict, duration=3.0)  # Hovering
-            swarm.land(duration=1.5)  # Landing
+            swarm.land(duration=1.5)
         finally:
             self._active_swarm = None
             swarm.close()
@@ -498,11 +415,7 @@ class AppBackend:
         self.music_manager.stop()
 
     def load_preset(self, preset_id: str) -> str:
-        """Load a preset response.
-
-        Args:
-            preset_id: Name of the preset.
-        """
+        """Load a preset response."""
         assert preset_id, "Please select a valid preset"
         assert preset_id in self.presets, "No preset for this song"
         preset_path = self.preset_dir / preset_id
@@ -604,32 +517,18 @@ class AppBackend:
         return song
 
     def crop_window(self, song_name: str) -> tuple[float, float]:
-        """Return the ``(start_s, end_s)`` crop window for a song, in seconds.
+        """Return the ``(start_s, end_s)`` crop window in seconds for an MP3 stem.
 
-        Reads ``song_crops`` from settings, falling back to ``song_crops.default`` for any song
-        without an explicit entry.
-
-        Args:
-            song_name: Stem of the MP3 file (no extension).
-
-        Returns:
-            The ``(start_s, end_s)`` window the song is cropped to.
+        Reads ``song_crops`` from settings, falling back to ``song_crops.default``.
         """
         crops = self.settings["song_crops"]
         window = crops.get(song_name, crops["default"])
         return float(window[0]), float(window[1])
 
     def _load_structure(self, song_name: str) -> SongStructure:
-        """Load the cached SongStructure JSON for a song, cropped to its window.
+        """Load the cached SongStructure JSON for an MP3 stem, cropped to its window.
 
-        The full-song analysis is loaded from disk and then cropped to the song's
-        ``song_crops`` window (see :meth:`crop_window`); only that window is choreographed.
-
-        Args:
-            song_name: Stem of the MP3 file (no extension).
-
-        Raises:
-            FileNotFoundError: If no analysis JSON exists yet for the song.
+        Only the :meth:`crop_window` window is choreographed.
         """
         json_path = self.root_path / "music" / "analyzed" / f"{song_name}.json"
         if not json_path.exists():
