@@ -21,6 +21,14 @@ OLLAMA_API_KEY: Final = os.getenv("OLLAMA_API_KEY", "ollama")
 RESPONSES_MAX_OUTPUT_TOKENS: Final = 4096
 RESPONSES_TEMPERATURE: Final = 0.0
 
+# Reasoning models reject `temperature` with a 400; effort replaces it as the creativity knob.
+# Medium buys plan-space exploration on a whole-song choreography without max's latency.
+REASONING_MODEL_PREFIXES: Final = ("gpt-5", "o1", "o3", "o4")
+REASONING_EFFORT: Final = "medium"
+# Reasoning tokens are billed against max_output_tokens, so the choreography JSON is only part of
+# the budget. Too low truncates mid-think and surfaces as an empty response, not a token error.
+REASONING_MAX_OUTPUT_TOKENS: Final = 32768
+
 LLMProvider = Literal["openai", "ollama"]
 
 PROVIDER_LABEL_OPENAI: Final = "ChatGPT / OpenAI"
@@ -49,6 +57,16 @@ def _ollama_api_base() -> str:
 def default_openai_model() -> str:
     """Default OpenAI model id for ``responses.create``."""
     return DEFAULT_OPENAI_MODEL_CHOICES[0]
+
+
+def responses_model_kwargs(model_id: str) -> dict[str, Any]:
+    """Per-model ``responses.create`` kwargs: reasoning effort, or temperature for older models."""
+    if model_id.lower().startswith(REASONING_MODEL_PREFIXES):
+        return {
+            "max_output_tokens": REASONING_MAX_OUTPUT_TOKENS,
+            "reasoning": {"effort": REASONING_EFFORT},
+        }
+    return {"max_output_tokens": RESPONSES_MAX_OUTPUT_TOKENS, "temperature": RESPONSES_TEMPERATURE}
 
 
 def prepare_responses_messages(

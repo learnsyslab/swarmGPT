@@ -22,7 +22,12 @@ from swarm_gpt.core.structured_output_schema import (
     structured_payload_to_lighting,
 )
 from swarm_gpt.exception import LLMFormatError
-from swarm_gpt.utils.llm_providers import RESPONSES_TEMPERATURE
+from swarm_gpt.utils.llm_providers import (
+    REASONING_EFFORT,
+    REASONING_MAX_OUTPUT_TOKENS,
+    RESPONSES_MAX_OUTPUT_TOKENS,
+    RESPONSES_TEMPERATURE,
+)
 from swarm_gpt.utils.music_analyzer import SCHEMA_VERSION, Bar, Beat, Segment, SongStructure
 
 
@@ -225,6 +230,57 @@ def test_call_responses_structured_includes_json_schema_format():
         for variant in variants
     )
     assert all("args" not in json.dumps(variant) for variant in variants)
+
+
+@pytest.mark.parametrize(
+    ("model_id", "expects_temperature"),
+    [("gpt-4o", True), ("gpt-5.6-luna", False), ("o3-mini", False)],
+)
+def test_call_responses_structured_omits_temperature_for_reasoning_models(
+    model_id: str, expects_temperature: bool
+):
+    config_path = virtual_crazyswarm_config(n_drones=4)
+    choreographer = Choreographer(
+        config_file=config_path,
+        model_id=model_id,
+        llm_provider="openai",
+        use_motion_primitives=True,
+    )
+    structure = _simple_structure(n_segments=1, n_bars=1, n_beats=1)
+    captured: dict[str, Any] = {}
+
+    class FakeResponses:
+        def create(self, **kwargs: Any) -> SimpleNamespace:
+            captured.update(kwargs)
+            payload = {
+                "song_mood": "energetic",
+                "choreography_plan": "test",
+                "choreography": [
+                    {
+                        "key": "s1b1t1",
+                        "actions": [
+                            {"primitive": "rotate", "params": {"angle_deg": 0, "axis": "z"}}
+                        ],
+                    }
+                ],
+            }
+            return SimpleNamespace(error=None, output_text=json.dumps(payload))
+
+    class FakeClient:
+        responses = FakeResponses()
+
+    choreographer._chat_client_for_call = lambda: FakeClient()  # noqa: E731
+
+    choreographer._call_responses_structured([{"role": "user", "content": "hi"}], structure)
+
+    assert ("temperature" in captured) is expects_temperature
+    if expects_temperature:
+        assert "reasoning" not in captured
+        assert captured["max_output_tokens"] == RESPONSES_MAX_OUTPUT_TOKENS
+    else:
+        # Reasoning tokens share max_output_tokens, so effort needs the larger budget.
+        assert captured["reasoning"] == {"effort": REASONING_EFFORT}
+        assert captured["max_output_tokens"] == REASONING_MAX_OUTPUT_TOKENS
 
 
 def test_schema_contains_no_openai_unsupported_keywords():

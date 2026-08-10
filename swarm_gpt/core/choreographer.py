@@ -28,12 +28,12 @@ from swarm_gpt.core.structured_output_schema import (
 )
 from swarm_gpt.exception import LLMFormatError, LLMPlanError, LLMResponseProcessingError
 from swarm_gpt.utils.llm_providers import (
-    RESPONSES_MAX_OUTPUT_TOKENS,
     RESPONSES_TEMPERATURE,
     cancellable_ollama_chat,
     openai_client_for_provider,
     prepare_responses_messages,
     register_ollama_client,
+    responses_model_kwargs,
 )
 from swarm_gpt.utils.music_analyzer import dynamics_window_keys
 
@@ -302,8 +302,7 @@ class Choreographer:
                 model=self._model_id,
                 input=input_messages,
                 instructions=instructions,
-                max_output_tokens=RESPONSES_MAX_OUTPUT_TOKENS,
-                temperature=RESPONSES_TEMPERATURE,
+                **responses_model_kwargs(self._model_id),
             )
         except Exception as e:
             hint = (
@@ -412,8 +411,7 @@ class Choreographer:
                 model=self._model_id,
                 input=input_messages,
                 instructions=instructions,
-                max_output_tokens=RESPONSES_MAX_OUTPUT_TOKENS,
-                temperature=RESPONSES_TEMPERATURE,
+                **responses_model_kwargs(self._model_id),
                 text={
                     "format": {
                         "type": "json_schema",
