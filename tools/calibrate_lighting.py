@@ -8,12 +8,14 @@ from __future__ import annotations
 
 import argparse
 import time
+import tomllib
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 import numpy as np
+import yaml
 from numpy.typing import NDArray
 
-from swarm_gpt.core import Choreographer
 from swarm_gpt.core.lighting import hue_to_wrgb, load_lighting_config
 
 if TYPE_CHECKING:
@@ -30,15 +32,34 @@ _DECK_TOP = "red"
 _DECK_BOT = "blue"
 
 
-def _load_drones(only: str | None) -> dict[str, dict]:
-    """Load the active drone table from drones.toml, optionally narrowed to ``cf11,cf12`` names."""
-    drones = Choreographer(use_motion_primitives=True).drones
+def _load_drones(only: str | None) -> tuple[dict[str, dict], dict]:
+    """Read the active drone table and settings straight from the data files.
+
+    Deliberately not via `Choreographer`, which would drag the LLM and music-analysis stack into a
+    bench tool whose only need is a radio URI per drone.
+    """
+    data = Path(__file__).resolve().parents[1] / "swarm_gpt/data"
+    with open(data / "settings.yaml") as f:
+        settings = yaml.safe_load(f)
+    with open(data / "drones.toml", "rb") as f:
+        raw = tomllib.load(f)
+
+    uri_base = settings["radio"]["uri_base"]
+    registry = {name: entry for name, entry in raw.items() if name != "active"}
+    drones = {
+        name: {
+            "addr": registry[name]["addr"],
+            "uri": uri_base.format(channel=registry[name]["channel"], addr=registry[name]["addr"]),
+            "pos": registry[name]["pos"],
+        }
+        for name in raw["active"]
+    }
     if only is None:
-        return drones
+        return drones, settings
     wanted = [name.strip() for name in only.split(",") if name.strip()]
     if missing := [name for name in wanted if name not in drones]:
         raise SystemExit(f"Not in the active drone list: {missing}. Active: {sorted(drones)}")
-    return {name: drones[name] for name in wanted}
+    return {name: drones[name] for name in wanted}, settings
 
 
 def _apply_brightness(colour: NDArray, brightness: float, cfg: LightingConfig) -> NDArray:
@@ -125,7 +146,7 @@ def main(argv: list[str] | None = None) -> None:
     args = parser.parse_args(argv)
 
     cfg = load_lighting_config()
-    drones = _load_drones(args.drones)
+    drones, settings = _load_drones(args.drones)
     uris = [d["uri"] for d in drones.values()]
     hold = args.hold if args.hold is not None else (0.0 if args.mode in _WAIT_FOR_ENTER else 2.0)
     print(f"{args.mode}: {len(uris)} drone(s) — {', '.join(sorted(drones))}")
@@ -138,7 +159,17 @@ def main(argv: list[str] | None = None) -> None:
 
     from swarm_gpt.core.drone_swarm import DroneSwarm
 
-    settings = Choreographer(use_motion_primitives=True).settings
+    # Mocap builds a ROSConnector, which asserts on an uninitialized rclpy (backend.py:302).
+    if not settings["lighthouse"]:
+        try:
+            import rclpy
+        except ImportError:
+            raise SystemExit(
+                "ROS2 is not available. Run this under `pixi run -e deploy`."
+            ) from None
+        if not rclpy.ok():
+            rclpy.init()
+
     swarm = DroneSwarm(drones, col_freq=cfg.col_freq, lighthouse=settings["lighthouse"])
     try:
         _show(frames, swarm, hold)
