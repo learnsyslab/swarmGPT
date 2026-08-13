@@ -706,3 +706,35 @@ def test_the_clamp_floor_tracks_the_configured_cue_rate(clamp_log: pytest.LogCap
     at_10hz = build_look([action], 0.0, POSITIONS_6, N6, CFG, BPM)
     assert at_10hz.brightness_layers[0].period_s == pytest.approx(0.2), "clamped at 10 Hz"
     assert len(clamp_log.records) == 1
+
+
+def test_upper_and_lower_reach_build_look_as_selectors():
+    """The height split is a `sel`, so it must work under every primitive, not just colour ones.
+
+    `POSITIONS_6` climbs 1.0 .. 2.0 in z with a mean of 1.5, so drones 4-6 are the upper half.
+    """
+    upper = _build(_action("light_color", sel=("upper", ()), color="amber", deck="both"))
+    lower = _build(_action("pulse", sel=("lower", ()), period_beats=2.0, deck="both"))
+    assert list(upper.colour_layers[0].mask) == [False, False, False, True, True, True]
+    assert list(lower.brightness_layers[0].mask) == [True, True, True, False, False, False]
+
+
+def test_two_colour_actions_on_opposite_decks_make_one_drone_two_tone():
+    """The prompt now offers split decks as an effect, so the emitted pair must survive the compile.
+
+    Both actions cover every drone, so a look that merged the decks would leave only the second.
+    """
+    look = build_look(
+        [
+            _action("light_color", sel=ALL, color="amber", deck="top"),
+            _action("light_color", sel=ALL, color="azure", deck="bot"),
+        ],
+        0.0,
+        POSITIONS_6,
+        N6,
+        CFG,
+        BPM,
+    )
+    wrgb = LightingTimeline([look], N6, 60.0, CFG).evaluate(0.0)
+    assert wrgb[0, 0] == pytest.approx(CFG.palette["amber"], abs=1.0), "top ring amber"
+    assert wrgb[0, 1] == pytest.approx(CFG.palette["azure"], abs=1.0), "bot ring azure"

@@ -21,7 +21,7 @@ _KEY_RE = re.compile(r"^s(\d+)b(\d+)t(\d+)$")
 # Each list is exactly what the engine resolves: offering a name `lighting.select` or
 # `spread_offsets` would reject turns a schema-valid emission into a `KeyError` at compile time.
 _DECK_ENUM = ["top", "bot", "both"]
-_SELECTOR_KINDS = ["all", "ids", "even", "odd", "first", "left", "right"]
+_SELECTOR_KINDS = ["all", "ids", "even", "odd", "first", "left", "right", "upper", "lower"]
 _SPREAD_ENUM = [
     "none",
     "neighbour",

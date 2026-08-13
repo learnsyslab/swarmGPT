@@ -67,6 +67,32 @@ POSITIONS_6 = np.array(
     ]
 )
 
+# Six drones whose height split crosses their stage split: z climbs with the index while x
+# alternates about 0. `POSITIONS_6` rises in both, so `upper` on it is `right` by coincidence.
+POSITIONS_CROSSED_6 = np.array(
+    [
+        [2.0, 0.0, 0.5],
+        [-2.0, 1.0, 0.6],
+        [2.0, -1.0, 0.7],
+        [-2.0, 0.5, 2.3],
+        [2.0, -0.5, 2.4],
+        [-2.0, 1.0, 2.5],
+    ]
+)
+
+# Two drones parked well above four, the unequal stack the mean split exists for: the z mean is
+# 1.33, so `upper` takes the high two, where a rank split would take three.
+POSITIONS_TOP_HEAVY_6 = np.array(
+    [
+        [-1.0, 0.0, 0.5],
+        [0.0, 1.0, 0.5],
+        [1.0, -1.0, 0.5],
+        [2.0, 0.5, 0.5],
+        [-0.5, -0.5, 3.0],
+        [0.5, 1.0, 3.0],
+    ]
+)
+
 
 def test_palette_entries_are_wrgb_vectors_in_range():
     cfg = load_lighting_config()
@@ -221,6 +247,44 @@ def test_flipping_stage_axis_swaps_left_and_right():
     )
     assert list(select(("left", ()), 6, POSITIONS_6, flipped)) == list(
         select(("right", ()), 6, POSITIONS_6, cfg)
+    )
+
+
+def test_select_upper_and_lower_partition_about_the_mean_height():
+    """The fixture's z mean is 1.5, and its stage split crosses its height split.
+
+    `POSITIONS_6` rises monotonically in both x and z, so `upper` there is `right` by coincidence
+    and a test on it passes just as well when `upper` reads the wrong column.
+    """
+    cfg = load_lighting_config()
+    upper = select(("upper", ()), 6, POSITIONS_CROSSED_6, cfg)
+    lower = select(("lower", ()), 6, POSITIONS_CROSSED_6, cfg)
+    assert list(upper) == [False, False, False, True, True, True]
+    assert list(lower) == [True, True, True, False, False, False]
+    assert np.all(upper ^ lower), "upper and lower must be exact complements"
+    assert list(select(("right", ()), 6, POSITIONS_CROSSED_6, cfg)) != list(upper), (
+        "the fixture must separate the height split from the stage split"
+    )
+
+
+def test_upper_splits_unequal_stacks_along_the_gap_between_them():
+    """Two formations at different heights part where they actually part, whatever their sizes.
+
+    This is the mean rule's reason for being: a rank split cuts at the halfway drone, so a small
+    high formation over a large low one drags the low one's top drones up with it.
+    """
+    cfg = load_lighting_config()
+    upper = select(("upper", ()), 6, POSITIONS_TOP_HEAVY_6, cfg)
+    assert list(upper) == [False, False, False, False, True, True]
+    assert upper.sum() == 2, "a rank split would take three, one of them from the lower stack"
+
+
+def test_upper_and_lower_are_independent_of_stage_axis():
+    """Height needs no calibration, so unlike left/right it cannot be flipped by the config."""
+    cfg = load_lighting_config()
+    flipped = dataclasses.replace(cfg, stage_axis="-x")
+    assert list(select(("upper", ()), 6, POSITIONS_CROSSED_6, flipped)) == list(
+        select(("upper", ()), 6, POSITIONS_CROSSED_6, cfg)
     )
 
 
@@ -619,6 +683,29 @@ def test_a_stage_axis_degenerate_only_to_float_noise_collapses_left_rather_than_
 def test_a_stage_axis_with_extent_does_not_warn(lighting_log: pytest.LogCaptureFixture):
     cfg = load_lighting_config()
     assert select(("right", ()), 6, POSITIONS_6, cfg).any()
+    assert not lighting_log.records
+
+
+def test_a_flat_formation_warns_that_the_height_split_collapsed(
+    lighting_log: pytest.LogCaptureFixture,
+):
+    """The failure mode `upper`/`lower` invites: every formation that is not vertical is flat.
+
+    A ring or a grid at one altitude has no upper half, so `upper` paints nobody while `lower`
+    covers the swarm. The show still runs, hence a warning -- but it has to name the axis.
+    """
+    cfg = load_lighting_config()
+    flat = np.stack([np.arange(6.0), np.arange(6.0), np.full(6, 1.2)], axis=1)
+    assert not select(("upper", ()), 6, flat, cfg).any()
+    assert select(("lower", ()), 6, flat, cfg).all()
+    assert lighting_log.records, "a silent no-op is the failure mode being fixed"
+    assert lighting_log.records[0].levelno == logging.WARNING
+    assert "z" in lighting_log.records[0].getMessage(), "name the axis"
+
+
+def test_a_formation_with_height_does_not_warn(lighting_log: pytest.LogCaptureFixture):
+    cfg = load_lighting_config()
+    assert select(("upper", ()), 6, POSITIONS_CROSSED_6, cfg).any()
     assert not lighting_log.records
 
 

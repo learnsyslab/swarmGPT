@@ -1,7 +1,17 @@
 """The lighting engine: config, selectors, waveforms, spreads, colour sources, primitives, cues.
 
 Colour and brightness are independent layers that multiply at the read-out, so any effect composes
-with any colour source without needing a primitive per combination.
+with any colour source without needing a primitive per combination. The two stacks reduce
+differently because the quantities do: two colours on one drone have no meaningful blend, so the
+later one wins outright, where two brightness effects have an obvious one -- the brighter, as with
+real light.
+
+Where this sits: `Choreographer` parses the LLM's `lighting:` track into ``{"primitive", "params"}``
+actions and calls `build_look` once per emitted key, handing in a position snapshot sampled off the
+axswarm splines. The resulting `LightingTimeline` has two consumers that must agree -- the sim and
+render viewers evaluate it per frame, and `compile_cues` bakes it into the cue lists `DroneSwarm`
+streams over the radio. Everything here is a pure function of ``t`` and those frozen snapshots,
+which is what lets the preview show what will actually fly.
 """
 
 from __future__ import annotations
@@ -42,7 +52,16 @@ _BLACKOUT_LEAD_S = 0.1
 Selector = tuple[str, tuple]
 
 # Arguments each fixed-arity selector takes. `ids` is variadic and so absent.
-_SELECTOR_ARITY = {"all": 0, "even": 0, "odd": 0, "left": 0, "right": 0, "first": 1}
+_SELECTOR_ARITY = {
+    "all": 0,
+    "even": 0,
+    "odd": 0,
+    "left": 0,
+    "right": 0,
+    "upper": 0,
+    "lower": 0,
+    "first": 1,
+}
 
 # The spreads that rank the selection, and so the only ones `group_size` can bucket.
 _RANKED_SPREADS = ("neighbour", "index")
@@ -97,23 +116,36 @@ def load_lighting_config(path: Path | None = None) -> LightingConfig:
     )
 
 
-def _right_mask(positions: NDArray, cfg: LightingConfig) -> NDArray:
-    """Mark the drones stage right of the swarm centroid; the complement is stage left.
+def _mean_split(coord: NDArray, axis: str, half: str) -> NDArray:
+    """Mark the drones above the mean of ``coord``; the complement is the other half.
 
-    A formation with no extent along the stage axis goes entirely stage left and warns, rather than
-    being dealt into halves by ``coord > coord.mean()`` on float noise.
+    A formation with no extent along the axis lands wholly in that complement and warns, rather
+    than being dealt into halves by ``coord > coord.mean()`` on float noise.
     """
-    axis, sign = _STAGE_AXES[cfg.stage_axis]
-    coord = sign * positions[:, axis]
     if coord.size > 1 and coord.max() - coord.min() <= _SPAN_REL_TOL * np.abs(coord).max():
         logger.warning(
-            "Lighting left/right split has no extent along stage_axis %s: every drone is stage "
-            "left and `right` selects nobody, so a left/right effect covers the whole swarm or "
-            "none of it.",
-            cfg.stage_axis,
+            "Lighting split has no extent along %s: every drone falls outside `%s`, which selects "
+            "nobody, so the effect covers the whole swarm or none of it.",
+            axis,
+            half,
         )
         return np.zeros(coord.size, dtype=bool)
     return coord > coord.mean()
+
+
+def _right_mask(positions: NDArray, cfg: LightingConfig) -> NDArray:
+    """Mark the drones stage right of the swarm centroid; the complement is stage left."""
+    axis, sign = _STAGE_AXES[cfg.stage_axis]
+    return _mean_split(sign * positions[:, axis], f"stage_axis {cfg.stage_axis}", "right")
+
+
+def _upper_mask(positions: NDArray) -> NDArray:
+    """Mark the drones above the swarm's mean height; the complement is the lower half.
+
+    Split on the mean rather than on rank, as left/right is: two stacked formations of unequal size
+    then part along the gap between them instead of being cut at the halfway drone.
+    """
+    return _mean_split(positions[:, _SPREAD_AXES["z"]], "z", "upper")
 
 
 def select(sel: Selector, n: int, positions: NDArray, cfg: LightingConfig) -> NDArray:
@@ -133,6 +165,10 @@ def select(sel: Selector, n: int, positions: NDArray, cfg: LightingConfig) -> ND
         return ~_right_mask(positions, cfg)
     if kind == "right":
         return _right_mask(positions, cfg)
+    if kind == "lower":
+        return ~_upper_mask(positions)
+    if kind == "upper":
+        return _upper_mask(positions)
     mask = np.zeros(n, dtype=bool)
     if kind == "ids":
         if not args:
@@ -189,6 +225,16 @@ def _neighbour_ranks(points: NDArray) -> NDArray:
     Drone id order is not spatial order: formations assign slots by cheapest permutation. The walk
     runs over lexicographically sorted points, so that permutation cannot break a ring's first tie.
     """
+    # A walk rather than a closed-form ordering because the formation is arbitrary. Sorting by
+    # angle would order a ring and scramble a line; by arc length needs a curve nobody fits. A
+    # greedy hop to the nearest unvisited point needs no model of the shape at all, and "adjacent
+    # in the walk" is exactly what an author means by a light running *along* the formation.
+    # Its price is that greedy nearest-neighbour is not an optimal tour: strand a point and the
+    # walk crosses the formation to collect it, which reads as the chase teleporting once a loop.
+    # Acceptable because a formation dense enough to chase along rarely strands one.
+    # Sorting x first then fixes where the walk visibly begins: rank 0 is the selection's
+    # smallest-x drone, so a chase enters from stage left under the default `stage_axis`. Any other
+    # key order moves the entry point, which authors read as the effect running backwards.
     lex = np.lexsort(points.T[::-1])
     walk = points[lex]
     order = [0]
@@ -203,6 +249,13 @@ def _neighbour_ranks(points: NDArray) -> NDArray:
     ranks = np.empty(walk.shape[0], dtype=int)
     ranks[lex[order]] = np.arange(walk.shape[0])
     return ranks
+
+
+# One waveform plus one offset per drone is the whole effect model. Every time-varying primitive
+# reads `phase = t / period_s - offset`, and all three waveforms peak at phase 0, so a drone peaks
+# at `t = offset * period_s`. Offsets rising with rank is what makes a pattern *travel* toward
+# increasing rank rather than merely flash out of sync, and is why the rank-0 drone -- whichever
+# the spread puts there -- is the one an author sees the effect start from.
 
 
 def spread_offsets(
@@ -228,6 +281,13 @@ def spread_offsets(
         ranks = _neighbour_ranks(positions[idx]) if kind == "neighbour" else np.arange(idx.size)
         n_groups = int(np.ceil(idx.size / group_size))
         offsets[idx] = (ranks // group_size) / n_groups
+    # Both `alternate_*` spreads read a property of the whole swarm -- id parity, and the stage side
+    # measured against every drone's centroid rather than the selection's. That is deliberate:
+    # "stage left" has to mean the same half whichever subset an author lights, or two effects
+    # written against the same side would disagree. The cost is that either collapses to a single
+    # phase when the selector has already isolated one value of that property: `alternate_blink` on
+    # an `even`/`odd` or `left`/`right` selection is a plain synchronised `blink`, silently. Unlike
+    # the spatial spreads there is nothing to warn on -- the offsets are legitimately uniform.
     elif kind == "alternate_parity":
         offsets[idx] = 0.5 * (idx % 2)
     elif kind == "alternate_side":
@@ -248,6 +308,12 @@ def hue_to_wrgb(hue: NDArray, cfg: LightingConfig) -> NDArray:
     The order is load-bearing: normalize to a constant channel sum first, then apply
     ``channel_gain``. The other way divides the gain back out for any hue on a single channel.
     """
+    # A triangular ramp normalized to a constant channel sum, not textbook HSV. HSV holds
+    # *saturation* constant, which drives one, two or three LEDs depending on the hue and makes a
+    # cycling `rainbow` visibly throb as it passes the primaries. Holding the sum constant instead
+    # trades exact hue fidelity for equal apparent brightness right around the wheel, which is what
+    # a swarm of point sources needs. The W channel stays 0 because the dedicated white LED is off
+    # the hue circle entirely -- `white` is reachable only as a named palette entry.
     h6 = 6.0 * np.mod(np.asarray(hue, dtype=float), 1.0)
     rgb = np.stack(
         [
@@ -363,6 +429,12 @@ class LightingTimeline:
         self._starts = np.array([look.t_start for look in self._looks])
         self._base_colours = [self._base_colour(look) for look in self._looks]
 
+    # Together with the full-on fallback in `_merge_brightness`, this is why an unlit drone carries
+    # a distinct hue instead of going dark: the LLM is told to light the moments the music asks for
+    # rather than every key, so the common case is a sparse track over a swarm that must already
+    # look like a show. Dark-by-default would make an empty lighting track a blackout, and would
+    # punish a good sparse track more than a bad dense one. Laid out in `neighbour` order so the
+    # wheel reads as a gradient around the formation rather than scattered by drone id.
     def _base_colour(self, look: Look) -> NDArray:
         """Assign the default hue wheel across the swarm in one look's `neighbour` order."""
         ranks = np.arange(self._n) if look.positions is None else _neighbour_ranks(look.positions)
@@ -430,7 +502,11 @@ class LightingTimeline:
 
 # The mapping of the primitives below onto the engine above is thin: `chase` and `sweep` are both
 # "square wave plus a spread", and `rainbow` and `chase` differ only in whether the spread drives
-# hue.
+# hue. They exist as twelve names anyway because the LLM picks from a musical description, and
+# "ripple out from the centre" is a name it can reach for where "sine wave, radius spread" is a
+# parameter space it has to derive. Only the three whose spread is a real authoring choice --
+# `rainbow`, `chase`, `sweep` -- expose one; the rest hardcode theirs, and that is the only thing
+# separating `ripple_light` from `pulse`.
 
 
 @dataclass(frozen=True)
@@ -622,6 +698,9 @@ def _chase(params: dict, ctx: _BuildContext) -> BrightnessLayer:
     ``length`` is how many drones are lit at once, i.e. ``duty = length / n_sel``. That makes it the
     one primitive whose lit window is narrower than half a period, hence the ``duty`` passed on.
     """
+    # Gotcha: `duty` counts drones while `group_size` buckets them, and blocks light whole. A
+    # `length` under `group_size` therefore buys a lit window narrower than one block's slot, and
+    # the chase gaps out to darkness between blocks instead of running. Keep it a multiple.
     # The `n_sel` floor is only here because `chase` is the one primitive that would divide by zero
     # on an empty selection, where the duty is irrelevant anyway.
     n_sel = max(int(ctx.mask.sum()), 1)
@@ -654,6 +733,14 @@ def _alternate_blink(params: dict, ctx: _BuildContext) -> BrightnessLayer:
 
 
 # The catalogue the prompt documents and the LLM output schema enumerates, in prompt order.
+# Adding or resignaturing one means four edits, and fewer than four ships a primitive the LLM
+# cannot emit or the parser cannot read: the builder here, `_LIGHTING_PRIMITIVE_ARG_ORDER` in
+# structured_output_schema.py (which the JSON schema and the text parser both read, so those two
+# cannot drift apart), any new parameter in `_lighting_param_schemas` beside it, and the
+# `<lighting>` prose in data/motion_primitive_prompts.yaml. The prompt is the one with no import
+# tying it back here, so it is the one that rots -- tests in test_structured_output.py parse that
+# prose and diff it against the schema to keep the pair honest. Selector and spread names are the
+# same story, minus the builder.
 LIGHTING_PRIMITIVES: dict[str, _Builder] = {
     "light_color": _light_color,
     "gradient": _gradient,

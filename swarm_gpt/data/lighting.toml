@@ -2,7 +2,9 @@
 # change to this file, never to lighting.py.
 
 gamma = 2.2  # Perceived-brightness exponent. UNMEASURED; tune by eye on hardware.
-b_min = 0.02  # Merged brightness below which the LED goes fully dark.
+# Merged brightness below which the LED goes fully dark. Inert while it sits under one brightness
+# step, which floors the same values anyway; it bites only once those steps get much finer.
+b_min = 0.02
 
 # Must match the col_freq handed to DroneSwarm, which drains one cue per deck per tick: a denser
 # cue list plays back slowed and drifts out of sync with the music permanently.

@@ -10,7 +10,13 @@ import pytest
 from conftest import virtual_crazyswarm_config
 
 from swarm_gpt.core.choreographer import Choreographer
-from swarm_gpt.core.lighting import LIGHTING_PRIMITIVES, Look, build_look, load_lighting_config
+from swarm_gpt.core.lighting import (
+    LIGHTING_PRIMITIVES,
+    Look,
+    build_look,
+    load_lighting_config,
+    select,
+)
 from swarm_gpt.core.structured_output_schema import (
     LIGHTING_PRIMITIVE_ARG_ORDER,
     action_to_lighting_primitive,
@@ -602,11 +608,47 @@ def test_lighting_selector_carries_every_field_and_stays_strict():
     assert sel["additionalProperties"] is False
     assert sel["required"] == ["kind", "ids", "count"]
     assert sel["properties"]["kind"]["enum"] == ["all", "ids", "even", "odd", "first", "left"] + [
-        "right"
+        "right",
+        "upper",
+        "lower",
     ]
     # `ids` is ignored unless kind == "ids", so an empty list must be a legal filler.
     assert "minItems" not in sel["properties"]["ids"]
     assert sel["properties"]["ids"]["items"]["maximum"] == LIGHTING_N_DRONES
+
+
+def test_every_offered_selector_kind_resolves_in_the_engine():
+    """The schema enum and `select` are two of the places a selector name lives (CLAUDE.md 7.1).
+
+    Offering a kind the engine cannot resolve turns a schema-valid emission into a bare `KeyError`
+    at compile time, which is what a name added to one place and not the other gives.
+    """
+    sel = _lighting_variant("light_on")["properties"]["params"]["properties"]["sel"]
+    # A diagonal, so no selector collapses onto an axis with no extent and warns about the fixture.
+    positions = np.tile(np.arange(LIGHTING_N_DRONES, dtype=float)[:, None], (1, 3))
+    cfg = load_lighting_config()
+    for kind in sel["properties"]["kind"]["enum"]:
+        args = (1,) if kind in ("ids", "first") else ()
+        mask = select((kind, args), LIGHTING_N_DRONES, positions, cfg)
+        assert mask.shape == (LIGHTING_N_DRONES,), kind
+
+
+def test_every_offered_selector_kind_survives_the_round_trip_into_text():
+    """`sel` crosses JSON -> text -> `select`, and the text form is what `build_look` ever sees.
+
+    `_selector_literal` renders the argument-carrying kinds specially and everything else with an
+    empty list, so a new kind falling through the wrong branch loses its arguments silently.
+    """
+    sel = _lighting_variant("light_on")["properties"]["params"]["properties"]["sel"]
+    for kind in sel["properties"]["kind"]["enum"]:
+        action = {
+            "primitive": "light_on",
+            "params": {"sel": {"kind": kind, "ids": [2], "count": 3}, "deck": "both"},
+        }
+        rendered = action_to_lighting_primitive(action)
+        parsed = ast.literal_eval("(" + rendered.split("(", 1)[1][:-1] + ",)")
+        expected = [2] if kind == "ids" else [3] if kind == "first" else []
+        assert parsed[0] == [kind, expected], rendered
 
 
 def test_lighting_keys_are_not_required_keys():
@@ -789,6 +831,17 @@ def _prompt_sel_block() -> str:
     return _lighting_prompt_section().split("sel —")[1].split("deck —")[0]
 
 
+def _prompt_sel_rows() -> list[str]:
+    """The selector table's rows, dropping the header and any wrapped continuation lines.
+
+    A continuation sits in the description column, so its first word is prose and would otherwise
+    read as a selector name. The row indent is taken from the table rather than hardcoded.
+    """
+    lines = [line for line in _prompt_sel_block().splitlines()[1:] if line.strip()]
+    indent = min(len(line) - len(line.lstrip()) for line in lines)
+    return [line.strip() for line in lines if len(line) - len(line.lstrip()) == indent]
+
+
 def _prompt_spread_enumeration() -> str:
     """The clause list the `rainbow` bullet spells the spread vocabulary out in."""
     lines = _lighting_prompt_section().splitlines()
@@ -814,8 +867,8 @@ def test_lighting_prompt_offers_exactly_the_selector_vocabulary():
     """A selector the prompt names but `select` does not have is a guaranteed reprompt."""
     kinds = _lighting_variant("light_on")["properties"]["params"]["properties"]["sel"]
     documented: set[str] = set()
-    for line in _prompt_sel_block().splitlines()[1:]:
-        if match := _NAME_RUN_RE.match(line.strip()):
+    for row in _prompt_sel_rows():
+        if match := _NAME_RUN_RE.match(row):
             documented.update(_split_names(match.group(1)))
     assert documented == set(kinds["properties"]["kind"]["enum"])
 

@@ -661,7 +661,7 @@ def test_validate_lighting_does_not_warn_about_its_own_dry_run_snapshot(
     caplog.set_level(logging.WARNING, logger=name)
     emission = (
         "sweep(['all', []], 4, 'z', 'both'); ripple_light(['all', []], 4, 'both'); "
-        "light_color(['right', []], 'red', 'both')"
+        "light_color(['right', []], 'red', 'both'); light_color(['upper', []], 'blue', 'both')"
     )
 
     _lighting_choreographer().validate_lighting(f"lighting:\n  s1b1t1: {emission}\n  END")

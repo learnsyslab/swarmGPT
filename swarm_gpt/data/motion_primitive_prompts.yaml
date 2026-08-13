@@ -146,14 +146,20 @@ user_initial: |
      effect on them are already fully on.
 
   sel — which drones an action covers:
-    all          every drone
-    ids          an explicit 1-indexed list of drone ids
-    even / odd   by drone index parity
-    first        the first N drones by index
-    left / right by position about the swarm centre, from the audience's point of view
+    all           every drone
+    ids           an explicit 1-indexed list of drone ids
+    even / odd    by drone index parity
+    first         the first N drones by index
+    left / right  by position about the swarm centre, from the audience's point of view
+    upper / lower by height: the drones above the swarm's mean altitude, and the rest. Needs a
+                  formation with vertical extent — a flat ring has no upper half — so reach for
+                  it after a helix, a cone, stacked rings, or two formations at different heights.
 
-  deck — which LED ring the action drives: top, bot, or both. Use both unless you specifically
-  want the two rings to differ.
+  deck — which of the two LED rings ON EACH DRONE the action drives: top, bot, or both. This is a
+  different axis from upper/lower: upper/lower picks which DRONES, deck picks which ring on them.
+  Driving the two rings differently makes a single drone read as two-tone, which is an effect
+  worth using: light_color(all, red, top) with light_color(all, blue, bot) glows red upward and
+  blue downward on every drone at once.
 
   colors (exactly these, no others): red, orange, amber, yellow, green, teal, cyan, azure, blue,
   indigo, magenta, pink, white
@@ -297,6 +303,10 @@ output_format_structured: |
     {"primitive":"alternate_blink","params":{"sel":{"kind":"all","ids":[],"count":1},"period_beats":1,"by":"side","deck":"both"}}
   - a whole look at one key — a travelling spectrum with a flash on every beat ->
     {"key":"s2b1t1","actions":[{"primitive":"rainbow","params":{"sel":{"kind":"all","ids":[],"count":1},"period_beats":8,"spread":"neighbour","deck":"both"}},{"primitive":"strobe_decay","params":{"sel":{"kind":"all","ids":[],"count":1},"period_beats":1,"deck":"both"}}]}
+  - the high half of a helix amber over a blue base, the two halves pulsing against each other ->
+    {"key":"s3b1t1","actions":[{"primitive":"light_color","params":{"sel":{"kind":"lower","ids":[],"count":1},"color":"blue","deck":"both"}},{"primitive":"light_color","params":{"sel":{"kind":"upper","ids":[],"count":1},"color":"amber","deck":"both"}},{"primitive":"alternate_blink","params":{"sel":{"kind":"all","ids":[],"count":1},"period_beats":2,"by":"parity","deck":"both"}}]}
+  - every drone two-tone, warm above and cool below ->
+    {"key":"s4b1t1","actions":[{"primitive":"light_color","params":{"sel":{"kind":"all","ids":[],"count":1},"color":"amber","deck":"top"}},{"primitive":"light_color","params":{"sel":{"kind":"all","ids":[],"count":1},"color":"azure","deck":"bot"}}]}
 
   Common mistakes that will fail syntax checks:
   - Wrong: {"primitive":"form_cone","params":{"drone_ids":"1-3",...}} because form_cone has no drone_ids param.
