@@ -22,6 +22,11 @@ from swarm_gpt.core.lighting import (
 
 CFG = load_lighting_config()
 
+# Which axis faces the audience is a property of the room, checked in test_lighting.py. The two
+# assertions below that turn on the left/right split state the axis their fixture is laid out
+# along, so re-rigging the room cannot fail them.
+CFG_STAGE_X = dataclasses.replace(CFG, stage_axis="+x")
+
 # The aliasing floor: an effect faster than `col_freq / 2` cannot be represented by the cue
 # stream. Derived here the same way the clamp derives it, from the one configured cue rate.
 MIN_PERIOD_S = 2.0 / CFG.col_freq
@@ -415,8 +420,10 @@ def test_chase_over_an_empty_selection_builds_instead_of_dividing_by_zero():
     Every layer is then a no-op and the duty irrelevant; the floor exists only because `chase` would
     divide by zero, and `ZeroDivisionError` escapes the three `_build_look` catches.
     """
-    no_x_extent = np.stack([np.zeros(N6), np.arange(6.0), np.ones(N6)], axis=1)
-    look = _build(_chase_action(sel=("right", ())), positions=no_x_extent)
+    no_stage_extent = np.stack([np.zeros(N6), np.arange(6.0), np.ones(N6)], axis=1)
+    look = build_look(
+        [_chase_action(sel=("right", ()))], 0.0, no_stage_extent, N6, CFG_STAGE_X, BPM
+    )
     (layer,) = look.brightness_layers
     assert not layer.mask.any()
     assert layer.evaluate(1.3) == pytest.approx(np.zeros(N6))
@@ -469,12 +476,17 @@ def test_alternate_blink_maps_by_onto_the_two_alternate_spreads():
     parity = _build(
         _action("alternate_blink", sel=ALL, period_beats=2.0, by="parity", deck="both")
     ).brightness_layers[0]
-    side = _build(
-        _action("alternate_blink", sel=ALL, period_beats=2.0, by="side", deck="both")
+    side = build_look(
+        [_action("alternate_blink", sel=ALL, period_beats=2.0, by="side", deck="both")],
+        0.0,
+        POSITIONS_6,
+        N6,
+        CFG_STAGE_X,
+        BPM,
     ).brightness_layers[0]
     assert parity.kind == "square" and side.kind == "square"
     assert parity.offsets == pytest.approx([0.0, 0.5, 0.0, 0.5, 0.0, 0.5])
-    # The fixture's x centroid is 0.5, so drones 3-5 are stage right under stage_axis "+x".
+    # The fixture's x centroid is 0.5, so drones 3-5 are stage right when the axis is "+x".
     assert side.offsets == pytest.approx([0.0, 0.0, 0.0, 0.5, 0.5, 0.5])
 
 

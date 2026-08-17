@@ -471,7 +471,12 @@ LIGHTING_CATALOGUE: dict[str, list[str]] = {
 LIGHTING_N_DRONES = 6
 # Six drones spread along +x with distinct coordinates, so `left`/`right` and the spatial spreads
 # all resolve unambiguously.
-LIGHTING_POSITIONS = np.stack([np.arange(6.0), np.zeros(6), np.linspace(1.0, 2.0, 6)], axis=1)
+# Extent on all three axes, so every selector and spread the schema offers resolves to a non-empty
+# mask whichever axis `stage_axis` names. A fixture flat in y made `light_off(right)` select nobody
+# and build no artefact, failing as though the schema offered a selector the engine rejects.
+LIGHTING_POSITIONS = np.stack(
+    [np.arange(6.0), np.linspace(-1.0, 1.0, 6), np.linspace(1.0, 2.0, 6)], axis=1
+)
 LIGHTING_CFG = load_lighting_config()
 
 

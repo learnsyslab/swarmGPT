@@ -233,8 +233,9 @@ def _neighbour_ranks(points: NDArray) -> NDArray:
     # walk crosses the formation to collect it, which reads as the chase teleporting once a loop.
     # Acceptable because a formation dense enough to chase along rarely strands one.
     # Sorting x first then fixes where the walk visibly begins: rank 0 is the selection's
-    # smallest-x drone, so a chase enters from stage left under the default `stage_axis`. Any other
-    # key order moves the entry point, which authors read as the effect running backwards.
+    # smallest-x drone, which with the audience at +x is the one furthest upstage, so a chase
+    # enters from the back and comes forward. Deliberately world-frame and not stage-relative --
+    # `stage_axis` cannot reach here -- so re-rigging the room silently moves the entry point.
     lex = np.lexsort(points.T[::-1])
     walk = points[lex]
     order = [0]

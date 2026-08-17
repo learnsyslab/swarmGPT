@@ -18,7 +18,10 @@ brightness_steps = 16  # Brightness buckets, same dedup device. Lower for radio 
 # gain straight back out for any hue landing on one channel. UNMEASURED.
 channel_gain = [1.0, 1.0, 1.0, 0.8]
 
-stage_axis = "+x"  # World axis pointing audience-right. UNVERIFIED against the flight volume.
+# World axis pointing audience-right. The audience views from +x with the show centred on x = 0,
+# so their right hand points along +y. Only `left`/`right` and `alternate_side` read this; `sweep`
+# and `gradient` take world axes and do not follow it.
+stage_axis = "+y"
 
 # [W, R, G, B] in 0-255 at full brightness, on a constant channel sum so every hue reads alike.
 # `white` is the only entry that drives the dedicated white LED; the hue wheel cannot reach it.

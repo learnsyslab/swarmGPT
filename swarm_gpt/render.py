@@ -64,8 +64,12 @@ CAMERA_MOVE_END_TIME = 30.0
 # azimuth and elevation and the ratio between the two distances, and the push-in that ratio
 # encodes is preserved. Where the camera actually sits comes from the swarm's own extent, so one
 # set of constants frames a 20-drone lab show in a 4m box and a 100-drone show in a 20m one.
+# The audience views from +x, so the move stays inside that arc: it opens dead on their eyeline
+# and swings 45 degrees, never past the wings. Going further is what the -y end pose used to do,
+# and there the audience's right (+y) points straight into frame, so `left`/`right` lighting reads
+# as depth and a stage-left/right effect looks like nothing at all.
 CAMERA_START_POS = np.array([6.0, 0.0, 6.0], dtype=float)
-CAMERA_END_POS = np.array([0.0, -6.00, 3.00], dtype=float)
+CAMERA_END_POS = np.array([4.24, -4.24, 3.00], dtype=float)
 CAMERA_LOOKAT = np.array([0.0, 0.0, 1.1], dtype=float)
 CAMERA_UP = np.array([0.0, 0.0, 1.0], dtype=float)
 CAMERA_FIT_MARGIN = 1.15  # Headroom on the exact frame fit, at the move's closest approach.

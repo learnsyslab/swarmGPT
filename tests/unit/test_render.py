@@ -319,3 +319,33 @@ def test_mux_audio_without_a_crop_still_seeks_explicitly(
     command = commands[0]
     audio_input = command.index(str(audio))
     assert command[audio_input - 3 : audio_input] == ["-ss", "0.000000", "-i"]
+
+
+def test_the_camera_move_never_leaves_the_audience_arc():
+    """The renderer previews what the audience will see, so it stays on the audience's side.
+
+    `stage_axis` in lighting.toml puts audience-right at +y. Swing the camera far enough off that
+    eyeline and +y turns into depth, so a `left`/`right` look reads as nothing -- the preview then
+    disagrees with the room about the one thing it is there to show.
+    """
+    centre = np.array([0.0, 0.0, 1.1])
+    audience_right = np.array([0.0, 1.0, 0.0])
+    worst = 1.0
+    for t in np.linspace(render.CAMERA_MOVE_START_TIME, render.CAMERA_MOVE_END_TIME, 127):
+        position = render.camera_position_at(float(t), centre, 6.0)
+        forward = centre - position
+        right, _ = render.camera_basis(forward / np.linalg.norm(forward), render.CAMERA_UP)
+        worst = min(worst, float(np.dot(right, audience_right)))
+    # cos(60 deg): past that the lateral split is compressed more than it is shown.
+    assert worst >= 0.5, (
+        f"camera swings to {math.degrees(math.acos(worst)):.0f} deg off the eyeline"
+    )
+
+
+def test_the_camera_never_mirrors_the_audience_left_right():
+    """A negative dot would put stage right on the viewer's left -- a preview that lies."""
+    centre = np.array([0.0, 0.0, 1.1])
+    start = render.camera_position_at(render.CAMERA_MOVE_START_TIME, centre, 6.0)
+    forward = centre - start
+    right, _ = render.camera_basis(forward / np.linalg.norm(forward), render.CAMERA_UP)
+    assert np.dot(right, [0.0, 1.0, 0.0]) > 0.0

@@ -67,8 +67,9 @@ POSITIONS_6 = np.array(
     ]
 )
 
-# Six drones whose height split crosses their stage split: z climbs with the index while x
-# alternates about 0. `POSITIONS_6` rises in both, so `upper` on it is `right` by coincidence.
+# Six drones whose height split crosses their stage split: z climbs with the index while x and y
+# both alternate about their means, so `upper` cannot coincide with `right` on either stage axis.
+# `POSITIONS_6` rises in x and z together, which makes `upper` there `right` by coincidence.
 POSITIONS_CROSSED_6 = np.array(
     [
         [2.0, 0.0, 0.5],
@@ -92,6 +93,25 @@ POSITIONS_TOP_HEAVY_6 = np.array(
         [0.5, 1.0, 3.0],
     ]
 )
+
+
+def _staged(axis: str) -> LightingConfig:
+    """The shipped config with `stage_axis` pinned, for tests whose fixture picks the axis.
+
+    Which axis faces the audience is a property of the room, checked once in
+    `test_shipped_stage_axis_matches_the_lab_geometry`. Tests of the split mechanism state the axis
+    their fixture is laid out along, so re-rigging the room cannot fail them.
+    """
+    return dataclasses.replace(load_lighting_config(), stage_axis=axis)
+
+
+def test_shipped_stage_axis_matches_the_lab_geometry():
+    """The audience views from +x with the show on x = 0, so their right hand points along +y.
+
+    Facing -x with z up puts right at ``(-1,0,0) x (0,0,1) = (0,1,0)``. Getting this wrong is not a
+    crash: `left`/`right` silently split near/far from the audience, which reads as no split at all.
+    """
+    assert load_lighting_config().stage_axis == "+y"
 
 
 def test_palette_entries_are_wrgb_vectors_in_range():
@@ -151,7 +171,7 @@ _CONFIG_LINES = {
     "hue_steps": "hue_steps = 24",
     "brightness_steps": "brightness_steps = 16",
     "channel_gain": "channel_gain = [1.0, 1.0, 1.0, 0.8]",
-    "stage_axis": 'stage_axis = "+x"',
+    "stage_axis": 'stage_axis = "+y"',
     "palette": "[palette]\nred = [0.0, 255.0, 0.0, 0.0]",
 }
 
@@ -165,7 +185,7 @@ def test_the_synthetic_config_fixture_loads_when_it_is_complete(tmp_path: Path):
     """The positive control for the parametrization below, which would otherwise pass vacuously."""
     path = tmp_path / "lighting.toml"
     path.write_text(_config_toml())
-    assert load_lighting_config(path).stage_axis == "+x"
+    assert load_lighting_config(path).stage_axis == "+y"
 
 
 @pytest.mark.parametrize("key", sorted(_CONFIG_LINES))
@@ -229,8 +249,8 @@ def test_select_first_n_takes_the_lowest_indices():
 
 
 def test_select_left_and_right_partition_about_the_centroid():
-    """x centroid of the fixture is 0.5, so drones 3-5 are stage right under stage_axis "+x"."""
-    cfg = load_lighting_config()
+    """x centroid of the fixture is 0.5, so drones 3-5 are stage right when the axis is "+x"."""
+    cfg = _staged("+x")
     right = select(("right", ()), 6, POSITIONS_6, cfg)
     left = select(("left", ()), 6, POSITIONS_6, cfg)
     assert list(right) == [False, False, False, True, True, True]
@@ -240,8 +260,8 @@ def test_select_left_and_right_partition_about_the_centroid():
 
 def test_flipping_stage_axis_swaps_left_and_right():
     """Reorienting the show is a one-line data change, never a code change (CLAUDE.md 6.6)."""
-    cfg = load_lighting_config()
-    flipped = dataclasses.replace(cfg, stage_axis="-x")
+    cfg = _staged("+x")
+    flipped = _staged("-x")
     assert list(select(("right", ()), 6, POSITIONS_6, flipped)) == list(
         select(("left", ()), 6, POSITIONS_6, cfg)
     )
@@ -281,8 +301,8 @@ def test_upper_splits_unequal_stacks_along_the_gap_between_them():
 
 def test_upper_and_lower_are_independent_of_stage_axis():
     """Height needs no calibration, so unlike left/right it cannot be flipped by the config."""
-    cfg = load_lighting_config()
-    flipped = dataclasses.replace(cfg, stage_axis="-x")
+    cfg = _staged("+x")
+    flipped = _staged("-y")
     assert list(select(("upper", ()), 6, POSITIONS_CROSSED_6, flipped)) == list(
         select(("upper", ()), 6, POSITIONS_CROSSED_6, cfg)
     )
@@ -520,7 +540,7 @@ def test_spread_alternate_parity_gives_two_offsets_half_a_turn_apart():
 
 def test_spread_alternate_side_gives_two_offsets_half_a_turn_apart():
     """Stage right (x > 4.5) is half a period behind stage left."""
-    cfg = load_lighting_config()
+    cfg = _staged("+x")
     offsets = spread_offsets("alternate_side", ALL_10, POSITIONS_10, 1, cfg)
     assert sorted(set(offsets)) == pytest.approx([0.0, 0.5])
     assert offsets[:5] == pytest.approx(np.zeros(5))
@@ -635,7 +655,7 @@ def test_a_stage_axis_with_no_extent_warns_that_the_split_collapsed(
     A formation with no extent along the stage axis goes entirely left, so `light_color(right,...)`
     paints nobody. The show still runs, hence a warning -- but it has to name the axis.
     """
-    cfg = load_lighting_config()
+    cfg = _staged("+x")
     flat = np.stack([np.zeros(6), np.arange(6.0), np.ones(6)], axis=1)
     assert not select(("right", ()), 6, flat, cfg).any()
     assert select(("left", ()), 6, flat, cfg).all()
@@ -652,7 +672,7 @@ def test_a_stage_axis_degenerate_only_to_float_noise_collapses_left_rather_than_
     A heading perpendicular to the stage axis has a `cos` of 6.1e-17, not 0, so `coord >
     coord.mean()` deals the swarm into arbitrary halves on noise and the warning stays silent.
     """
-    cfg = load_lighting_config()
+    cfg = _staged("+x")
     angles = np.linspace(0.0, 2.0 * np.pi, 10, endpoint=False)
     # A radius-2.5 ring standing in the plane spanned by z and the horizontal heading at pi/2,
     # which is edge-on to the "+x" stage axis. `np.cos(np.pi / 2)` is 6.1e-17, not 0, and that is
@@ -681,7 +701,7 @@ def test_a_stage_axis_degenerate_only_to_float_noise_collapses_left_rather_than_
 
 
 def test_a_stage_axis_with_extent_does_not_warn(lighting_log: pytest.LogCaptureFixture):
-    cfg = load_lighting_config()
+    cfg = _staged("+x")
     assert select(("right", ()), 6, POSITIONS_6, cfg).any()
     assert not lighting_log.records
 
