@@ -293,21 +293,34 @@ def test_replay_trails_are_one_neutral_grey_whatever_the_lighting_does(
         ]
     )
     trails: list[np.ndarray] = []
+    # Alpha is the knob for how present the trail is, and the shipped 0.0 draws nothing at all --
+    # pinned by the test below. Made visible here, or this test would pass on an empty list.
+    visible = np.array([*sim_module.TRAIL_RGBA[:3], 0.6])
+    monkeypatch.setattr(sim_module, "TRAIL_RGBA", visible)
 
     painted = _replay(monkeypatch, timeline, trails)
 
     # One `draw_line` per drone per frame, in drone order.
     assert len(trails) == len(FRAME_TIMES) * N4
     drawn = np.stack(trails)
-    assert np.allclose(drawn, sim_module.TRAIL_RGBA), "every trail is the one colour, always"
-    trail = np.asarray(sim_module.TRAIL_RGBA, dtype=float)
-    assert trail[0] == trail[1] == trail[2], "neutral: no channel may carry colour"
-    # Alpha is deliberately unpinned. `TRAIL_RGBA` is the knob for how present the trail should be,
-    # and 0.0 (no trail at all) is a legitimate setting -- asserting opacity here would make this
-    # test block a presentation choice it has no business having an opinion about. What it pins is
-    # that whatever the value is, the lighting never changes it.
+    assert np.allclose(drawn, visible), "every trail is the one colour, always"
+    assert visible[0] == visible[1] == visible[2], "neutral: no channel may carry colour"
 
     # The lighting the trails are ignoring has to actually move, or the test above is vacuous.
     lit = [bool(np.allclose(frame[:, :3], RED)) for frame in painted["led_top"]]
     assert lit == [True, True, False, False, True]
     assert all(np.allclose(frame[:, :3], BLACK) for frame in painted["led_bot"])
+
+
+def test_a_fully_transparent_trail_draws_nothing_at_all(monkeypatch: pytest.MonkeyPatch):
+    """Alpha 0 is the shipped setting, and a trail nobody can see must cost nothing to not see.
+
+    Drawing it anyway is a deque append and a `draw_line` per drone per frame for a line that
+    renders as empty, which is the same work the browser player skips for the same reason.
+    """
+    assert sim_module.TRAIL_RGBA[3] == 0.0, "the shipped trail is transparent"
+    trails: list[np.ndarray] = []
+
+    _replay(monkeypatch, _timeline([]), trails)
+
+    assert trails == []

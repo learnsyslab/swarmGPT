@@ -284,8 +284,9 @@ output_format_structured: |
     with a choreography key or stand alone, and lighting entries need not be dense.
   - Each lighting action is {"primitive":"name","params":{...}} carrying EVERY parameter of that
     primitive. "sel" is always an object with all three fields present:
-    {"kind":"all|ids|even|odd|first|left|right","ids":[...],"count":N}. "ids" is read only when
-    kind is "ids" and "count" only when kind is "first"; fill the unused ones with [] and 1.
+    {"kind":"all|ids|even|odd|first|left|right|upper|lower","ids":[...],"count":N}. "ids" is read
+    only when kind is "ids" and "count" only when kind is "first"; fill the unused ones with []
+    and 1.
   - "drone_ids" is a STRING, not an array: one compact spec of 1-indexed ids and inclusive
     ranges, e.g. "1-8", "7" or "1-4,7,10-12". Endpoints are inclusive, so consecutive blocks
     must not share one ("1-10" then "11-20"), and no drone may be named twice.

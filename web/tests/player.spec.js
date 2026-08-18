@@ -135,18 +135,21 @@ async function configurePage(page) {
       { id: 1, type: "thinking_started", createdAt: new Date().toISOString(), payload: {} },
       {
         id: 2,
-        type: "conversation",
+        type: "prompt_sent",
         createdAt: new Date().toISOString(),
         payload: {
-          messages: [
-            { role: "user", content: "Create a compact test choreography." },
-            { role: "assistant", content: "Generated a compact three-drone choreography." }
-          ]
+          messages: [{ role: "user", content: "Create a compact test choreography." }]
         }
       },
-      { id: 3, type: "safety_started", createdAt: new Date().toISOString(), payload: {} },
-      { id: 4, type: "safety_progress", createdAt: new Date().toISOString(), payload: { percent: 0.5 } },
-      { id: 5, type: "ready", createdAt: new Date().toISOString(), payload: { duration: 2 } }
+      {
+        id: 3,
+        type: "llm_response",
+        createdAt: new Date().toISOString(),
+        payload: { text: "Generated a compact three-drone choreography." }
+      },
+      { id: 4, type: "safety_started", createdAt: new Date().toISOString(), payload: {} },
+      { id: 5, type: "safety_progress", createdAt: new Date().toISOString(), payload: { percent: 0.5 } },
+      { id: 6, type: "ready", createdAt: new Date().toISOString(), payload: { duration: 2 } }
     ];
 
     const sockets = [];

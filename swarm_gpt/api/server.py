@@ -263,21 +263,20 @@ def _start_thread(job: Job, target: Any) -> None:
     thread.start()
 
 
-def _emit_reasoning_summary(store: JobStore, job: Job) -> None:
-    """Emit the model's account of its own thinking, if it produced one."""
-    summary = job.backend.choreographer.last_reasoning_summary
-    if summary:
-        store.emit(job, "reasoning_summary", {"text": summary})
+def _watch_backend(store: JobStore, job: Job) -> None:
+    """Forward the backend's exchange events onto the job's socket as they happen.
+
+    The panel is a live transcript, so nothing is held back to the end: a rejected response and the
+    retry it triggers both reach the browser while the run is still going.
+    """
+    job.backend.on_event = lambda event_type, payload: store.emit(job, event_type, payload)
 
 
 def _run_initial_job(store: JobStore, job: Job, selection: str) -> None:
     try:
+        _watch_backend(store, job)
         store.emit(job, "thinking_started", {"selection": selection}, status="thinking")
-        messages = job.backend.initial_prompt(
-            selection, on_prompt=lambda prompt: store.emit(job, "prompt_sent", {"messages": prompt})
-        )
-        _emit_reasoning_summary(store, job)
-        store.emit(job, "conversation", {"messages": messages})
+        job.backend.initial_prompt(selection)
         store.emit(job, "safety_started", {}, status="filtering")
         sim_data = _run_simulation_with_events(job.backend, store, job)
         playback = normalize_playback(sim_data, job.backend)
@@ -303,12 +302,9 @@ def _run_refine_job(
         if provider is not None and model_id:
             job.backend.choreographer.configure_llm(provider, model_id)
             store.emit(job, "llm_configured", {"provider": provider, "modelId": model_id})
+        _watch_backend(store, job)
         store.emit(job, "thinking_started", {"refine": True}, status="thinking")
-        messages = job.backend.reprompt(
-            message, on_prompt=lambda prompt: store.emit(job, "prompt_sent", {"messages": prompt})
-        )
-        _emit_reasoning_summary(store, job)
-        store.emit(job, "conversation", {"messages": messages})
+        job.backend.reprompt(message)
         store.emit(job, "safety_started", {"refine": True}, status="filtering")
         sim_data = _run_simulation_with_events(job.backend, store, job)
         playback = normalize_playback(sim_data, job.backend)

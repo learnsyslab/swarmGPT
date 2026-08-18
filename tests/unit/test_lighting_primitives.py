@@ -147,7 +147,7 @@ def test_light_color_builds_a_named_colour_layer():
     (layer,) = look.colour_layers
     assert layer.kind == "named"
     assert layer.params == {"color": "amber"}
-    assert list(layer.mask) == [True, False, True, False, True, False]
+    assert list(layer.mask) == [False, True, False, True, False, True], "even is 1-indexed"
     assert layer.decks == ("top", "bot")
 
 
@@ -291,8 +291,8 @@ def test_light_off_becomes_an_off_mask_bit_not_a_brightness_layer():
     assert look.brightness_layers == ()
     assert look.colour_layers == ()
     assert look.off_mask.shape == (N6, 2)
-    assert list(look.off_mask[:, 0]) == [False, True, False, True, False, True]
-    assert list(look.off_mask[:, 1]) == [False, True, False, True, False, True]
+    assert list(look.off_mask[:, 0]) == [True, False, True, False, True, False], "odd is 1-indexed"
+    assert list(look.off_mask[:, 1]) == [True, False, True, False, True, False]
 
 
 def test_light_off_marks_only_the_named_deck():
@@ -678,18 +678,43 @@ def test_the_clamp_never_returns_a_period_below_the_nyquist_floor():
     assert look.period_s == pytest.approx(MIN_PERIOD_S)
 
 
-def test_an_author_set_blink_duty_is_not_clamped_against_its_lit_window(
+def test_a_short_blink_duty_widens_its_window_and_keeps_its_period(
     clamp_log: pytest.LogCaptureFixture,
 ):
-    """`blink` runs at `spread="none"`, where no drone can be skipped, so it keeps the Nyquist floor.
+    """A sub-tick lit window is widened to one tick; the period is left where the author put it.
 
-    One shared phase means a short `duty` coarsens the flash for everyone rather than dropping it
-    from some. Clamping `blink` against `duty` would slow a legal 0.1-duty stab five-fold.
+    `blink` runs at `spread="none"`, so no drone is skipped relative to another and stretching the
+    period would move a legal 0.1-duty stab off the beat entirely. Leaving the window under a tick
+    is not an option either: it falls between two cue samples for every period that is not a whole
+    multiple of one, and the flash disappears from the cue list rather than merely coarsening.
     """
     look = _build(_action("blink", sel=ALL, period_beats=1.0, duty=0.1, deck="both"))
-    assert look.brightness_layers[0].period_s == pytest.approx(0.5)
-    assert look.brightness_layers[0].duty == pytest.approx(0.1)
+    layer = look.brightness_layers[0]
+    assert layer.period_s == pytest.approx(0.5), "the beat the stab was written against"
+    assert layer.duty * layer.period_s == pytest.approx(1.0 / CFG.col_freq), "one tick lit"
+    assert len(clamp_log.records) == 1
+
+
+def test_a_blink_whose_window_already_clears_a_tick_is_left_alone(
+    clamp_log: pytest.LogCaptureFixture,
+):
+    look = _build(_action("blink", sel=ALL, period_beats=1.0, duty=0.5, deck="both"))
+    assert look.brightness_layers[0].duty == pytest.approx(0.5)
     assert not clamp_log.records
+
+
+def test_a_short_blink_stays_lit_on_a_period_that_does_not_divide_the_cue_tick():
+    """The failure the widening exists to stop: flashes dropping out of the compiled cue list.
+
+    At 0.375 s the period is no multiple of the 0.1 s tick, so an un-widened 0.1 duty is lit on
+    barely a third of its periods, at irregular times. Every period must now carry a lit sample.
+    """
+    look = _build(_action("blink", sel=ALL, period_beats=0.75, duty=0.1, deck="both"))
+    layer = look.brightness_layers[0]
+    ticks = np.arange(0.0, 3.0, 1.0 / CFG.col_freq)
+    lit = ticks[np.array([layer.evaluate(float(t))[0] for t in ticks]) > 0.0]
+    for start in np.arange(0.0, 3.0 - layer.period_s, layer.period_s):
+        assert np.any((lit >= start) & (lit < start + layer.period_s)), f"dark period at {start}"
 
 
 def test_the_nyquist_clamp_also_covers_rainbow():

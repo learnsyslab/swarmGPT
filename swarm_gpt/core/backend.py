@@ -35,6 +35,16 @@ logger.setLevel(logging.INFO)
 P = ParamSpec("P")
 R = TypeVar("R")
 
+# What an observer is told, as it happens rather than once the run settles: the messages leaving for
+# the model, its account of its own thinking, the answer that came back, and the checker's verdict
+# on that answer. A rejected answer is followed by another `prompt_sent` from the retry, so the
+# stream reads as the exchange it was.
+BackendEvent = Callable[[str, dict[str, Any]], None]
+
+
+def _ignore_event(event_type: str, payload: dict[str, Any]) -> None:
+    """Drop a backend event, for the callers that are not watching one."""
+
 
 def self_correct(n_retries: int) -> Callable[[Callable[P, R]], Callable[P, R]]:
     """Create a decorator that retries a function ``n_retries`` times if it fails."""
@@ -48,6 +58,7 @@ def self_correct(n_retries: int) -> Callable[[Callable[P, R]], Callable[P, R]]:
             try:
                 return fn(self, *args, **kwargs)
             except LLMException as e:
+                self._emit("response_rejected", {"message": str(e)})
                 error_message = str(e)
                 for i in range(n_retries):
                     try:
@@ -59,6 +70,7 @@ def self_correct(n_retries: int) -> Callable[[Callable[P, R]], Callable[P, R]]:
                         # recursion.
                         return self.reprompt.__wrapped__(self, message)
                     except LLMException as inner_e:
+                        self._emit("response_rejected", {"message": str(inner_e)})
                         if i == n_retries - 1:
                             raise inner_e
                         error_message = str(inner_e)
@@ -120,6 +132,7 @@ class AppBackend:
         self._strict_processing = strict_processing
         self._strict_drone_match = strict_drone_match
         self._active_swarm: DroneSwarm | None = None
+        self.on_event: BackendEvent = _ignore_event
         if set(self.songs) & set(self.presets):
             raise ValueError("Songs and presets must have unique names")
 
@@ -172,19 +185,34 @@ class AppBackend:
             raise FileNotFoundError(f"Preset not found: {preset_id}")
         return self.parse_preset_id(preset_id)
 
+    def _emit(self, event_type: str, payload: dict[str, Any]) -> None:
+        """Report one step of the exchange to whoever is watching this backend."""
+        self.on_event(event_type, payload)
+
+    def _generate(self, prompt: list[dict[str, str]], structure: SongStructure) -> str:
+        """Send one prompt to the model, reporting it and the answer at the moment each happens.
+
+        Only the messages this turn adds are reported: the observer is building a transcript and
+        already holds everything before them.
+        """
+        self._emit("prompt_sent", {"messages": prompt})
+        response = self.choreographer.generate_choreography(prompt, structure=structure)
+        if summary := self.choreographer.last_reasoning_summary:
+            self._emit("reasoning_summary", {"text": summary})
+        self._emit("llm_response", {"text": response})
+        return response
+
+    def _emit_replayed(self, sent: list[dict[str, str]], response: str) -> None:
+        """Report an exchange that never reached a model -- a preset, or a fixed test response."""
+        self._emit("prompt_sent", {"messages": sent})
+        self._emit("llm_response", {"text": response})
+
     @self_correct(n_retries=2)
-    def initial_prompt(
-        self,
-        song: str,
-        *,
-        response: str | None = None,
-        on_prompt: Callable[[list[dict[str, str]]], None] | None = None,
-    ) -> list[dict[str, str]]:
+    def initial_prompt(self, song: str, *, response: str | None = None) -> list[dict[str, str]]:
         """Set the song and generate the choreography, returning the chat history.
 
         ``response`` supplies a predefined response instead of calling the LLM; used for testing.
-        ``on_prompt`` receives the messages about to be sent, so a caller can surface them while
-        the model is still thinking. It fires once per attempt, and not at all for a preset.
+        Every attempt reports itself through :attr:`on_event` as it happens, retries included.
         """
         logger.info(f"Generating initial choreography for song: {song}")
         song_name = self._load_song(song)
@@ -196,14 +224,15 @@ class AppBackend:
         if preset := song in self.presets:
             logger.debug(f"Loading preset: {song}")
             response = self.load_preset(song)
+            # The preset carries the whole original exchange; its last message is the response.
+            self._emit_replayed(self.choreographer.messages[:-1], response)
         elif fixed_response:
             logger.debug(f"Using predefined response: {response}")
             self.choreographer.messages.append({"role": "assistant", "content": response})
+            self._emit_replayed(prompt, response)
         else:
             logger.debug(f"Using LLM to generate choreography for song: {song_name}")
-            if on_prompt is not None:
-                on_prompt([*self.choreographer.messages, *prompt])
-            response = self.choreographer.generate_choreography(prompt, structure=structure)
+            response = self._generate(prompt, structure)
 
         try:
             self.waypoints = self.choreographer.response2waypoints(
@@ -223,22 +252,15 @@ class AppBackend:
         return self.choreographer.messages
 
     @self_correct(n_retries=3)
-    def reprompt(
-        self, message: str, *, on_prompt: Callable[[list[dict[str, str]]], None] | None = None
-    ) -> list[dict[str, str]]:
-        """Reprompt the LLM for new waypoints, returning the chat history.
-
-        ``on_prompt`` receives the messages about to be sent, once per attempt.
-        """
+    def reprompt(self, message: str) -> list[dict[str, str]]:
+        """Reprompt the LLM for new waypoints, returning the chat history."""
         logger.info(f"Reprompting with message: {message}")
         if message == "":
             logger.warning("No message provided, returning current history")
             return self.choreographer.messages
         prompt = self.choreographer.format_reprompt(message)
         structure = self._load_structure(self.music_manager.song)
-        if on_prompt is not None:
-            on_prompt([*self.choreographer.messages, *prompt])
-        response = self.choreographer.generate_choreography(prompt, structure=structure)
+        response = self._generate(prompt, structure)
         self.waypoints = self.choreographer.response2waypoints(
             response, structure, strict=self._strict_processing
         )

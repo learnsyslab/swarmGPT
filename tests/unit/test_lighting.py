@@ -233,13 +233,19 @@ def test_select_first_outside_the_swarm_raises(count: int):
         select(("first", (count,)), 6, POSITIONS_6, cfg)
 
 
-def test_select_even_and_odd_are_index_parity_complements():
+def test_select_even_and_odd_split_on_the_parity_of_the_1_indexed_id():
+    """`even` must mean the drones the LLM calls 2, 4, 6, not the array slots at 0, 2, 4.
+
+    Every other way of naming a drone -- `ids`, `first`, the motion primitives -- is 1-indexed, so
+    an array-parity `even` is the exact complement of what an author writing `ids([2, 4, 6])` gets.
+    """
     cfg = load_lighting_config()
     even = select(("even", ()), 6, POSITIONS_6, cfg)
     odd = select(("odd", ()), 6, POSITIONS_6, cfg)
-    assert list(even) == [True, False, True, False, True, False]
-    assert list(odd) == [False, True, False, True, False, True]
+    assert list(even) == [False, True, False, True, False, True]
+    assert list(odd) == [True, False, True, False, True, False]
     assert np.all(even ^ odd)
+    assert list(even) == list(select(("ids", (2, 4, 6)), 6, POSITIONS_6, cfg))
 
 
 def test_select_first_n_takes_the_lowest_indices():

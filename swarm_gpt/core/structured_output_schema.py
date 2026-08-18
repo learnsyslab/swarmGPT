@@ -10,7 +10,7 @@ import json
 import re
 from typing import Any
 
-from swarm_gpt.core.lighting import LIGHTING_PRIMITIVES, load_lighting_config
+from swarm_gpt.core.lighting import LIGHTING_PRIMITIVES, RANKED_SPREADS, load_lighting_config
 from swarm_gpt.core.motion_primitives import DRONE_ID_SPEC_PATTERN, expand_drone_id_spec
 from swarm_gpt.exception import LLMFormatError
 
@@ -33,6 +33,19 @@ _SPREAD_ENUM = [
     "y",
     "z",
 ]
+# `chase` is the one primitive whose parameters interact: `group_size` buckets a ranking, so
+# `spread_offsets` rejects it above 1 under any spread that does not rank the drones. Splitting the
+# primitive into two variants keeps that pairing out of the emissions, rather than letting a
+# schema-valid one fail at compile time and burn a reprompt.
+_UNRANKED_SPREAD_ENUM = [kind for kind in _SPREAD_ENUM if kind not in RANKED_SPREADS]
+_CHASE_VARIANTS = (
+    {"spread": {"type": "string", "enum": list(RANKED_SPREADS)}},
+    {
+        "spread": {"type": "string", "enum": _UNRANKED_SPREAD_ENUM},
+        "group_size": {"type": "integer", "enum": [1]},
+    },
+)
+
 # `by` is the one parameter name two primitives disagree on: `gradient` interpolates along a
 # spatial axis, `alternate_blink` splits the swarm two ways. Resolved per primitive.
 _LIGHTING_BY_ENUM = {
@@ -182,11 +195,14 @@ def _lighting_param_schemas(num_drones: int) -> dict[str, dict[str, Any]]:
     }
 
 
-def _lighting_params_schema(primitive: str, num_drones: int) -> dict[str, Any]:
+def _lighting_params_schema(
+    primitive: str, num_drones: int, overrides: dict[str, Any]
+) -> dict[str, Any]:
     param_names = _LIGHTING_PRIMITIVE_ARG_ORDER[primitive]
     param_schemas = _lighting_param_schemas(num_drones)
     if "by" in param_names:
         param_schemas["by"] = {"type": "string", "enum": _LIGHTING_BY_ENUM[primitive]}
+    param_schemas.update(overrides)
     return {
         "type": "object",
         "additionalProperties": False,
@@ -195,13 +211,15 @@ def _lighting_params_schema(primitive: str, num_drones: int) -> dict[str, Any]:
     }
 
 
-def _lighting_action_variant_schema(primitive: str, num_drones: int) -> dict[str, Any]:
+def _lighting_action_variant_schema(
+    primitive: str, num_drones: int, overrides: dict[str, Any]
+) -> dict[str, Any]:
     return {
         "type": "object",
         "additionalProperties": False,
         "properties": {
             "primitive": {"type": "string", "enum": [primitive]},
-            "params": _lighting_params_schema(primitive, num_drones),
+            "params": _lighting_params_schema(primitive, num_drones, overrides),
         },
         "required": ["primitive", "params"],
     }
@@ -212,8 +230,9 @@ def _lighting_action_schema(num_drones: int) -> dict[str, Any]:
     # to `LIGHTING_PRIMITIVES` without an entry here fails loudly at schema-build time.
     return {
         "anyOf": [
-            _lighting_action_variant_schema(primitive, num_drones)
+            _lighting_action_variant_schema(primitive, num_drones, overrides)
             for primitive in LIGHTING_PRIMITIVES
+            for overrides in (_CHASE_VARIANTS if primitive == "chase" else ({},))
         ]
     }
 
@@ -392,6 +411,11 @@ def _selector_literal(sel: Any) -> str:
     """
     if not isinstance(sel, dict):
         raise LLMFormatError(f"Lighting 'sel' must be an object, got {type(sel).__name__}")
+    # Every field is checked rather than indexed: strict mode guarantees all three, but presets and
+    # hand-written payloads reach here too, and a bare KeyError escapes the reprompt path.
+    missing = [name for name in ("kind", "ids", "count") if name not in sel]
+    if missing:
+        raise LLMFormatError(f"Lighting 'sel' is missing {', '.join(missing)}")
     kind = sel["kind"]
     if kind == "ids":
         args = list(sel["ids"])

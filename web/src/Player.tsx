@@ -36,6 +36,7 @@ const TRAIL_SAMPLES = 48;
 // visible in one and not the other is the preview lying. Alpha 0 means no trail at all, which is the
 // current setting; raise it in BOTH places to bring trails back.
 const TRAIL_RGBA: readonly [number, number, number, number] = [0.5, 0.5, 0.5, 0.0];
+const TRAILS_VISIBLE = TRAIL_RGBA[3] > 0;
 const STL_SCALE = 0.001;
 const geometryCache = new Map<string, Promise<THREE.BufferGeometry>>();
 
@@ -306,6 +307,9 @@ export function Player({ playback, onClose }: PlayerProps) {
       botMaterials.push(parts.bot);
       scene.add(parts.group);
 
+      if (!TRAILS_VISIBLE) {
+        continue;
+      }
       const trailGeometry = new THREE.BufferGeometry();
       trailGeometry.setAttribute(
         "position",
@@ -313,8 +317,8 @@ export function Player({ playback, onClose }: PlayerProps) {
       );
       const trail = new THREE.Line(
         trailGeometry,
-        // Baked once and never repainted: the trail carries no lighting (§9.2), so the frame loop
-        // only ever touches its geometry.
+        // Baked once and never repainted: the trail carries a fixed colour, never the lighting, so
+        // the frame loop only ever touches its geometry.
         new THREE.LineBasicMaterial({
           color: new THREE.Color(TRAIL_RGBA[0], TRAIL_RGBA[1], TRAIL_RGBA[2]),
           transparent: true,
@@ -393,15 +397,18 @@ export function Player({ playback, onClose }: PlayerProps) {
         applyCueColor(botMaterial.emissive, botRgb);
 
         // Geometry only: the trail's colour is baked at construction and never follows the
-        // lighting (§9.2).
-        const trail = active.trails[droneIndex];
-        const attr = trail.geometry.getAttribute("position") as THREE.BufferAttribute;
-        for (let i = 0; i < TRAIL_SAMPLES; i += 1) {
-          const offset = ((TRAIL_SAMPLES - 1 - i) / (TRAIL_SAMPLES - 1)) * TRAIL_SECONDS;
-          sampleDroneState(playback, Math.max(0, time - offset), droneIndex, trailPos, trailQuat);
-          attr.setXYZ(i, trailPos.x, trailPos.y, trailPos.z);
+        // lighting. Skipped outright while the trail is transparent, which is TRAIL_SAMPLES state
+        // samples per drone per frame that would render nothing.
+        if (TRAILS_VISIBLE) {
+          const trail = active.trails[droneIndex];
+          const attr = trail.geometry.getAttribute("position") as THREE.BufferAttribute;
+          for (let i = 0; i < TRAIL_SAMPLES; i += 1) {
+            const offset = ((TRAIL_SAMPLES - 1 - i) / (TRAIL_SAMPLES - 1)) * TRAIL_SECONDS;
+            sampleDroneState(playback, Math.max(0, time - offset), droneIndex, trailPos, trailQuat);
+            attr.setXYZ(i, trailPos.x, trailPos.y, trailPos.z);
+          }
+          attr.needsUpdate = true;
         }
-        attr.needsUpdate = true;
       }
 
       active.controls.update();

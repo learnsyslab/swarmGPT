@@ -30,6 +30,8 @@ if TYPE_CHECKING:
     from swarm_gpt.core.lighting import LightingTimeline
     from swarm_gpt.utils import MusicManager
 
+# Trail colour, deliberately decoupled from the lighting so a trail never reads as an LED. Alpha 0
+# is the current setting and means no trail at all; every viewer skips the geometry while it holds.
 TRAIL_RGBA = np.array([0.5, 0.5, 0.5, 0.0])
 
 
@@ -295,9 +297,10 @@ def replay_sim_states(
                 last_progress_time = t
 
                 set_state(frame)
-                for j, dq in enumerate(swarm_pos):
-                    dq.append(frame[j, 0:3])
-                    draw_line(sim, np.array(dq), rgba=TRAIL_RGBA, start_size=2, end_size=5)
+                if TRAIL_RGBA[3] > 0.0:
+                    for j, dq in enumerate(swarm_pos):
+                        dq.append(frame[j, 0:3])
+                        draw_line(sim, np.array(dq), rgba=TRAIL_RGBA, start_size=2, end_size=5)
 
                 sim.render(cam_config=default_cam_config)
                 if t_playback >= timestamps[-1]:

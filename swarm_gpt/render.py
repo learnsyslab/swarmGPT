@@ -454,11 +454,12 @@ def render_preset(
     def render_frame(frame_time: float) -> None:
         # Per frame, not once before the loop: the lighting timeline is a function of time.
         paint_lighting(sim, lighting, frame_time, emission_gain=RENDER_EMISSION_GAIN)
-        positions = np.asarray(sim.data.states.pos[0])
-        for i, trail in enumerate(trails):
-            trail.append(positions[i])
-            if len(trail) > 1:
-                draw_line(sim, np.array(trail), rgba=TRAIL_RGBA, start_size=2, end_size=5)
+        if TRAIL_RGBA[3] > 0.0:
+            positions = np.asarray(sim.data.states.pos[0])
+            for i, trail in enumerate(trails):
+                trail.append(positions[i])
+                if len(trail) > 1:
+                    draw_line(sim, np.array(trail), rgba=TRAIL_RGBA, start_size=2, end_size=5)
         set_camera_pose(sim, mocap_id, frame_time, centre, camera_distance)
         frame = sim.render(mode=RENDER_MODE, camera=CAMERA_NAME, width=width, height=height)
         if frame is None:

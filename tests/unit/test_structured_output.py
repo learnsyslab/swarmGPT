@@ -12,6 +12,7 @@ from conftest import virtual_crazyswarm_config
 from swarm_gpt.core.choreographer import Choreographer
 from swarm_gpt.core.lighting import (
     LIGHTING_PRIMITIVES,
+    RANKED_SPREADS,
     Look,
     build_look,
     load_lighting_config,
@@ -487,13 +488,19 @@ def _lighting_schema(num_drones: int = LIGHTING_N_DRONES) -> dict[str, Any]:
     )
 
 
-def _lighting_variant(primitive: str, schema: dict[str, Any] | None = None) -> dict[str, Any]:
+def _lighting_variants(
+    primitive: str, schema: dict[str, Any] | None = None
+) -> list[dict[str, Any]]:
     schema = schema if schema is not None else _lighting_schema()
-    return next(
+    return [
         v
         for v in schema["$defs"]["lighting_action"]["anyOf"]
         if v["properties"]["primitive"]["enum"] == [primitive]
-    )
+    ]
+
+
+def _lighting_variant(primitive: str, schema: dict[str, Any] | None = None) -> dict[str, Any]:
+    return _lighting_variants(primitive, schema)[0]
 
 
 def _sample_value(name: str, param_schema: dict[str, Any]) -> Any:
@@ -605,6 +612,34 @@ def test_every_lighting_primitive_has_a_schema_variant_and_vice_versa():
     assert offered == set(LIGHTING_PRIMITIVES)
     assert offered == set(LIGHTING_CATALOGUE)
     assert set(LIGHTING_PRIMITIVE_ARG_ORDER) == set(LIGHTING_PRIMITIVES)
+
+
+def test_chase_splits_so_group_size_can_only_pair_with_a_spread_that_ranks():
+    """`spread_offsets` raises for `group_size > 1` under an unranked spread.
+
+    Left to one variant the schema accepts that pairing, and a syntactically perfect emission is
+    thrown away by the checker instead — a whole generation round-trip for a rule the schema can
+    state. The two variants are the same primitive, so the model still picks it by name alone.
+    """
+    schema = _lighting_schema()
+    variants = [
+        v
+        for v in schema["$defs"]["lighting_action"]["anyOf"]
+        if v["properties"]["primitive"]["enum"] == ["chase"]
+    ]
+    assert len(variants) == 2
+    params = [v["properties"]["params"]["properties"] for v in variants]
+    ranked = next(p for p in params if p["spread"]["enum"] == list(RANKED_SPREADS))
+    unranked = next(p for p in params if p["spread"]["enum"] != list(RANKED_SPREADS))
+    assert ranked["group_size"]["maximum"] == LIGHTING_N_DRONES, "ranked keeps the full range"
+    assert unranked["group_size"]["enum"] == [1], "everything else is pinned to the no-op value"
+    assert set(unranked["spread"]["enum"]).isdisjoint(RANKED_SPREADS)
+    offered = set(ranked["spread"]["enum"]) | set(unranked["spread"]["enum"])
+    assert offered == set(
+        _lighting_variant("rainbow")["properties"]["params"]["properties"]["spread"]["enum"]
+    )
+    for primitive in set(LIGHTING_PRIMITIVES) - {"chase"}:
+        assert len(_lighting_variants(primitive, schema)) == 1, primitive
 
 
 def test_lighting_selector_carries_every_field_and_stays_strict():

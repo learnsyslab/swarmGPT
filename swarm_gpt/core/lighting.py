@@ -64,7 +64,7 @@ _SELECTOR_ARITY = {
 }
 
 # The spreads that rank the selection, and so the only ones `group_size` can bucket.
-_RANKED_SPREADS = ("neighbour", "index")
+RANKED_SPREADS = ("neighbour", "index")
 
 # Fraction of the coordinate magnitude below which a span counts as no extent. Relative rather than
 # exact-zero: a cos/sin ring is degenerate only to ~1e-16, so an equality test would divide by that.
@@ -179,9 +179,10 @@ def select(sel: Selector, n: int, positions: NDArray, cfg: LightingConfig) -> ND
             raise IndexError(f"Lighting drone ids {out_of_range} are outside the 1..{n} swarm")
         mask[ids] = True
     elif kind == "even":
-        mask[0::2] = True
-    elif kind == "odd":
+        # Parity of the 1-indexed id the LLM writes, so `even` and `ids([2, 4, 6])` agree.
         mask[1::2] = True
+    elif kind == "odd":
+        mask[0::2] = True
     elif kind == "first":
         count = int(args[0])
         if not 1 <= count <= n:
@@ -269,16 +270,16 @@ def spread_offsets(
     """
     if group_size < 1:
         raise ValueError(f"group_size must be >= 1, got {group_size}")
-    if group_size > 1 and kind not in _RANKED_SPREADS:
+    if group_size > 1 and kind not in RANKED_SPREADS:
         raise ValueError(
-            f"group_size={group_size} needs a ranked spread ({' or '.join(_RANKED_SPREADS)}), "
+            f"group_size={group_size} needs a ranked spread ({' or '.join(RANKED_SPREADS)}), "
             f"got {kind}"
         )
     offsets = np.zeros(mask.shape[0])
     idx = np.flatnonzero(mask)
     if kind == "none" or idx.size == 0:
         return offsets
-    if kind in _RANKED_SPREADS:
+    if kind in RANKED_SPREADS:
         ranks = _neighbour_ranks(positions[idx]) if kind == "neighbour" else np.arange(idx.size)
         n_groups = int(np.ceil(idx.size / group_size))
         offsets[idx] = (ranks // group_size) / n_groups
@@ -569,6 +570,30 @@ def _period_seconds(
     return min_period_s
 
 
+def _min_lit_duty(period_s: float, duty: float, ctx: _BuildContext) -> float:
+    """Widen a duty whose lit window falls under one cue tick, leaving the period alone.
+
+    A window shorter than a tick lands between two grid samples for every period that is not a
+    whole multiple of one, so the flash drops out of the cue list rather than merely coarsening.
+    """
+    tick_s = 1.0 / ctx.cfg.col_freq
+    if duty * period_s >= tick_s:
+        return duty
+    logger.warning(
+        "Lighting %s has a duty of %g over %.3f s, leaving each flash lit for %.3f s — under the "
+        "%.3f s cue tick, so most flashes fall between two cues and vanish. Widening the duty to "
+        "%.3f, which is one tick lit and keeps the effect on the beat it was written for.",
+        ctx.primitive,
+        duty,
+        period_s,
+        duty * period_s,
+        tick_s,
+        tick_s / period_s,
+    )
+    # `_period_seconds` already floors the period at two ticks, so this can never exceed 0.5.
+    return tick_s / period_s
+
+
 def _gradient_s(by: str, mask: NDArray, positions: NDArray) -> NDArray:
     """Compute `gradient`'s (n,) interpolation parameter along ``by``.
 
@@ -697,9 +722,15 @@ def _pulse(params: dict, ctx: _BuildContext) -> BrightnessLayer:
 
 
 def _blink(params: dict, ctx: _BuildContext) -> BrightnessLayer:
-    """`blink(sel, period_beats, duty, deck)`: hard on/off flash, the group in sync."""
+    """`blink(sel, period_beats, duty, deck)`: hard on/off flash, the group in sync.
+
+    A short `duty` is held off the cue grid by widening the window, not by stretching the period:
+    `blink` runs at one shared phase, so no drone is skipped relative to another and slowing it
+    would move a legal 0.1-duty stab five bars off the beat it was written for.
+    """
     period_s = _period_seconds(params["period_beats"], ctx)
-    return _brightness(ctx, "square", period_s, float(params["duty"]), "none", 1)
+    duty = _min_lit_duty(period_s, float(params["duty"]), ctx)
+    return _brightness(ctx, "square", period_s, duty, "none", 1)
 
 
 def _strobe_decay(params: dict, ctx: _BuildContext) -> BrightnessLayer:

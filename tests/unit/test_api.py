@@ -107,7 +107,6 @@ def test_emergency_stop_endpoint_runs_while_deploy_is_active(
             self.presets: list[str] = []
             self.settings = {"axswarm": {"pos_min": [-1, -1, 0], "pos_max": [1, 1, 2]}}
             self.music_manager = SimpleNamespace(song="Test Song")
-            self.choreographer = SimpleNamespace(last_reasoning_summary=None)
             self.splines: dict[int, object] = {}
             self.deploy_entered = threading.Event()
             self.stop_requested = threading.Event()
@@ -185,15 +184,12 @@ def test_prompt_sent_reaches_the_socket_with_its_messages_while_the_model_thinks
             self.presets: list[str] = []
             self.settings = {"axswarm": {"pos_min": [-1, -1, 0], "pos_max": [1, 1, 2]}}
             self.music_manager = SimpleNamespace(song="Test Song")
-            self.choreographer = SimpleNamespace(last_reasoning_summary=None)
             self.splines: dict[int, object] = {}
             self.may_answer = threading.Event()
+            self.on_event: object = None
 
-        def initial_prompt(
-            self, selection: str, *, on_prompt: object = None, **_kw: object
-        ) -> list:
-            if callable(on_prompt):
-                on_prompt(prompt)
+        def initial_prompt(self, selection: str, **_kw: object) -> list:
+            self.on_event("prompt_sent", {"messages": prompt})
             assert self.may_answer.wait(timeout=5.0), "model was released before the assertion"
             return [*prompt, {"role": "assistant", "content": "done"}]
 
