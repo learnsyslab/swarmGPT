@@ -40,6 +40,7 @@ docs/ui-previews
 # Internal design docs: local-only, never published. docs/ is also the mkdocs
 # docs_dir, so these are excluded from the site build in mkdocs.yml too.
 docs/specs/
+docs/superpowers
 docs/plans/
 test-results
 playwright-report
@@ -55,5 +56,7 @@ web/tsconfig.tsbuildinfo
 /spec/
 
 CLAUDE.md
+AGENTS.md
 memory
-docs/swarmgpt2.md
+
+synth_runs
