@@ -11,7 +11,7 @@ import {
   Wand2,
   X
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import {
   createJob,
   deletePreset,
@@ -31,6 +31,26 @@ type Stage = "select" | "thinking" | "filtering" | "ready" | "playing" | "deploy
 
 function eventLabel(type: string): string {
   return type.replaceAll("_", " ");
+}
+
+// One row of the details panel, appended the moment its event lands rather than assembled once the
+// run settles: a prompt going out, the model's account of its thinking, the answer that came back,
+// and the checker rejecting it. A rejection is followed by the retry's own prompt, so the panel
+// shows the correction loop instead of only its outcome.
+type TranscriptEntry =
+  | { kind: "prompt"; messages: ChatMessage[] }
+  | { kind: "reasoning"; text: string }
+  | { kind: "response"; text: string }
+  | { kind: "rejected"; text: string };
+
+const TRANSCRIPT_LABEL: Record<Exclude<TranscriptEntry["kind"], "prompt">, string> = {
+  reasoning: "Model reasoning",
+  response: "Generated choreography",
+  rejected: "Rejected by the checker — retrying"
+};
+
+function promptLabel(role: string): string {
+  return role === "user" ? "Choreography request" : "Model instructions";
 }
 
 function isMessages(value: unknown): value is ChatMessage[] {
@@ -59,7 +79,7 @@ export function App() {
   const [stage, setStage] = useState<Stage>("select");
   const [progress, setProgress] = useState(0);
   const [events, setEvents] = useState<JobEvent[]>([]);
-  const [conversation, setConversation] = useState<ChatMessage[]>([]);
+  const [transcript, setTranscript] = useState<TranscriptEntry[]>([]);
   const [playback, setPlayback] = useState<Playback | null>(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [refineOpen, setRefineOpen] = useState(false);
@@ -118,11 +138,23 @@ export function App() {
       if (event.type === "thinking_started") {
         setStage("thinking");
       }
-      if (event.type === "conversation") {
+      const appendTranscript = (entry: TranscriptEntry) => {
+        setTranscript((current) => [...current, entry]);
+      };
+      if (event.type === "prompt_sent") {
         const messages = event.payload.messages;
         if (isMessages(messages)) {
-          setConversation(messages);
+          appendTranscript({ kind: "prompt", messages });
         }
+      }
+      if (event.type === "reasoning_summary") {
+        appendTranscript({ kind: "reasoning", text: String(event.payload.text ?? "") });
+      }
+      if (event.type === "llm_response") {
+        appendTranscript({ kind: "response", text: String(event.payload.text ?? "") });
+      }
+      if (event.type === "response_rejected") {
+        appendTranscript({ kind: "rejected", text: String(event.payload.message ?? "") });
       }
       if (event.type === "safety_started") {
         setStage("filtering");
@@ -161,7 +193,7 @@ export function App() {
     setPreviewing(null);
     setJobId(null);
     setEvents([]);
-    setConversation([]);
+    setTranscript([]);
     setPlayback(null);
     setError(null);
     setPresetNotice(null);
@@ -273,7 +305,7 @@ export function App() {
     setStage("select");
     setProgress(0);
     setEvents([]);
-    setConversation([]);
+    setTranscript([]);
     setPlayback(null);
     setDetailsOpen(false);
     setRefineOpen(false);
@@ -552,18 +584,23 @@ export function App() {
             ))}
           </div>
           <div className="conversation">
-            {conversation.map((message, index) => (
-              <article key={`${message.role}-${index}`} className="message">
-                <span>
-                  {message.role === "assistant"
-                    ? "Generated choreography"
-                    : message.role === "user"
-                      ? "Choreography request"
-                      : "Model instructions"}
-                </span>
-                <p>{message.content}</p>
-              </article>
-            ))}
+            {transcript.map((entry, index) =>
+              entry.kind === "prompt" ? (
+                <Fragment key={index}>
+                  {entry.messages.map((message, messageIndex) => (
+                    <article key={messageIndex} className="message">
+                      <span>{promptLabel(message.role)}</span>
+                      <p>{message.content}</p>
+                    </article>
+                  ))}
+                </Fragment>
+              ) : (
+                <article key={index} className={`message ${entry.kind}`}>
+                  <span>{TRANSCRIPT_LABEL[entry.kind]}</span>
+                  <p>{entry.text}</p>
+                </article>
+              )
+            )}
           </div>
         </aside>
       )}

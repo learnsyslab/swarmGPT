@@ -21,7 +21,6 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from swarm_gpt.core import AppBackend
-from swarm_gpt.utils import generate_default_colors
 from swarm_gpt.utils.llm_providers import (
     DEFAULT_OPENAI_MODEL_CHOICES,
     PROVIDER_LABEL_OLLAMA,
@@ -239,13 +238,12 @@ def normalize_playback(sim_data: dict[str, Any], backend: AppBackend) -> dict[st
     if states.shape[1] != num_drones:
         raise ValueError(f"State drone count mismatch: {states.shape[1]} != {num_drones}")
 
-    colors = generate_default_colors(num_drones, limit=1.0)
     bounds = backend.settings["axswarm"]
     sample_rate = 0.0
     if len(timestamps) > 1:
         sample_rate = float(1.0 / np.median(np.diff(timestamps)))
     return {
-        "schemaVersion": 1,
+        "schemaVersion": 2,
         "audioUrl": _audio_url(backend.music_manager.song),
         "audioOffset": backend.crop_window(backend.music_manager.song)[0],
         "song": backend.music_manager.song,
@@ -254,7 +252,7 @@ def normalize_playback(sim_data: dict[str, Any], backend: AppBackend) -> dict[st
         "states": states.tolist(),
         "fields": {"pos": [0, 3], "quat": [3, 7], "vel": [7, 10], "angVel": [10, 13]},
         "bounds": {"min": bounds["pos_min"], "max": bounds["pos_max"]},
-        "colors": colors.tolist(),
+        "lighting": backend.browser_cues(),
         "sampleRate": sample_rate,
     }
 
@@ -265,11 +263,20 @@ def _start_thread(job: Job, target: Any) -> None:
     thread.start()
 
 
+def _watch_backend(store: JobStore, job: Job) -> None:
+    """Forward the backend's exchange events onto the job's socket as they happen.
+
+    The panel is a live transcript, so nothing is held back to the end: a rejected response and the
+    retry it triggers both reach the browser while the run is still going.
+    """
+    job.backend.on_event = lambda event_type, payload: store.emit(job, event_type, payload)
+
+
 def _run_initial_job(store: JobStore, job: Job, selection: str) -> None:
     try:
+        _watch_backend(store, job)
         store.emit(job, "thinking_started", {"selection": selection}, status="thinking")
-        messages = job.backend.initial_prompt(selection)
-        store.emit(job, "conversation", {"messages": messages})
+        job.backend.initial_prompt(selection)
         store.emit(job, "safety_started", {}, status="filtering")
         sim_data = _run_simulation_with_events(job.backend, store, job)
         playback = normalize_playback(sim_data, job.backend)
@@ -295,9 +302,9 @@ def _run_refine_job(
         if provider is not None and model_id:
             job.backend.choreographer.configure_llm(provider, model_id)
             store.emit(job, "llm_configured", {"provider": provider, "modelId": model_id})
+        _watch_backend(store, job)
         store.emit(job, "thinking_started", {"refine": True}, status="thinking")
-        messages = job.backend.reprompt(message)
-        store.emit(job, "conversation", {"messages": messages})
+        job.backend.reprompt(message)
         store.emit(job, "safety_started", {"refine": True}, status="filtering")
         sim_data = _run_simulation_with_events(job.backend, store, job)
         playback = normalize_playback(sim_data, job.backend)

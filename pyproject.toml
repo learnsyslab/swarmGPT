@@ -108,6 +108,7 @@ maturin = ">=1.13.3,<2"
 
 [tool.pixi.tasks]
 api = { cmd = "python swarm_gpt/launch.py", description = "Serve the SwarmGPT browser API and built frontend", depends-on = ["web-build"] }
+render = { cmd = "python swarm_gpt/render.py", description = "Render a saved preset to a video (--help for flags, --list for presets)" }
 web-dev = { cmd = "npm --prefix web run dev", description = "Serve the browser frontend with Vite" }
 web-build = { cmd = "npm --prefix web run build", description = "Build the browser frontend" }
 

@@ -39,8 +39,18 @@ export function createJob(selection: string, provider: string, modelId: string) 
   });
 }
 
-export function getPlayback(jobId: string): Promise<Playback> {
-  return request<Playback>(`/api/jobs/${jobId}/playback`);
+const PLAYBACK_SCHEMA_VERSION = 2;
+
+export async function getPlayback(jobId: string): Promise<Playback> {
+  const playback = await request<Playback>(`/api/jobs/${jobId}/playback`);
+  // A stale bundle against a restarted server (web-dev, or a cached index.html on the SPA route)
+  // would otherwise read a payload whose shape it does not understand. Fail into the error banner.
+  if (playback.schemaVersion !== PLAYBACK_SCHEMA_VERSION) {
+    throw new Error(
+      `Playback schema ${playback.schemaVersion} is not supported (expected ${PLAYBACK_SCHEMA_VERSION}). Reload the page.`
+    );
+  }
+  return playback;
 }
 
 export function refineJob(

@@ -1,0 +1,49 @@
+# Lighting palette and calibration. Retuning an LED or flipping the show's orientation is a
+# change to this file, never to lighting.py.
+
+gamma = 2.2  # Perceived-brightness exponent. UNMEASURED; tune by eye on hardware.
+# Merged brightness below which the LED goes fully dark. Inert while it sits under one brightness
+# step, which floors the same values anyway; it bites only once those steps get much finer.
+b_min = 0.02
+
+# Must match the col_freq handed to DroneSwarm, which drains one cue per deck per tick: a denser
+# cue list plays back slowed and drifts out of sync with the music permanently.
+col_freq = 10.0
+
+hue_steps = 24  # Hue steps per `rainbow`; keeps cue dedup working. Divisible by 6.
+brightness_steps = 16  # Brightness buckets, same dedup device. Lower for radio headroom.
+
+# [W, R, G, B] trim for generated hues only -- `rainbow` and the default wheel, never the named
+# palette below. Applied after the constant-sum normalization; reversing that order divides the
+# gain straight back out for any hue landing on one channel. UNMEASURED.
+channel_gain = [1.0, 1.0, 1.0, 0.8]
+
+# World axis pointing audience-right. The audience views from +x with the show centred on x = 0,
+# so their right hand points along +y. Only `left`/`right` and `alternate_side` read this; `sweep`
+# and `gradient` take world axes and do not follow it.
+stage_axis = "+y"
+
+# [W, R, G, B] in 0-255 at full brightness, on a constant channel sum so every hue reads alike.
+# `white` is the only entry that drives the dedicated white LED; the hue wheel cannot reach it.
+[palette]
+red = [0.0, 255.00, 0.00, 0.00]        # hue 0
+orange = [0.0, 170.00, 85.00, 0.00]    # hue 30
+amber = [0.0, 145.71, 109.29, 0.00]    # hue 45
+yellow = [0.0, 127.50, 127.50, 0.00]   # hue 60
+green = [0.0, 0.00, 255.00, 0.00]      # hue 120
+teal = [0.0, 0.00, 145.71, 87.43]      # hue 165
+cyan = [0.0, 0.00, 127.50, 102.00]     # hue 180
+azure = [0.0, 0.00, 85.00, 136.00]     # hue 210
+blue = [0.0, 0.00, 0.00, 204.00]       # hue 240
+indigo = [0.0, 75.00, 0.00, 144.00]    # hue 265
+magenta = [0.0, 127.50, 0.00, 102.00]  # hue 300
+pink = [0.0, 170.00, 0.00, 68.00]      # hue 330
+white = [255.0, 0.00, 0.00, 0.00]      # the white LED, not a hue
+violet = [0.0, 102.00, 0.00, 122.40]   # hue 280
+# gold and silver are the only entries that mix the white LED with a hue. `rainbow` cannot reach
+# them and `gradient` interpolates through the W channel, which reads as a wash rather than a hue
+# sweep. Both hold the same pre-gain channel sum as the pure hues, so they match them in apparent
+# brightness. The mix fractions are chosen, not measured: run tools/calibrate_lighting.py before
+# trusting either on hardware. UNMEASURED.
+gold = [89.25, 94.71, 71.04, 0.00]     # 35% white into hue 45
+silver = [198.90, 0.00, 18.70, 29.92]  # 78% white into hue 210

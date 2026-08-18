@@ -1,7 +1,4 @@
-"""Unit tests for :mod:`swarm_gpt.utils.music_analyzer`.
-
-Tests use duck-typed synthetic ``AnalysisResult`` objects so allin1 is never imported.
-"""
+"""Unit tests for :mod:`swarm_gpt.utils.music_analyzer`, on synthetic ``AnalysisResult`` objects."""
 
 from __future__ import annotations
 
@@ -181,9 +178,7 @@ def test_crop_rejects_non_positive_window() -> None:
         structure.crop(4.0, 2.0)
 
 
-# ---------------------------------------------------------------------------
 # F2 helpers
-# ---------------------------------------------------------------------------
 
 
 def _make_synthetic_structure(n_bars: int, bar_dur: float) -> SongStructure:

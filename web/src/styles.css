@@ -407,6 +407,29 @@ button:disabled {
   background: rgba(0, 0, 0, 0.18);
 }
 
+.message.reasoning {
+  border-style: dashed;
+  background: rgba(0, 0, 0, 0.28);
+}
+
+.message.reasoning span {
+  color: #9fd2c0;
+}
+
+.message.reasoning p {
+  max-height: 200px;
+  color: #b9cfc7;
+  font-style: italic;
+}
+
+.message.rejected {
+  border-color: rgba(255, 130, 130, 0.45);
+}
+
+.message.rejected span {
+  color: #ff9b9b;
+}
+
 .message span {
   color: #f0c66a;
   font-size: 0.75rem;

@@ -55,7 +55,8 @@ axswarm:
   input_smoothness_weight: 10.0  # Weight of the input smoothness objective in the cost
   input_continuity_weight: 1.0  # Weight of the input continuity objective in the cost
 
-  # Limits
+  # Limits, sized for the lab volume. The primitives scale their formation radius as
+  # min_spacing / (2 sin(pi/n)), so a 100-drone sim swarm needs roughly [-10, -10] / [10, 10, 6].
   pos_min: [-2.0, -2.0, 0.25]  # Minimum position of the AMSwarm drones
   pos_max: [2.0, 2.0, 1.7]  # Maximum position of the AMSwarm drones
   vel_max: 1.73  # Maximum velocity of the AMSwarm drones

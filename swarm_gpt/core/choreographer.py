@@ -7,41 +7,52 @@ import json
 import logging
 import re
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import einops  # pyright: ignore[reportMissingImports]
 import numpy as np
 import toml
 import yaml
 
+from swarm_gpt.core.lighting import LightingTimeline, build_look, load_lighting_config
+from swarm_gpt.core.motion_primitives import _sanitize_drone_ids, primitive_by_name
 from swarm_gpt.core.motion_primitives import motion_primitives as motion_primitives_collection
-from swarm_gpt.core.motion_primitives import primitive_by_name
 from swarm_gpt.core.structured_output_schema import (
     KEY_PATTERN,
+    LIGHTING_PRIMITIVE_ARG_ORDER,
     build_motion_primitive_response_schema,
     decode_key,
     encode_key,
     structured_payload_to_choreography,
+    structured_payload_to_lighting,
 )
 from swarm_gpt.exception import LLMFormatError, LLMPlanError, LLMResponseProcessingError
 from swarm_gpt.utils.llm_providers import (
-    RESPONSES_MAX_OUTPUT_TOKENS,
     RESPONSES_TEMPERATURE,
     cancellable_ollama_chat,
     openai_client_for_provider,
     prepare_responses_messages,
     register_ollama_client,
+    responses_model_kwargs,
 )
 from swarm_gpt.utils.music_analyzer import dynamics_window_keys
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from numpy.typing import NDArray
     from openai import OpenAI
 
+    from swarm_gpt.core.lighting import LightingConfig, Look
     from swarm_gpt.utils.llm_providers import LLMProvider
     from swarm_gpt.utils.music_analyzer import SongStructure
 
 logger = logging.getLogger(__name__)
+
+# Tempo the generation-time lighting dry run converts `period_beats` with. Slow enough that no
+# emitted period can trip the cue-rate clamp and log a spurious warning: the dry run is only
+# checking names, and `response2lighting` does the real conversion with the song's own tempo.
+_DRY_RUN_BPM = 1.0
 
 _FORMATION_PRIMITIVES: frozenset[str] = frozenset({"form_circle", "form_star", "form_cone"})
 _MOTION_PRIMITIVES_FOR_COMPOSITION: frozenset[str] = frozenset(
@@ -50,22 +61,14 @@ _MOTION_PRIMITIVES_FOR_COMPOSITION: frozenset[str] = frozenset(
 
 
 def _overlapping_drone_set(action: dict[str, tuple], num_drones: int) -> frozenset[int]:
-    """Return the 0-indexed drone IDs this action touches.
+    """Return the 0-indexed drone IDs the ``{fn_name: args}`` action touches.
 
-    ``form_circle``, ``move_z``, ``center`` take an explicit drone subset as their first arg.
-    ``swap`` takes two individual drone IDs. ``move`` takes a single drone ID as the fourth arg.
-    All other primitives operate on the full swarm.
-
-    Args:
-        action: Single-entry dict ``{fn_name: args_tuple}``.
-        num_drones: Total number of drones in the swarm.
-
-    Returns:
-        Frozenset of 0-indexed drone IDs the action applies to.
+    Subsets go through the same `_sanitize_drone_ids` the primitives use, so a compact range spec
+    and an explicit id list agree on which drones an action covers.
     """
     fn_name, args = next(iter(action.items()))
     if fn_name in {"form_circle", "move_z", "center"}:
-        return frozenset(d - 1 for d in args[0])
+        return frozenset(_sanitize_drone_ids(args[0], num_drones))
     if fn_name == "swap":
         return frozenset({args[0] - 1, args[1] - 1})
     if fn_name == "move":
@@ -76,17 +79,7 @@ def _overlapping_drone_set(action: dict[str, tuple], num_drones: int) -> frozens
 def _form_should_drop_holds(
     action_list: list[dict[str, tuple]], form_idx: int, num_drones: int
 ) -> bool:
-    """Return True if a motion primitive on overlapping drones follows ``form_idx`` in the list.
-
-    Args:
-        action_list: Ordered list of ``{fn_name: args}`` dicts for one choreography key.
-        form_idx: Index of the formation primitive to check.
-        num_drones: Total number of drones in the swarm.
-
-    Returns:
-        True when any later entry is in ``_MOTION_PRIMITIVES_FOR_COMPOSITION`` and shares at
-        least one drone with the formation.
-    """
+    """Return True if a motion primitive on overlapping drones follows ``form_idx`` in the list."""
     form_drones = _overlapping_drone_set(action_list[form_idx], num_drones)
     for later in action_list[form_idx + 1 :]:
         fn_name = next(iter(later))
@@ -96,19 +89,30 @@ def _form_should_drop_holds(
     return False
 
 
-# OLLAMA_CONTEXT_LENGTH = None  # Set None to use Ollama's VRAM-based default.
+# None uses Ollama's VRAM-based default.
 OLLAMA_CONTEXT_LENGTH = None
 
 
-# Investigate and improve error message for the case when func = "", and we get key error, during sanitize llm output
-# Also improve error message when there is an issue with function output, so that we can re-prompt with super specific messag
-# Need to imorove parsing
-# Add a log everytime some waypoint is clamped.
-class Choreographer:
-    """The choreographer handles the interaction with the language model.
+def _reasoning_summary(response: Any) -> str | None:
+    """Join the reasoning summaries on a Responses result, or None if the model emitted none.
 
-    It formats the prompts and parses the output of the language model into the desired format.
+    Only reasoning models asked for a summary carry these, and they sit in their own output
+    items -- ``output_text`` holds the answer alone.
     """
+    parts = [
+        text
+        for item in getattr(response, "output", None) or []
+        if getattr(item, "type", None) == "reasoning"
+        for summary in getattr(item, "summary", None) or []
+        if (text := getattr(summary, "text", None))
+    ]
+    return "\n\n".join(parts) or None
+
+
+# TODO: improve the error messages for an empty func name and for bad function output, so reprompts
+# can be specific. Log every time a waypoint is clamped.
+class Choreographer:
+    """Formats the prompts for the language model and parses its output."""
 
     def __init__(
         self,
@@ -118,14 +122,7 @@ class Choreographer:
         llm_provider: LLMProvider = "openai",
         use_motion_primitives: bool = False,
     ):
-        """Initialize the choreographer.
-
-        Args:
-            config_file: Path to the drone configuration file that is used for crazyswarm.
-            model_id: Model name passed to ``responses.create`` (OpenAI id or Ollama tag).
-            llm_provider: ``openai`` for the cloud API, ``ollama`` for local via OpenAI-compatible URL.
-            use_motion_primitives: Whether to use motion primitives or raw waypoints.
-        """
+        """Initialize the choreographer against a crazyswarm drone config and an LLM provider."""
         self.settings = None
         self.llm_provider: LLMProvider = llm_provider
         self._model_id = model_id
@@ -137,18 +134,16 @@ class Choreographer:
         self.starting_pos = {}
         self.num_drones = 0
         self.messages = []
-        # Load prompts from file
+        self.last_reasoning_summary: str | None = None
         prompt = "motion_primitive_prompts" if self.use_motion_primitives else "prompts"
         with open(Path(__file__).resolve().parents[1] / f"data/{prompt}.yaml", "r") as f:
             self.prompts = yaml.safe_load(f)
         self.load_drone_config(config_file)
-        # Limits define boundaries of permissible flying area
+        # Boundaries of the permissible flying area.
         self.lim_lower = np.array(self.settings["axswarm"]["pos_min"])
         self.lim_upper = np.array(self.settings["axswarm"]["pos_max"])
         assert len(self.lim_lower) == 3 and len(self.lim_upper) == 3, "Limits must be 3D"
-        # Ellipsoidal collision envelope (x, y, z) in meters that axswarm enforces as a hard
-        # MPC constraint. The offline collision check scales separations by this so it rejects
-        # the same layouts the solver cannot hold (e.g. circles stacked < 0.6m apart in z).
+        # Ellipsoidal (x, y, z) envelope in meters that axswarm enforces as a hard MPC constraint.
         self.collision_envelope = np.array(self.settings["axswarm"]["collision_envelope"])
         assert len(self.collision_envelope) == 3, "Collision envelope must be 3D"
         # Stride (in bars) between required downbeats; beats in between are optional accents.
@@ -182,15 +177,7 @@ class Choreographer:
         return self._chat_client
 
     def format_initial_prompt(self, song: str, structure: SongStructure) -> list[dict[str, str]]:
-        """Format the initial prompt for the LLM.
-
-        Args:
-            song: The name of the song.
-            structure: Hierarchical music structure (segments / bars / beats).
-
-        Returns:
-            The formatted initial prompt as a list of role/content message dicts.
-        """
+        """Format the initial prompt for the LLM as a list of role/content message dicts."""
         logger.debug("Formatting initial prompt")
         msgs = []
         user_prompt = self._format_initial_user_prompt(song, structure)
@@ -225,19 +212,13 @@ class Choreographer:
     def generate_choreography(
         self, prompt: list[dict[str, str]], structure: SongStructure | None = None
     ) -> str:
-        """Generate the initial choreography for the LLM.
-
-        Args:
-            prompt: The message list returned by :meth:`format_initial_prompt`.
-            structure: Hierarchical song structure; required when using structured outputs.
-
-        Returns:
-            The assistant's response text (YAML-shaped for legacy parsing).
-        """
+        """Generate the initial choreography, returning YAML-shaped response text."""
         logger.debug(
             "Generating choreography with provider=%s model=%s", self.llm_provider, self._model_id
         )
         self.messages.extend(prompt)
+        # Ollama's native path never sets one, so clear it rather than show the last model's.
+        self.last_reasoning_summary = None
         if self._uses_structured_outputs():
             if structure is None:
                 raise ValueError("structure is required for structured output generation")
@@ -253,16 +234,10 @@ class Choreographer:
         self.messages.clear()
 
     def load_drone_config(self, config_file: Path | None = None) -> None:
-        """Load the drone configuration from the config file.
+        """Load the drone configuration, defaulting to ``swarm_gpt/data/drones.toml``.
 
-        The configuration file is a TOML file containing an ``active`` list of
-        cf-names and one ``[cfXX]`` table per drone with ``addr`` (last radio
-        address byte), ``channel`` (radio channel), and ``pos`` (initial xyz
-        position). The URI is derived at load time; it is not stored in the file.
-
-        Args:
-            config_file: Path to the TOML config file. Defaults to
-                ``swarm_gpt/data/drones.toml``.
+        The TOML holds an ``active`` list of cf-names and one ``[cfXX]`` table per drone with
+        ``addr``, ``channel`` and ``pos``. The URI is derived at load time, not stored in the file.
         """
         with open(Path(__file__).resolve().parents[1] / "data/settings.yaml", "r") as f:
             self.settings = yaml.safe_load(f)
@@ -300,13 +275,8 @@ class Choreographer:
         assert self.num_drones > 0, "No drones detected in config file"
 
     def _format_initial_user_prompt(self, song: str, structure: SongStructure) -> str:
-        """Format the initial user prompt for the LLM.
-
-        Args:
-            song: The name of the song.
-            structure: Hierarchical song structure used to render segments/keys.
-        """
-        # Convert starting positions to cm for the LLM (integer tokens).
+        """Format the initial user prompt for the LLM."""
+        # Positions go to the LLM in cm, so they render as integer tokens.
         starting_pos = [(pos * 100).astype(int).tolist() for pos in self.starting_pos.values()]
         segments_table = _render_segments_table(structure)
         required_keys_csv = ", ".join(
@@ -351,8 +321,7 @@ class Choreographer:
                 model=self._model_id,
                 input=input_messages,
                 instructions=instructions,
-                max_output_tokens=RESPONSES_MAX_OUTPUT_TOKENS,
-                temperature=RESPONSES_TEMPERATURE,
+                **responses_model_kwargs(self._model_id),
             )
         except Exception as e:
             hint = (
@@ -364,6 +333,7 @@ class Choreographer:
                 f"Responses API call failed for provider={self.llm_provider!r} "
                 f"model={self._model_id!r}. {hint} ({e})"
             ) from e
+        self.last_reasoning_summary = _reasoning_summary(response)
         if response.error is not None:
             raise LLMPlanError(
                 f"Model {self._model_id!r} returned an error: {response.error.message}"
@@ -387,33 +357,17 @@ class Choreographer:
         time: NDArray | None = None,
         structure: SongStructure | None = None,
     ):
-        """Check that no two drones violate the MPC's collision envelope at the same time.
+        """Check that no two drones in the (n_drones, T, 3) ``pos`` violate the MPC's envelope.
 
-        Separations are scaled by ``self.collision_envelope`` (the ellipsoid axswarm enforces),
-        so a pair is in conflict when the envelope-scaled distance drops below 1. This matches
-        the solver's constraint — e.g. two drones must be >=0.6m apart in z but only >=0.35m in
-        x/y — instead of the old isotropic sphere, which let vertically stacked formations slip
-        through and then jitter under the MPC.
-
-        Args:
-            pos: The positions of the drones as a (n_drones, T, 3) array.
-            margin: Multiplicative inflation of the envelope. ``1.0`` matches the MPC exactly;
-                values >1 reject layouts that are merely close to the constraint.
-            time: Optional 1-D array of length ``T`` giving the seconds of each waypoint column.
-                When provided together with ``structure``, offending columns are reported as the
-                nearest ``s#b#t#`` key instead of opaque waypoint indices.
-            structure: Optional song structure used to resolve waypoint times to the nearest
-                hierarchical key for a choreographer-friendly error message.
-
-        Raises:
-            LLMPlanError: If two drones violate the collision envelope at the same time.
+        Separations scale by ``self.collision_envelope``, so a pair conflicts below 1. An isotropic
+        sphere lets stacked formations slip through; ``margin`` above 1.0 rejects close ones too.
         """
-        differences = pos[:, None, :, :] - pos[None, :, :, :]  # Reshape for broadcasting
-        # Scale each axis by the envelope so the norm is <1 exactly when the pair is inside the
-        # ellipsoidal collision constraint, regardless of how the separation splits across axes.
+        differences = pos[:, None, :, :] - pos[None, :, :, :]
+        # Scaling per axis makes the norm <1 exactly inside the ellipsoid, however the separation
+        # splits across axes.
         scaled = differences / (self.collision_envelope * margin)
         distance = np.linalg.norm(scaled, axis=-1)
-        # Set the diagonal to a large number to avoid comparing the same drone
+        # Push the diagonal out of range so a drone is never compared against itself.
         distance += np.eye(self.num_drones).reshape(self.num_drones, self.num_drones, 1) * 1000
         min_distance = np.min(distance, axis=1)  # (n_drones, T). Closest encounter for each time
         if not np.any(min_distance < 1.0):
@@ -477,8 +431,7 @@ class Choreographer:
                 model=self._model_id,
                 input=input_messages,
                 instructions=instructions,
-                max_output_tokens=RESPONSES_MAX_OUTPUT_TOKENS,
-                temperature=RESPONSES_TEMPERATURE,
+                **responses_model_kwargs(self._model_id),
                 text={
                     "format": {
                         "type": "json_schema",
@@ -498,6 +451,7 @@ class Choreographer:
                 f"Structured output call failed for provider={self.llm_provider!r} "
                 f"model={self._model_id!r}. {hint} ({e})"
             ) from e
+        self.last_reasoning_summary = _reasoning_summary(response)
         if response.error is not None:
             raise LLMPlanError(
                 f"Model {self._model_id!r} returned an error: {response.error.message}"
@@ -584,7 +538,11 @@ class Choreographer:
         return structured_payload_to_choreography(payload)
 
     def _structured_payload_to_text(self, payload: dict) -> str:
-        """Convert structured payload to legacy YAML-like text for downstream parsing/history."""
+        """Convert structured payload to legacy YAML-like text for downstream parsing/history.
+
+        ``lighting`` is rendered as a second block in the same ``  s#b#t#: call; call`` idiom, so
+        one text parser serves both the structured and the free-text path.
+        """
         required_fields = ["song_mood", "choreography_plan", "choreography"]
         missing = [field for field in required_fields if field not in payload]
         if missing:
@@ -592,14 +550,18 @@ class Choreographer:
                 "Structured output is missing required keys: " + ", ".join(sorted(missing))
             )
         choreography = self._structured_payload_to_choreography(payload)
+        lighting = structured_payload_to_lighting(payload)
         lines = [
             f"song_mood: {json.dumps(payload['song_mood'])}",
             f"choreography_plan: {json.dumps(payload['choreography_plan'])}",
             "choreography:",
         ]
-        # Sort by (seq, bar, beat) tuple for deterministic, time-ordered output.
         for addr in sorted(choreography):
             lines.append(f"  {encode_key(*addr)}: {choreography[addr]}")
+        lines.append("  END")
+        lines.append("lighting:")
+        for addr in sorted(lighting):
+            lines.append(f"  {encode_key(*addr)}: {lighting[addr]}")
         lines.append("  END")
         return "\n".join(lines)
 
@@ -608,15 +570,8 @@ class Choreographer:
     ) -> dict[str, NDArray]:
         """Translate the LLM output into waypoints.
 
-        Args:
-            text: The output of the LLM, in the YAML-like form produced by the prompt.
-            structure: Hierarchical song structure used to resolve action keys to seconds.
-            strict: Enable/disable waypoint proximity and distance checks.
-            t_rth: Time for the drones to return to their starting position.
-
-        Returns:
-            The waypoints as a dictionary of "time", "pos", "vel", "acc". "time" has shape
-            (n_drones, T), and "pos", "vel", "acc" have shape (n_drones, T, 3).
+        Returns "time" of shape (n_drones, T) plus "pos", "vel" and "acc" of shape (n_drones, T, 3).
+        ``strict`` enables the proximity checks; ``t_rth`` is the return-to-home time.
         """
         logger.debug("Converting LLM output into waypoints")
         if self.use_motion_primitives:
@@ -627,7 +582,6 @@ class Choreographer:
             # beat_times list. Pull it from the structure for the time being.
             flat_times = [b.time_s for s in structure.segments for bar in s.bars for b in bar.beats]
             waypoints = self._raw_response2waypoints(text, np.asarray(flat_times), structure)
-        # Clip waypoint values to the physical limits
         waypoints["pos"] = np.clip(waypoints["pos"], self.lim_lower, self.lim_upper)
         if strict:
             self._collision_check(waypoints["pos"], time=waypoints["time"][0], structure=structure)
@@ -647,6 +601,97 @@ class Choreographer:
         waypoints["pos"] = np.concat((waypoints["pos"], home, home), axis=1)
 
         return waypoints
+
+    def validate_lighting(self, text: str) -> None:
+        """Check a response's lighting track for names and arities the engine would reject.
+
+        Positions do not exist until the axswarm pass, so this rebuilds the looks against a dry-run
+        snapshot -- a diagonal, not zeros, or every `sweep` would warn about the fixture.
+        """
+        cfg = load_lighting_config()
+        positions = np.tile(np.arange(self.num_drones, dtype=float)[:, None], (1, 3))
+        for addr, action_str in self.lighting_from_text(text).items():
+            actions = self._parse_lighting_actions(action_str, addr)
+            self._build_look(actions, addr, 0.0, positions, cfg, _DRY_RUN_BPM)
+
+    def _build_look(
+        self,
+        actions: list[dict],
+        addr: tuple[int, int, int],
+        t_start: float,
+        positions: NDArray,
+        cfg: LightingConfig,
+        bpm: float,
+    ) -> Look:
+        """Compile one key's actions, reporting the engine's bare name errors as format errors.
+
+        Shared by the generation-time dry run and the real compile so both report a malformed
+        emission identically, and so neither can drift into swallowing an error the other raises.
+        """
+        try:
+            return build_look(actions, t_start, positions, self.num_drones, cfg, bpm)
+        except (KeyError, ValueError, IndexError) as e:
+            raise LLMFormatError(
+                f"Cannot compile the lighting at {encode_key(*addr)}: {e.__class__.__name__}: {e}"
+            ) from e
+
+    def response2lighting(
+        self,
+        text: str,
+        structure: SongStructure,
+        position_at: Callable[[float], NDArray],
+        t_end: float,
+    ) -> LightingTimeline:
+        """Translate the LLM output's lighting track into an evaluable timeline.
+
+        Snapshots are taken at `_settle_time`, not at each look's start, so selectors resolve
+        against the formation the look was written for. ``t_end`` is the *flight*, not the song.
+        """
+        logger.debug("Converting LLM output into a lighting timeline")
+        cfg = load_lighting_config()
+        emitted = self.lighting_from_text(text)
+        boundaries = self._motion_boundaries(text, structure) if emitted else []
+        starts = sorted(structure.time_of(*addr) for addr in emitted)
+        looks = []
+        for addr, action_str in emitted.items():
+            actions = self._parse_lighting_actions(action_str, addr)
+            t_start = structure.time_of(*addr)
+            t_next_look = next((t for t in starts if t > t_start), np.inf)
+            # One snapshot per look, frozen here, which keeps the timeline a pure function of t.
+            t_sample = self._settle_time(t_start, t_next_look, boundaries)
+            positions = np.asarray(position_at(t_sample), dtype=float)
+            looks.append(
+                self._build_look(actions, addr, t_start, positions, cfg, float(structure.bpm))
+            )
+        return LightingTimeline(looks, self.num_drones, t_end, cfg)
+
+    def _motion_boundaries(self, text: str, structure: SongStructure) -> list[float]:
+        """Ascending show times at which the motion track hands one primitive over to the next.
+
+        A motion primitive plays forward until the next key, so these are the instants a formation
+        has arrived. No parsable motion track yields none, and looks sample at their own start.
+        """
+        try:
+            choreography = self._slice_choreography_from_text(text, structure)
+        except LLMFormatError:
+            return []
+        times = sorted(structure.time_of(*addr) for addr in choreography)
+        # The last primitive plays until the song ends, with the same zero-length guard
+        # `_choreo2waypoints` applies, so both passes agree on where it finishes.
+        song_end = structure.segments[-1].end_s
+        if song_end <= times[-1]:
+            song_end = times[-1] + 1.0
+        return [*times, song_end]
+
+    @staticmethod
+    def _settle_time(t_start: float, t_next_look: float, boundaries: list[float]) -> float:
+        """Pick the show time a look's position snapshot is taken at, never before ``t_start``.
+
+        Not ``t_start`` itself: a look sharing an address with a formation lands where that
+        formation *begins*. One expiring before the primitive finishes is sampled at its own end.
+        """
+        settled = next((t for t in boundaries if t > t_start), t_start)
+        return max(t_start, min(settled, t_next_look))
 
     def _response2choreo(
         self, text: str, structure: SongStructure | None = None
@@ -669,18 +714,10 @@ class Choreographer:
     def _choreo2waypoints(
         self, choreography: dict[tuple[int, int, int], str], structure: SongStructure
     ) -> dict[str, np.ndarray]:
-        """Translate a (seq, bar, beat)-keyed choreography into time-based waypoints.
+        """Translate a (seq, bar, beat)-keyed choreography into ``time``/``pos``/``vel``/``acc``.
 
-        Resolves each hierarchical key to its absolute time via :meth:`SongStructure.time_of`,
-        sorts actions by time, and renumbers them 1..N as synthetic indices for the existing
-        time-based primitive execution pipeline.
-
-        Args:
-            choreography: Action strings keyed by ``(seq, bar, beat)``.
-            structure: Song structure providing ``time_of`` and ``required_keys``.
-
-        Returns:
-            Waypoints dict with ``time``, ``pos``, ``vel``, ``acc`` arrays.
+        Actions are sorted by their resolved time and renumbered 1..N as synthetic indices, which is
+        what the time-based primitive execution pipeline expects.
         """
         required = set(structure.required_keys(self._bars_per_required))
         emitted = set(choreography)
@@ -691,7 +728,6 @@ class Choreographer:
         if not choreography:
             raise LLMResponseProcessingError("Choreography is empty")
 
-        # Sort emitted actions by their resolved time.
         ordered = sorted(
             (
                 (structure.time_of(seq, bar, beat), (seq, bar, beat), action_str)
@@ -749,7 +785,7 @@ class Choreographer:
 
         for i, positions in choreography.items():
             try:
-                # literal_eval is safe because it only supports a restricted subset of python
+                # literal_eval is safe: it only supports a restricted subset of Python.
                 positions = ast.literal_eval(positions)
             except (SyntaxError, ValueError):
                 raise LLMFormatError(f"Cannot interpret waypoint {i} as a list (got {positions})")
@@ -768,19 +804,10 @@ class Choreographer:
     def _slice_choreography_from_text(
         text: str, structure: SongStructure | None = None
     ) -> dict[tuple[int, int, int], str]:
-        """Extract the choreography from the YAML output of the LLM.
+        """Extract the choreography from the LLM output as ``(seq, bar, beat)`` -> action strings.
 
-        The LLM output may not be valid YAML (formatting, quotes, dashes). We slice the
-        ``choreography`` block manually and parse hierarchical keys of the form
-        ``s<seq>b<bar>t<beat>``.
-
-        Args:
-            text: The YAML output of the LLM.
-            structure: Optional song structure used to annotate each key with its resolved
-                ``time_of`` value in the debug print. Has no effect on parsing.
-
-        Returns:
-            Dict mapping ``(seq, bar, beat)`` tuples to action strings.
+        The LLM output may not be valid YAML (formatting, quotes, dashes), so the ``choreography``
+        block is sliced manually. ``structure`` only annotates the debug print with resolved times.
         """
         yaml_text = re.findall(r"```yaml\n(.*?)(?:```)", text, re.DOTALL)
         try:
@@ -806,7 +833,6 @@ class Choreographer:
         logger.debug(debug_text)
         logger.debug("=" * 80 + "\n")
 
-        # Step 1: Extract the chunk between `choreography:` and `END` or end of file.
         match = re.search(r"choreography:\s*(.*?)(?:\s*END|$)", yaml_text, re.DOTALL)
         if not match:
             raise LLMFormatError(
@@ -814,11 +840,7 @@ class Choreographer:
                 "choreography plan with the 'choreography' keyword."
             )
         choreography = match.group(1).strip()
-
-        # Step 2: Strip line comments (everything after `#`).
         choreography = "\n".join(line.split("#")[0].strip() for line in choreography.splitlines())
-
-        # Step 3: Parse `s<seq>b<bar>t<beat>: <action>` entries.
         entry_re = re.compile(rf"({KEY_PATTERN}):\s*(.*?)\s*(?={KEY_PATTERN}:|$)", re.DOTALL)
         choreography_steps: dict[tuple[int, int, int], str] = {}
         for entry in entry_re.findall(choreography):
@@ -837,23 +859,74 @@ class Choreographer:
 
         return dict(sorted(choreography_steps.items()))
 
+    @staticmethod
+    def lighting_from_text(text: str) -> dict[tuple[int, int, int], str]:
+        """Extract the ``lighting:`` block as ``(seq, bar, beat)`` -> action strings, in key order.
+
+        More forgiving than :meth:`_slice_choreography_from_text`: an absent block yields an empty
+        dict. The header is line-anchored, or it would match "lighting:" in the plan prose.
+        """
+        yaml_text = re.findall(r"```yaml\n(.*?)(?:```)", text, re.DOTALL)
+        yaml_text = yaml_text[0] if yaml_text else text
+        match = re.search(
+            r"^[ \t]*lighting:[ \t]*$(.*?)(?:^[ \t]*END[ \t]*$|\Z)",
+            yaml_text,
+            re.DOTALL | re.MULTILINE,
+        )
+        if match is None:
+            return {}
+        # Strip line comments (everything after `#`), as the choreography slice does.
+        block = "\n".join(line.split("#")[0].strip() for line in match.group(1).splitlines())
+        entry_re = re.compile(rf"({KEY_PATTERN}):\s*(.*?)\s*(?={KEY_PATTERN}:|$)", re.DOTALL)
+        entries = {decode_key(key): action.strip() for key, action in entry_re.findall(block)}
+        return dict(sorted(entries.items()))
+
+    @staticmethod
+    def _parse_lighting_actions(action_str: str, addr: tuple[int, int, int]) -> list[dict]:
+        """Parse one lighting key's ``primitive(args); primitive(args)`` string into actions.
+
+        Produces the ``{"primitive", "params"}`` shape `build_look` consumes, in the emission order
+        that resolves overlapping colours. Arity is checked before the zip onto argument names.
+        """
+        actions: list[dict] = []
+        for raw_move in action_str.strip(" ;").split(";"):
+            move = raw_move.strip()
+            if not move:
+                continue
+            name = move.split("(")[0].strip(" -\n")
+            if name not in LIGHTING_PRIMITIVE_ARG_ORDER:
+                raise LLMFormatError(f"Unknown lighting primitive '{name}' at {encode_key(*addr)}")
+            # Parse the `args` portion the way the motion path does: `ast.literal_eval` on a
+            # re-wrapped tuple expression, splitting on the first `(`. The selector is rendered as
+            # a list rather than a tuple precisely so that split stays valid.
+            try:
+                args = ast.literal_eval("(" + move.split("(")[1].split("#")[0][:-1] + ",)")
+            except (SyntaxError, ValueError, IndexError) as e:
+                raise LLMFormatError(
+                    f"Cannot interpret arguments of '{move}' at {encode_key(*addr)}. "
+                    f"Failed with {e.__class__.__name__}: {e}"
+                ) from e
+            arg_names = LIGHTING_PRIMITIVE_ARG_ORDER[name]
+            if len(args) != len(arg_names):
+                raise LLMFormatError(
+                    f"{name} at {encode_key(*addr)} must have {len(arg_names)} arguments "
+                    f"({arg_names}), got {list(args)}"
+                )
+            actions.append({"primitive": name, "params": dict(zip(arg_names, args))})
+        return actions
+
     def _motion_primitives2time_and_pos(
         self, motion_primitives: dict, timestamps: NDArray, t_end: float
     ) -> tuple[NDArray, NDArray]:
-        """Convert motion primitives to waypoints over forward-looking intervals.
+        """Convert motion primitives to waypoint timings and positions over forward intervals.
 
         Each primitive plays from its own action time until the next action's time; the final
-        primitive runs until ``t_end`` (the song's end). Drones hold their start positions
-        until the first action.
-
-        Returns:
-            The motion primitive waypoint timings and positions.
+        primitive runs until ``t_end``. Drones hold their start positions until the first action.
         """
         waypoints = {}
         # TODO: Remove all conversions into cm
         swarm_pos = np.array(list(self.starting_pos.values())) * 100
         waypoints[0] = {i: p.copy() for i, p in enumerate(swarm_pos)}
-        # Forward-looking intervals: primitive i plays [T_i, T_{i+1}], the last one to t_end.
         # _merge_motion_primitives reads tstart=timesteps[i-1], tend=timesteps[i] for key i.
         timesteps = np.concatenate((timestamps, [t_end]))
         motion_primitives = self._merge_motion_primitives(motion_primitives, timesteps)
@@ -883,14 +956,13 @@ class Choreographer:
     def _fill_missing_waypoints(
         self, waypoints: dict[float, dict[int, NDArray]]
     ) -> dict[float, dict[int, NDArray]]:
-        """Fill in missing waypoints.
+        """Fill in missing waypoints by copying the previous timestep.
 
-        Some motion primitives operate on a subset of drones. Therefore, some drones will not have a
-        waypoint at every timestep. We fill in the missing ones by copying over the previous
-        timestep.
+        Motion primitives may operate on a subset of drones, so not every drone has a waypoint at
+        every timestep.
         """
         for i, waypoint in enumerate(waypoints.values()):
-            # First time step must have all drones because we added the start positions at time 0
+            # The first timestep must have all drones: the start positions were added at time 0.
             if i == 0:
                 assert all(d in waypoint for d in range(self.num_drones)), "Missing start positions"
                 continue
@@ -900,14 +972,12 @@ class Choreographer:
         return waypoints
 
     def _merge_motion_primitives(self, motion_primitives: dict, timesteps: NDArray) -> dict:
-        """Merge and annotate motion primitives.
+        """Merge the motion primitives sharing a timestep and annotate them with time information.
 
-        Merge multiple motion primitives for a single timestep, add time information and add the
-        time from PLAN motion_primitives to the previous function.
+        A PLAN primitive contributes its time to the preceding function rather than to itself.
         """
         merged_motion_primitives = []
-        # Filter out any PLAN motion_primitives that are at the end of the list. Make sure to not cut off
-        # any other motion_primitives.
+        # Trailing PLAN primitives are dropped; anything else past the end is an error.
         if max(motion_primitives.keys()) >= len(timesteps):
             excess_primitives = [
                 [list(d.keys())[0] for d in motion_primitives[i]]
@@ -940,7 +1010,6 @@ class Choreographer:
                 }
             )
         motion_primitives = {primitive["key"]: primitive for primitive in merged_motion_primitives}
-        # Check that the motion primitives do not exceed the number of waypoints
         for motion_primitive in motion_primitives.values():
             if motion_primitive["key"] + motion_primitive["steps"] > len(timesteps):
                 raise LLMFormatError(
@@ -961,10 +1030,9 @@ class Choreographer:
         if motion_primitives_collection[fn_name]["n_args"] != len(args):
             raise LLMFormatError(f"Wrong number of arguments for {fn_name}")
         limits = {"lower": self.lim_lower, "upper": self.lim_upper}
-        # We need to pass waypoints and swarm_pos because some motion primitives operate on a subset
-        # of drones. Therefore, waypoints could contain positions for only some of the drones.
-        # swarm_pos always tracks the current position of all drones. We also need the dictionary
-        # instead of a list of positions in waypoints to track which drones have been moved.
+        # `waypoints` may cover only a subset of drones, so `swarm_pos` is passed alongside it to
+        # track every drone's current position. Both are dicts so it stays visible which drones a
+        # primitive actually moved.
         swarm_pos, waypoints = fn(args, swarm_pos, tstart, tend, limits)
         return swarm_pos, waypoints
 
@@ -985,17 +1053,7 @@ def dicts2arrays(dict_of_dicts: dict[float, dict[int, NDArray]]) -> dict[float, 
 
 
 def _render_segments_table(structure: SongStructure) -> str:
-    """Render a SongStructure as the multi-line block injected into the prompt.
-
-    Args:
-        structure: Song structure to describe.
-
-    Returns:
-        A newline-joined string with one indented line per segment, e.g.::
-
-            segment 1: "intro" (0.00s - 12.30s) — 6 bars × 4 beats
-            segment 2: "verse" (12.30s - 32.10s) — 10 bars × 4 beats
-    """
+    """Render a SongStructure as the prompt's segment block, one indented line per segment."""
     lines: list[str] = []
     for seg in structure.segments:
         n_bars = len(seg.bars)

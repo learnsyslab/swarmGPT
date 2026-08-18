@@ -7,36 +7,112 @@ const silenceWav = Buffer.from(
 
 function makePlayback() {
   const timestamps = [0, 0.5, 1.0, 1.5, 2.0];
+  // Drone 0 is the lighting probe (see the cue lists below), and it flies the same path the other
+  // two do but at a fifth of the distance from the camera -- each of its rows is a fifth of the way
+  // from the camera at (2.8, -3.2, 2.4) to where it would otherwise be. That keeps it on exactly the
+  // same view ray, so the deck viewing angle the `magenta < cyan` comparison depends on is unchanged
+  // and only its on-screen area grows, by 25x. At the original distance its underside covered a
+  // single pixel in the mobile viewport and at half the distance six, which is no margin at all for
+  // an assertion that has to tell the two decks apart on another GPU, driver or viewport.
   const positions = [
     [
-      [-0.7, -0.4, 0.6],
+      [2.1, -2.64, 2.04],
       [0.0, 0.45, 0.8],
       [0.72, -0.25, 1.0]
     ],
     [
-      [-0.45, -0.25, 0.75],
+      [2.15, -2.61, 2.07],
       [0.15, 0.35, 0.95],
       [0.62, -0.15, 1.08]
     ],
     [
-      [-0.2, -0.1, 0.9],
+      [2.2, -2.58, 2.1],
       [0.3, 0.25, 1.05],
       [0.48, -0.02, 1.16]
     ],
     [
-      [0.05, 0.06, 0.82],
+      [2.25, -2.548, 2.084],
       [0.48, 0.12, 0.9],
       [0.3, 0.16, 1.1]
     ],
     [
-      [0.3, 0.2, 0.72],
+      [2.3, -2.52, 2.064],
       [0.62, -0.05, 0.82],
       [0.12, 0.34, 0.98]
     ]
   ];
 
+  // Compiled lighting cues: step events under zero-order hold, one list per drone per deck, ending
+  // on the unconditional blackout. Drone 0 is the probe: at t = 1.0 its **top** deck turns CYAN and
+  // its **bottom** deck turns MAGENTA, and nothing else in the scene is either colour. Everything
+  // the lighting assertions in `exercise` key off comes from those two cues.
+  //
+  // Two cues on one drone, one per deck, because a single cue cannot say which mesh carries which
+  // material: the two decks are otherwise interchangeable, and swapping which material lands on
+  // z = +0.015 and z = -0.002 stayed invisible. With both decks lit differently the counts
+  // themselves separate them: from a camera looking down, the upward-facing diffusor shows several
+  // times the pixels the underside does, so cyan must outnumber magenta.
+  //
+  // Trails are one neutral grey and never follow the lighting (§9.2), so both counts are the
+  // diffusors alone: no line contributes to either, and a colour count constrains the LEDs
+  // directly. Cyan lost the trail line when that changed (605 -> 464 desktop, 342 -> 240 mobile);
+  // magenta was never on it and did not move. The ~6x separation is the viewing angle, as intended.
+  const blackout = 1.9;
+  const lighting = {
+    top: [
+      {
+        times: [0, 1.0, blackout],
+        rgb: [
+          [242, 51, 46],
+          [0, 255, 255],
+          [0, 0, 0]
+        ]
+      },
+      {
+        times: [0, 0.75, blackout],
+        rgb: [
+          [242, 140, 46],
+          [160, 120, 30],
+          [0, 0, 0]
+        ]
+      },
+      {
+        times: [0, blackout],
+        rgb: [
+          [245, 199, 56],
+          [0, 0, 0]
+        ]
+      }
+    ],
+    bot: [
+      {
+        times: [0, 1.0, blackout],
+        rgb: [
+          [121, 26, 23],
+          [255, 0, 255],
+          [0, 0, 0]
+        ]
+      },
+      {
+        times: [0, 1.25, blackout],
+        rgb: [
+          [121, 26, 23],
+          [160, 90, 40],
+          [0, 0, 0]
+        ]
+      },
+      {
+        times: [0, blackout],
+        rgb: [
+          [122, 100, 28],
+          [0, 0, 0]
+        ]
+      }
+    ]
+  };
+
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     audioUrl: "/api/media/music/Harness",
     song: "Harness",
     numDrones: 3,
@@ -45,12 +121,10 @@ function makePlayback() {
       frame.map(([x, y, z]) => [x, y, z, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0])
     ),
     fields: { pos: [0, 3], quat: [3, 7], vel: [7, 10], angVel: [10, 13] },
-    bounds: { min: [-3, -3, 0.25], max: [3, 3, 1.75] },
-    colors: [
-      [0.95, 0.2, 0.18],
-      [0.18, 0.72, 0.95],
-      [0.96, 0.78, 0.22]
-    ],
+    // The ceiling clears the probe's new height; only min z (the floor plane) and min/max x, y (the
+    // grid extent) are drawn, so this keeps the declared volume honest and changes nothing on screen.
+    bounds: { min: [-3, -3, 0.25], max: [3, 3, 2.25] },
+    lighting,
     sampleRate: 2
   };
 }
@@ -61,18 +135,21 @@ async function configurePage(page) {
       { id: 1, type: "thinking_started", createdAt: new Date().toISOString(), payload: {} },
       {
         id: 2,
-        type: "conversation",
+        type: "prompt_sent",
         createdAt: new Date().toISOString(),
         payload: {
-          messages: [
-            { role: "user", content: "Create a compact test choreography." },
-            { role: "assistant", content: "Generated a compact three-drone choreography." }
-          ]
+          messages: [{ role: "user", content: "Create a compact test choreography." }]
         }
       },
-      { id: 3, type: "safety_started", createdAt: new Date().toISOString(), payload: {} },
-      { id: 4, type: "safety_progress", createdAt: new Date().toISOString(), payload: { percent: 0.5 } },
-      { id: 5, type: "ready", createdAt: new Date().toISOString(), payload: { duration: 2 } }
+      {
+        id: 3,
+        type: "llm_response",
+        createdAt: new Date().toISOString(),
+        payload: { text: "Generated a compact three-drone choreography." }
+      },
+      { id: 4, type: "safety_started", createdAt: new Date().toISOString(), payload: {} },
+      { id: 5, type: "safety_progress", createdAt: new Date().toISOString(), payload: { percent: 0.5 } },
+      { id: 6, type: "ready", createdAt: new Date().toISOString(), payload: { duration: 2 } }
     ];
 
     const sockets = [];
@@ -194,6 +271,30 @@ async function configurePage(page) {
   });
 }
 
+// The two probe colours, as channel indices: two channels above 90 and the third below 45. The
+// tests are deliberately symmetric, so comparing their counts compares how much of each deck is
+// visible and not how sensitive the two detectors are.
+const MAGENTA = { hi: [0, 2], lo: 1 }; // drone 0's bottom deck from t = 1.0
+const CYAN = { hi: [1, 2], lo: 0 }; // drone 0's top deck from t = 1.0
+
+// Nothing else in the scene answers either test: the floor, grid, drone bodies and every trail are
+// green and grey, and the other two drones' cues keep every channel out of range on both decks.
+function countPixels(page, spec) {
+  return page.evaluate(({ hi, lo }) => {
+    const canvas = document.querySelector("canvas");
+    const gl = canvas.getContext("webgl2") ?? canvas.getContext("webgl");
+    const pixels = new Uint8Array(canvas.width * canvas.height * 4);
+    gl.readPixels(0, 0, canvas.width, canvas.height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+    let count = 0;
+    for (let i = 0; i < pixels.length; i += 4) {
+      if (pixels[i + hi[0]] > 90 && pixels[i + hi[1]] > 90 && pixels[i + lo] < 45) {
+        count += 1;
+      }
+    }
+    return count;
+  }, spec);
+}
+
 async function exercise(page) {
   const droneAssetStatuses = [];
   page.on("response", (response) => {
@@ -252,7 +353,50 @@ async function exercise(page) {
   expect(droneAssetStatuses.filter((status) => status === 200).length).toBeGreaterThanOrEqual(8);
   expect(result.ok, JSON.stringify(result)).toBeTruthy();
   expect(result.playButton).toMatch(/Pause/i);
-  console.log(JSON.stringify({ ...result, droneAssets: droneAssetStatuses.length }));
+
+  // Lighting is looked up by playhead time every frame, not baked once at mesh construction: both
+  // probe cues are unreachable at t = 0 and must appear after seeking past them.
+  const magentaBefore = await countPixels(page, MAGENTA);
+  const cyanBefore = await countPixels(page, CYAN);
+  await page.locator(".timeline").fill("1.2");
+  await page.waitForTimeout(300);
+  const magentaAfter = await countPixels(page, MAGENTA);
+  const cyanAfter = await countPixels(page, CYAN);
+  expect(magentaBefore, `magenta at t=0 should be 0, was ${magentaBefore}`).toBe(0);
+  expect(cyanBefore, `cyan at t=0 should be 0, was ${cyanBefore}`).toBe(0);
+  expect(magentaAfter, `magenta after seeking should be > 0, was ${magentaAfter}`).toBeGreaterThan(0);
+  expect(cyanAfter, `cyan after seeking should be > 0, was ${cyanAfter}`).toBeGreaterThan(0);
+
+  // Which mesh carries which material. The camera looks down on the swarm, so the upward-facing
+  // diffusor at z = +0.015 presents several times the pixels the underside at z = -0.002 does.
+  // Swapping the two materials moves the large deck onto magenta and leaves cyan with the
+  // underside, which inverts the inequality; nothing else in the suite notices the swap. A
+  // comparison rather than a threshold, so it does not depend on the viewport or the renderer.
+  expect(
+    magentaAfter,
+    `the bottom deck is mostly hidden from this camera, so magenta (${magentaAfter}) must stay under cyan (${cyanAfter})`
+  ).toBeLessThan(cyanAfter);
+
+  // Past the blackout, which is the *last* cue in every list. This is what `findCueIndex`'s
+  // `length - 1` bound buys: clamped to `length - 2` like its `findSampleIndex` sibling, the
+  // lookup can never reach the final cue, so every drone holds its previous colour through
+  // landing and the show never goes dark. Seeking only as far as 1.2 leaves that bound free --
+  // both probe cues are index 1 of 3, reachable under either bound.
+  await page.locator(".timeline").fill("1.95");
+  await page.waitForTimeout(300);
+  const magentaAfterBlackout = await countPixels(page, MAGENTA);
+  const cyanAfterBlackout = await countPixels(page, CYAN);
+  expect(
+    magentaAfterBlackout,
+    `magenta after the blackout should be 0, was ${magentaAfterBlackout}`
+  ).toBe(0);
+  expect(
+    cyanAfterBlackout,
+    `cyan after the blackout should be 0, was ${cyanAfterBlackout}`
+  ).toBe(0);
+  console.log(
+    JSON.stringify({ ...result, droneAssets: droneAssetStatuses.length, magentaAfter, cyanAfter })
+  );
 }
 
 const chromeExecutable = process.env.PLAYWRIGHT_CHROME_EXECUTABLE ?? "/usr/bin/google-chrome";

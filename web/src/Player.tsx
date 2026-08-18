@@ -16,13 +16,27 @@ type DroneScene = {
   camera: THREE.PerspectiveCamera;
   controls: OrbitControls;
   drones: THREE.Group[];
-  trails: THREE.Line[];
+  trails: THREE.Line<THREE.BufferGeometry, THREE.LineBasicMaterial>[];
+  topMaterials: THREE.MeshStandardMaterial[];
+  botMaterials: THREE.MeshStandardMaterial[];
   animationId: number | null;
   lastUiUpdate: number;
 };
 
+type DroneParts = {
+  group: THREE.Group;
+  top: THREE.MeshStandardMaterial;
+  bot: THREE.MeshStandardMaterial;
+};
+
 const TRAIL_SECONDS = 2.4;
 const TRAIL_SAMPLES = 48;
+// Mirrors `TRAIL_RGBA` in `swarm_gpt/core/sim.py`, which covers the MuJoCo viewer and the offline
+// render. Keep the two in step: the browser is the preview for what the video will show, so a trail
+// visible in one and not the other is the preview lying. Alpha 0 means no trail at all, which is the
+// current setting; raise it in BOTH places to bring trails back.
+const TRAIL_RGBA: readonly [number, number, number, number] = [0.5, 0.5, 0.5, 0.0];
+const TRAILS_VISIBLE = TRAIL_RGBA[3] > 0;
 const STL_SCALE = 0.001;
 const geometryCache = new Map<string, Promise<THREE.BufferGeometry>>();
 
@@ -63,6 +77,30 @@ function findSampleIndex(timestamps: number[], time: number): number {
     }
   }
   return Math.max(0, Math.min(timestamps.length - 2, hi));
+}
+
+// Lighting cues are step events under zero-order hold, so this is a sibling of findSampleIndex
+// rather than a reuse of it: that one clamps to length - 2 because its callers interpolate between
+// index and index + 1, which here would mean the final cue -- the terminal blackout -- never
+// applies. Binary search rather than a per-drone playhead pointer, because the playhead runs
+// backwards on the range input, on restart, on the replay-from-end branch, and on any
+// audio.currentTime jitter across a buffer stall.
+function findCueIndex(times: number[], time: number): number {
+  let lo = 0;
+  let hi = times.length - 1;
+  while (lo <= hi) {
+    const mid = Math.floor((lo + hi) / 2);
+    if (times[mid] <= time) {
+      lo = mid + 1;
+    } else {
+      hi = mid - 1;
+    }
+  }
+  return Math.max(0, hi);
+}
+
+function applyCueColor(color: THREE.Color, rgb: number[]): void {
+  color.setRGB(rgb[0] / 255, rgb[1] / 255, rgb[2] / 255);
 }
 
 function sampleDroneState(
@@ -137,7 +175,23 @@ function addMeshPart(parent: THREE.Group, part: MeshPart, material: THREE.Materi
   });
 }
 
-function makeDrone(color: THREE.Color): THREE.Group {
+// The colour a deck material is *built* with is never seen: `renderAt` repaints both from the cue
+// lists, and it runs before the first frame is presented. Black rather than the t = 0 cue, so the
+// placeholder cannot be mistaken for a real colour and an unlit deck means the loop is not running.
+const UNPAINTED_DECK_COLOR = 0x000000;
+
+function makeDeckMaterial(): THREE.MeshStandardMaterial {
+  return new THREE.MeshStandardMaterial({
+    color: UNPAINTED_DECK_COLOR,
+    emissive: UNPAINTED_DECK_COLOR,
+    emissiveIntensity: 0.45,
+    roughness: 0.35,
+    transparent: true,
+    opacity: 0.92
+  });
+}
+
+function makeDrone(): DroneParts {
   const group = new THREE.Group();
   for (const part of CF21B_STATIC_PARTS) {
     addMeshPart(
@@ -147,17 +201,13 @@ function makeDrone(color: THREE.Color): THREE.Group {
     );
   }
 
-  const deckMaterial = new THREE.MeshStandardMaterial({
-    color,
-    emissive: color,
-    emissiveIntensity: 0.45,
-    roughness: 0.35,
-    transparent: true,
-    opacity: 0.92
-  });
-  addMeshPart(group, { file: "cf21B/cf_led-diffusor.stl", color: 0xffffff, position: [0, 0, 0.015], rotationX: 180 }, deckMaterial);
-  addMeshPart(group, { file: "cf21B/cf_led-diffusor.stl", color: 0xffffff, position: [0, 0, -0.002] }, deckMaterial);
-  return group;
+  // The two diffusors get their own material so the decks can differ, which they routinely do:
+  // colour and brightness resolve independently per deck. z = +0.015 is the top deck.
+  const top = makeDeckMaterial();
+  const bot = makeDeckMaterial();
+  addMeshPart(group, { file: "cf21B/cf_led-diffusor.stl", color: 0xffffff, position: [0, 0, 0.015], rotationX: 180 }, top);
+  addMeshPart(group, { file: "cf21B/cf_led-diffusor.stl", color: 0xffffff, position: [0, 0, -0.002] }, bot);
+  return { group, top, bot };
 }
 
 function makeFlightArea(playback: Playback): THREE.Group {
@@ -247,13 +297,19 @@ export function Player({ playback, onClose }: PlayerProps) {
     scene.add(makeFlightArea(playback));
 
     const drones: THREE.Group[] = [];
-    const trails: THREE.Line[] = [];
-    playback.colors.forEach((rgb, index) => {
-      const color = new THREE.Color(rgb[0], rgb[1], rgb[2]);
-      const drone = makeDrone(color);
-      drones.push(drone);
-      scene.add(drone);
+    const trails: THREE.Line<THREE.BufferGeometry, THREE.LineBasicMaterial>[] = [];
+    const topMaterials: THREE.MeshStandardMaterial[] = [];
+    const botMaterials: THREE.MeshStandardMaterial[] = [];
+    for (let index = 0; index < playback.numDrones; index += 1) {
+      const parts = makeDrone();
+      drones.push(parts.group);
+      topMaterials.push(parts.top);
+      botMaterials.push(parts.bot);
+      scene.add(parts.group);
 
+      if (!TRAILS_VISIBLE) {
+        continue;
+      }
       const trailGeometry = new THREE.BufferGeometry();
       trailGeometry.setAttribute(
         "position",
@@ -261,12 +317,18 @@ export function Player({ playback, onClose }: PlayerProps) {
       );
       const trail = new THREE.Line(
         trailGeometry,
-        new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.65 })
+        // Baked once and never repainted: the trail carries a fixed colour, never the lighting, so
+        // the frame loop only ever touches its geometry.
+        new THREE.LineBasicMaterial({
+          color: new THREE.Color(TRAIL_RGBA[0], TRAIL_RGBA[1], TRAIL_RGBA[2]),
+          transparent: true,
+          opacity: TRAIL_RGBA[3]
+        })
       );
       trail.name = `trail-${index}`;
       trails.push(trail);
       scene.add(trail);
-    });
+    }
 
     const onResize = () => {
       const width = mount.clientWidth;
@@ -284,6 +346,8 @@ export function Player({ playback, onClose }: PlayerProps) {
       controls,
       drones,
       trails,
+      topMaterials,
+      botMaterials,
       animationId: null,
       lastUiUpdate: 0
     };
@@ -313,19 +377,39 @@ export function Player({ playback, onClose }: PlayerProps) {
         return;
       }
 
-      playback.colors.forEach((_, droneIndex) => {
+      for (let droneIndex = 0; droneIndex < playback.numDrones; droneIndex += 1) {
         sampleDroneState(playback, time, droneIndex, tempPos, tempQuat);
         active.drones[droneIndex].position.copy(tempPos);
         active.drones[droneIndex].quaternion.copy(tempQuat);
 
-        const attr = active.trails[droneIndex].geometry.getAttribute("position") as THREE.BufferAttribute;
-        for (let i = 0; i < TRAIL_SAMPLES; i += 1) {
-          const offset = ((TRAIL_SAMPLES - 1 - i) / (TRAIL_SAMPLES - 1)) * TRAIL_SECONDS;
-          sampleDroneState(playback, Math.max(0, time - offset), droneIndex, trailPos, trailQuat);
-          attr.setXYZ(i, trailPos.x, trailPos.y, trailPos.z);
+        // THREE.Color mutation needs no needsUpdate flag; setting one here would force a shader
+        // recompile per material per frame.
+        const topCues = playback.lighting.top[droneIndex];
+        const topRgb = topCues.rgb[findCueIndex(topCues.times, time)];
+        const topMaterial = active.topMaterials[droneIndex];
+        applyCueColor(topMaterial.color, topRgb);
+        applyCueColor(topMaterial.emissive, topRgb);
+
+        const botCues = playback.lighting.bot[droneIndex];
+        const botRgb = botCues.rgb[findCueIndex(botCues.times, time)];
+        const botMaterial = active.botMaterials[droneIndex];
+        applyCueColor(botMaterial.color, botRgb);
+        applyCueColor(botMaterial.emissive, botRgb);
+
+        // Geometry only: the trail's colour is baked at construction and never follows the
+        // lighting. Skipped outright while the trail is transparent, which is TRAIL_SAMPLES state
+        // samples per drone per frame that would render nothing.
+        if (TRAILS_VISIBLE) {
+          const trail = active.trails[droneIndex];
+          const attr = trail.geometry.getAttribute("position") as THREE.BufferAttribute;
+          for (let i = 0; i < TRAIL_SAMPLES; i += 1) {
+            const offset = ((TRAIL_SAMPLES - 1 - i) / (TRAIL_SAMPLES - 1)) * TRAIL_SECONDS;
+            sampleDroneState(playback, Math.max(0, time - offset), droneIndex, trailPos, trailQuat);
+            attr.setXYZ(i, trailPos.x, trailPos.y, trailPos.z);
+          }
+          attr.needsUpdate = true;
         }
-        attr.needsUpdate = true;
-      });
+      }
 
       active.controls.update();
       active.renderer.render(active.scene, active.camera);
