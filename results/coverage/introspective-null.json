@@ -1,0 +1,165 @@
+{
+  "model": "gpt-5.6-luna",
+  "n_songs": 13,
+  "samples_per_song": 2,
+  "records": [
+    {
+      "song": "Chopin - Nocturne Op. 9 No. 2",
+      "sample": 0,
+      "summary": "The primitive library can express the Nocturne's sparse lyrical holds, gentle phrasing, crescendos, flowing melodic motion, and section accents through formations, rotations, vertical shifts, and multi-step paths. No genuine expressive motion gaps were identified.",
+      "gaps": []
+    },
+    {
+      "song": "Chopin - Nocturne Op. 9 No. 2",
+      "sample": 1,
+      "summary": "The primitive library can express the Nocturne's requested motion vocabulary throughout all three segments, using gentle spirals, helices, rotations, vertical shifts, formations, and sustained holds. No genuine coverage gaps were identified.",
+      "gaps": []
+    },
+    {
+      "song": "Crazyflie Drones Theme",
+      "sample": 0,
+      "summary": "The primitive library can express the motion needs suggested by every section of this song, including gentle intro passages, treble-driven accents, sustained bass motion, the late high-energy peak, and the quiet outro.",
+      "gaps": []
+    },
+    {
+      "song": "Crazyflie Drones Theme",
+      "sample": 1,
+      "summary": "The primitive library can express the motion needs suggested by all song sections, including sparse intro movement, rising treble accents, sustained bass-driven motion, and the high-energy climax. No genuine coverage gaps were identified.",
+      "gaps": []
+    },
+    {
+      "song": "Crazyflie Drones Theme (short)",
+      "sample": 0,
+      "summary": "The primitive library can express the motion needs suggested by every section of this song, including the sparse bright opening and the later bass-driven intensity. No genuine coverage gaps were identified.",
+      "gaps": []
+    },
+    {
+      "song": "Crazyflie Drones Theme (short)",
+      "sample": 1,
+      "summary": "The primitive library can express the song's requested sparse intro, gradual build, bass-driven escalation, and bright treble accents using formations, vertical moves, rotations, helices, spirals, twisters, waves, and holds.",
+      "gaps": []
+    },
+    {
+      "song": "Dance of the Flying Machines",
+      "sample": 0,
+      "summary": "The primitive library can express the motion needs suggested by every section of this song, including sparse introductory movement, bright build accents, bass-driven vertical motion, and the fast full-swarm motion appropriate for the segment-2 drop.",
+      "gaps": []
+    },
+    {
+      "song": "Dance of the Flying Machines",
+      "sample": 1,
+      "summary": "The primitive library can express the motion suggested by all sections of this song, including gentle introductory movement, brighter build accents, bass-driven vertical motion, and the fast full-swarm motion needed at the segment-two drop. No genuine expressive gaps were identified.",
+      "gaps": []
+    },
+    {
+      "song": "Debussy - Clair de Lune",
+      "sample": 0,
+      "summary": "The primitive library can express the restrained, flowing, and gradually evolving motion appropriate for all three segments of Clair de Lune; no genuine coverage gaps were identified.",
+      "gaps": []
+    },
+    {
+      "song": "Debussy - Clair de Lune",
+      "sample": 1,
+      "summary": "The available primitives can express the song\u2019s slow blooms, gentle rises, rotating tableaux, layered vertical motion, and sparse expressive holds. No genuine motion gap is required.",
+      "gaps": []
+    },
+    {
+      "song": "Fearless2",
+      "sample": 0,
+      "summary": "The primitive library can express the motion needs suggested by all three segments, including the verse\u2019s sparse high-brightness gestures, the build into the loud verse ending, both chorus drops, and the brief final chorus hit. No genuine expressive gaps were identified.",
+      "gaps": []
+    },
+    {
+      "song": "Fearless2",
+      "sample": 1,
+      "summary": "The primitive library can express the requested musical motion throughout all three segments, including the build, chorus intensity, beat drops, and brief final accent.",
+      "gaps": []
+    },
+    {
+      "song": "J. Strauss I - Radetzky March",
+      "sample": 0,
+      "summary": "The primitive library can express the march\u2019s likely formations, vertical accents, rotations, spirals, helixes, waves, and section-level build/drop motion. No genuine expressive gaps were identified.",
+      "gaps": []
+    },
+    {
+      "song": "J. Strauss I - Radetzky March",
+      "sample": 1,
+      "summary": "The primitive library can express the motion needs suggested by all three segments, including sparse holds, march accents, formations, vertical lifts, rotations, waves, and energetic build-and-release passages.",
+      "gaps": []
+    },
+    {
+      "song": "J. Strauss II - The Blue Danube Op. 314",
+      "sample": 0,
+      "summary": "The primitive library can express the song\u2019s gradual waltz phrasing, flowing rotations, vertical lifts, formations, crescendos, and climactic multi-step motion. No genuine coverage gaps are required.",
+      "gaps": []
+    },
+    {
+      "song": "J. Strauss II - The Blue Danube Op. 314",
+      "sample": 1,
+      "summary": "The primitive library can express the song's likely musical motions: gentle opening formations, flowing waltz-like rotations, rises and falls, expanding spirals, helices, waves, and larger climactic sweeps. No genuine expressive gaps identified.",
+      "gaps": []
+    },
+    {
+      "song": "Mortals",
+      "sample": 0,
+      "summary": "The primitive library can express the requested musical motion throughout the intro, verse, and solo, including gentle development, bass-driven vertical motion, treble-driven waves and rotations, and the solo's fast drop energy.",
+      "gaps": []
+    },
+    {
+      "song": "Mortals",
+      "sample": 1,
+      "summary": "The primitive library can express the musical motion suggested across all three segments, including sparse intro holds, evolving verse movement, and fast high-energy solo accents.",
+      "gaps": []
+    },
+    {
+      "song": "Mozart - Eine kleine Nachtmusik",
+      "sample": 0,
+      "summary": "The available primitives can adequately express the requested motion across all three segments, from sparse introductory gestures through energetic builds, drops, rotations, vertical movement, and flowing multi-step patterns. No genuine library-level gaps identified.",
+      "gaps": []
+    },
+    {
+      "song": "Mozart - Eine kleine Nachtmusik",
+      "sample": 1,
+      "summary": "The primitive library can express the responsive formations, rotations, vertical accents, spirals, helixes, waves, and energetic section transitions suitable for all three segments of this song. No genuine motion-expression gaps were identified.",
+      "gaps": []
+    },
+    {
+      "song": "On & On",
+      "sample": 0,
+      "summary": "The primitive library can express the likely musical motions across all sections of this song, including energetic drops, vertical bass accents, treble-driven rotations or helices, formations, and restrained holds. No genuine coverage gaps were identified.",
+      "gaps": []
+    },
+    {
+      "song": "On & On",
+      "sample": 1,
+      "summary": "The primitive library can express the requested motion across all sections of this song, including fast drop accents, vertical bass-driven motion, treble-driven rotations and helices, and sustained chorus formations. No genuine coverage gaps identified.",
+      "gaps": []
+    },
+    {
+      "song": "Vivaldi - Summer",
+      "sample": 0,
+      "summary": "The available primitives can express the likely motion vocabulary for all three segments, including sparse holds, formations, vertical accents, rotations, waves, helices, spirals, and fast drop moments. No genuine library gaps are identified.",
+      "gaps": []
+    },
+    {
+      "song": "Vivaldi - Summer",
+      "sample": 1,
+      "summary": "No genuine expressive gaps identified; the available primitives can cover the song's requested rises, drops, vertical motion, rotation, and treble-driven movement.",
+      "gaps": []
+    },
+    {
+      "song": "We Wish You a Merry Christmas",
+      "sample": 0,
+      "summary": "The primitive library can express the needed formations, lifts, rotations, spirals, helixes, waves, and high-energy transitions for all sections of this song. No genuine motion-expression gaps were identified.",
+      "gaps": []
+    },
+    {
+      "song": "We Wish You a Merry Christmas",
+      "sample": 1,
+      "summary": "The available primitives can express the likely musical motions throughout both segments, including formations, vertical accents, rotations, helices, spirals, waves, and fast drop movement. No genuine coverage gaps are required.",
+      "gaps": []
+    }
+  ],
+  "gaps": [],
+  "categories": []
+}

@@ -31,6 +31,36 @@ motion_primitives = {
 }
 
 
+# Primitives authored at runtime by `swarm_gpt.synth`, resolved ahead of the module's own. Kept
+# here rather than in the synth package so `primitive_by_name` stays the single resolution point.
+_synthesized: dict[
+    str,
+    Callable[
+        [tuple, NDArray, float, float, dict[str, NDArray]],
+        tuple[NDArray, dict[float, dict[int, NDArray]]],
+    ],
+] = {}
+
+
+def register_synthesized(
+    name: str,
+    fn: Callable[
+        [tuple, NDArray, float, float, dict[str, NDArray]],
+        tuple[NDArray, dict[float, dict[int, NDArray]]],
+    ],
+    n_args: int,
+) -> None:
+    """Register a runtime-authored primitive under ``name``, replacing any earlier one.
+
+    Raises:
+        ValueError: If ``name`` shadows a hand-written primitive.
+    """
+    if hasattr(sys.modules[__name__], name):
+        raise ValueError(f"Synthesized primitive {name!r} shadows an existing module attribute")
+    _synthesized[name] = fn
+    motion_primitives[name] = {"n_args": n_args}
+
+
 def primitive_by_name(
     name: str,
 ) -> Callable[
@@ -38,6 +68,8 @@ def primitive_by_name(
     tuple[NDArray, dict[float, dict[int, NDArray]]],
 ]:
     """Return a motion primitive by its name."""
+    if name in _synthesized:
+        return _synthesized[name]
     if name not in motion_primitives:
         raise KeyError(f"Unknown motion primitive {name}")
     return getattr(sys.modules[__name__], name)
