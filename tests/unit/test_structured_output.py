@@ -142,7 +142,10 @@ def test_structured_payload_to_choreography_uses_hierarchical_keys():
             {
                 "key": "s2b1t1",
                 "actions": [
-                    {"primitive": "rotate", "params": {"angle_deg": 90, "axis": "z"}},
+                    {
+                        "primitive": "rotate",
+                        "params": {"drone_ids": [1, 2, 3], "angle_deg": 90, "axis": "z"},
+                    },
                     {"primitive": "move_z", "params": {"drone_ids": [1], "delta_cm": 10}},
                 ],
             },
@@ -153,7 +156,7 @@ def test_structured_payload_to_choreography_uses_hierarchical_keys():
 
     assert choreography == {
         (1, 1, 1): "form_circle([1, 2], 100, 100, 1.5)",
-        (2, 1, 1): "rotate(90, 'z'); move_z([1], 10)",
+        (2, 1, 1): "rotate([1, 2, 3], 90, 'z'); move_z([1], 10)",
     }
 
 
@@ -205,13 +208,15 @@ def test_structured_payload_to_choreography_rejects_unexpected_named_params():
                             "delta_height_cm": 60,
                             "spacing_cm": 60,
                             "is_inverted": 0,
+                            "time_to_finish_s": 1.0,
+                            "radius_cm": 100,
                         },
                     }
                 ],
             }
         ],
     }
-    with pytest.raises(LLMFormatError, match="unexpected \\['drone_ids'\\]"):
+    with pytest.raises(LLMFormatError, match="unexpected \\['radius_cm'\\]"):
         choreographer._structured_payload_to_choreography(payload)
 
 
@@ -233,7 +238,10 @@ def test_call_responses_structured_includes_json_schema_format():
                     {
                         "key": "s1b1t1",
                         "actions": [
-                            {"primitive": "rotate", "params": {"angle_deg": 0, "axis": "z"}}
+                            {
+                                "primitive": "rotate",
+                                "params": {"drone_ids": [1, 2, 3], "angle_deg": 0, "axis": "z"},
+                            }
                         ],
                     }
                 ],
@@ -261,7 +269,7 @@ def test_call_responses_structured_includes_json_schema_format():
     assert any(
         variant["properties"]["primitive"]["enum"] == ["spiral_speed"]
         and variant["properties"]["params"]["required"]
-        == ["steps", "height_cm", "degrees", "radius_increase"]
+        == ["drone_ids", "steps", "height_cm", "degrees", "radius_increase"]
         for variant in variants
     )
     assert all("args" not in json.dumps(variant) for variant in variants)
@@ -354,7 +362,12 @@ def test_call_responses_structured_ollama_uses_native_chat(monkeypatch: pytest.M
             "choreography": [
                 {
                     "key": "s1b1t1",
-                    "actions": [{"primitive": "rotate", "params": {"angle_deg": 0, "axis": "z"}}],
+                    "actions": [
+                        {
+                            "primitive": "rotate",
+                            "params": {"drone_ids": [1, 2, 3], "angle_deg": 0, "axis": "z"},
+                        }
+                    ],
                 }
             ],
         }
@@ -432,7 +445,12 @@ def test_generate_choreography_ollama_raises_when_structured_payload_incomplete(
             "choreography": [
                 {
                     "key": "s1b1t1",
-                    "actions": [{"primitive": "rotate", "params": {"angle_deg": 0, "axis": "z"}}],
+                    "actions": [
+                        {
+                            "primitive": "rotate",
+                            "params": {"drone_ids": [1, 2, 3], "angle_deg": 0, "axis": "z"},
+                        }
+                    ],
                 }
             ]
         },
@@ -701,7 +719,12 @@ def test_lighting_keys_are_not_required_keys():
         "choreography": [
             {
                 "key": "s1b1t1",
-                "actions": [{"primitive": "rotate", "params": {"angle_deg": 90, "axis": "z"}}],
+                "actions": [
+                    {
+                        "primitive": "rotate",
+                        "params": {"drone_ids": [1], "angle_deg": 90, "axis": "z"},
+                    }
+                ],
             }
         ],
         "lighting": [{"key": "s1b1t2", "actions": [_sample_action("light_on")]}],

@@ -20,6 +20,7 @@ from swarm_gpt.core.transforms import (
     linear_translate,
     zigzag_translate,
 )
+from swarm_gpt.exception import LLMFormatError
 
 if TYPE_CHECKING:
     from numpy.typing import NDArray
@@ -126,6 +127,65 @@ def compose_block(
     return out
 
 
+def _subset(drone_ids: object, swarm_pos: NDArray) -> list[int]:
+    """Resolve a primitive's ``drone_ids`` selector into 0-indexed rows of ``swarm_pos``.
+
+    Bounds are checked here, not left to the indexing: `_sanitize_drone_ids` only shifts to
+    0-indexed, so an id past the swarm would surface as a bare ``IndexError`` deep in a primitive
+    rather than as the `LLMFormatError` the reprompt loop can act on.
+    """
+    n = swarm_pos.shape[0]
+    ids = _sanitize_drone_ids(drone_ids, n)
+    if out_of_range := sorted({i + 1 for i in ids if not 0 <= i < n}):
+        raise LLMFormatError(f"Drone IDs {out_of_range} are outside the 1..{n} swarm")
+    if not ids:
+        raise LLMFormatError("A primitive needs at least one drone")
+    if len(set(ids)) != len(ids):
+        # `_hold`/`_assign_to_motion` key by drone, so a repeat silently drops a curve. The
+        # structured path already rejects duplicates; the free-text path did not.
+        raise LLMFormatError(f"Drone IDs {drone_ids} name the same drone more than once")
+    return ids
+
+
+def _room_radius(centre: NDArray, limits: dict) -> float:
+    """Largest in-plane radius about ``centre`` that still fits the arena.
+
+    The radius caps are world-absolute, which was only correct while every layout sat on the
+    origin. Once a layout centres on its subset, an off-centre subset overflows the box unless the
+    cap follows it.
+    """
+    lo, hi = np.asarray(limits["lower"]) * 100.0, np.asarray(limits["upper"]) * 100.0
+    return float(
+        max(0.0, min(hi[0] - centre[0], centre[0] - lo[0], hi[1] - centre[1], centre[1] - lo[1]))
+    )
+
+
+def _centre_xy(swarm_pos: NDArray, ids: list[int]) -> NDArray:
+    """The subset's own x/y centroid, as a ``(3,)`` offset with zero z.
+
+    `formations.ring` and friends build about the world origin, so two disjoint subsets given the
+    same primitive land on identical points -- a guaranteed collision, and precisely the pattern
+    the prompt advertises. Everything that positions a subset offsets by this instead.
+
+    A primitive that rotates or scales must pass this as its *centre* too, not merely shift its
+    layout: `_rotating_arcs` and `_scale_in_plane` both take an explicit centre, and offsetting the
+    layout while leaving them on the origin makes the subset orbit the room at an inflated radius.
+    """
+    offset = np.zeros(3)
+    offset[:2] = np.mean(swarm_pos[ids], axis=0)[:2]
+    return offset
+
+
+def _relabel(curves: SplineDict, ids: list[int]) -> SplineDict:
+    """Rekey a row-indexed ``SplineDict`` onto real drone ids.
+
+    `_rotating_arcs` keys its output by the row of the array it was handed, so handing it a subset
+    silently relabels the selected drones as ``0..k``. Every direct caller must undo that; the
+    `_assign_to_motion` path already does its own mapping and must not be double-remapped.
+    """
+    return {ids[row]: curve for row, curve in curves.items()}
+
+
 def _hold(homes: NDArray, ids: list[int], t0: float, t1: float) -> SplineDict:
     """Return a constant-hold spline per assigned drone.
 
@@ -198,7 +258,7 @@ def _assign_to_motion(
 def form_circle(params, swarm_pos, tstart, tend, limits, swarm_vel=None):  # noqa: ANN001, ANN201
     """Ring formation held on a circle of the given radius/height."""
     drone_ids, radius_cm, z_cm, _t = params
-    ids = _sanitize_drone_ids(drone_ids, swarm_pos.shape[0])
+    ids = _subset(drone_ids, swarm_pos)
     n = len(ids)
     r = max(float(radius_cm), _ring_radius_floor(80.0, n))
     homes = _assign(swarm_pos, formations.ring(n, r, float(z_cm)), ids, swarm_vel, tend - tstart)
@@ -207,28 +267,30 @@ def form_circle(params, swarm_pos, tstart, tend, limits, swarm_vel=None):  # noq
 
 def form_star(params, swarm_pos, tstart, tend, limits, swarm_vel=None):  # noqa: ANN001, ANN201
     """Star formation (two offset rings + optional center), held."""
-    height, min_spacing, delta_radius, _t = params
-    n = swarm_pos.shape[0]
-    per = n // 2
+    drone_ids, height, min_spacing, delta_radius, _t = params
+    ids = _subset(drone_ids, swarm_pos)
+    n = len(ids)
+    per = max(n // 2, 2)
     r = max(min_spacing, 40.0) / (2 * np.sin(np.pi / per))
-    homes = formations.star(n, r, max(delta_radius, 40.0), int(height))
-    ids = list(range(n))
+    homes = formations.star(n, r, max(delta_radius, 40.0), int(height)) + _centre_xy(swarm_pos, ids)
     return _hold(_assign(swarm_pos, homes, ids, swarm_vel, tend - tstart), ids, tstart, tend)
 
 
 def form_cone(params, swarm_pos, tstart, tend, limits, swarm_vel=None):  # noqa: ANN001, ANN201
     """Cone formation (apex + widening z-rings), held."""
-    delta_height, spacing, is_inverted, _t = params
-    n = swarm_pos.shape[0]
+    drone_ids, delta_height, spacing, is_inverted, _t = params
+    ids = _subset(drone_ids, swarm_pos)
+    n = len(ids)
     z0 = (limits["lower"][2] if is_inverted else limits["upper"][2]) * 100
-    homes = formations.cone(n, spacing, z0, delta_height * (1 if is_inverted else -1))
-    ids = list(range(n))
+    homes = formations.cone(n, spacing, z0, delta_height * (1 if is_inverted else -1)) + _centre_xy(
+        swarm_pos, ids
+    )
     return _hold(_assign(swarm_pos, homes, ids, swarm_vel, tend - tstart), ids, tstart, tend)
 
 
 def center(params, swarm_pos, tstart, tend, limits, swarm_vel=None):  # noqa: ANN001, ANN201
     """Small ring at the swarm centroid height, held (subset-capable)."""
-    ids = _sanitize_drone_ids(params[0], swarm_pos.shape[0])
+    ids = _subset(params[0], swarm_pos)
     n = len(ids)
     z = float(np.mean(swarm_pos, axis=0)[2])
     homes = formations.ring(n, _ring_radius_floor(60.0, n), z)
@@ -373,10 +435,11 @@ def _add_translation(splines: SplineDict, translate: Spline) -> SplineDict:
 
 def rotate(params, swarm_pos, tstart, tend, limits, swarm_vel=None):  # noqa: ANN001, ANN201
     """Rotate the current layout about z by ``angle`` degrees."""
-    angle, _axis = params
-    c = np.mean(swarm_pos, axis=0)
-    return _rotating_arcs(
-        swarm_pos, np.array([0.0, 0.0, c[2]]), np.deg2rad(float(angle)), tstart, tend, "xy"
+    drone_ids, angle, _axis = params
+    ids = _subset(drone_ids, swarm_pos)
+    c = np.mean(swarm_pos[ids], axis=0)
+    return _relabel(
+        _rotating_arcs(swarm_pos[ids], c, np.deg2rad(float(angle)), tstart, tend, "xy"), ids
     )
 
 
@@ -405,49 +468,66 @@ def spiral(
     Returns:
         Drone id -> outward-spiraling arc trajectory.
     """
-    _steps, height = params[0], params[1]
-    n = swarm_pos.shape[0]
+    drone_ids, _steps, height = params[0], params[1], params[2]
+    ids = _subset(drone_ids, swarm_pos)
+    n = len(ids)
     r0 = _ring_radius_floor(60.0, n)
-    r1 = min(growth * r0, limits["upper"][0] * 100)
-    layout = formations.ring(n, r0, float(height))
+    centre = _centre_xy(swarm_pos, ids)
+    r1 = min(growth * r0, _room_radius(centre, limits))
+    layout = formations.ring(n, r0, float(height)) + centre
 
     def build(pos: NDArray) -> SplineDict:
         arcs = _rotating_arcs(
-            pos, np.array([0.0, 0.0, height]), np.deg2rad(degrees), tstart, tend, "xy"
+            pos, np.array([centre[0], centre[1], height]), np.deg2rad(degrees), tstart, tend, "xy"
         )
-        return _scale_in_plane(arcs, np.array([0.0, 0.0]), linear_scale(1.0, r1 / r0, tstart, tend))
+        return _scale_in_plane(arcs, centre[:2], linear_scale(1.0, r1 / r0, tstart, tend))
 
-    return _assign_to_motion(swarm_pos, swarm_vel, layout, list(range(n)), tstart, tend, build)
+    return _assign_to_motion(swarm_pos, swarm_vel, layout, ids, tstart, tend, build)
 
 
 def helix(params, swarm_pos, tstart, tend, limits, swarm_vel=None):  # noqa: ANN001, ANN201
     """Ring rotating about z while rising in z (arc(x,y) + z-ramp)."""
-    _steps, delta_h, height = params
-    n = swarm_pos.shape[0]
-    layout = formations.ring(n, _ring_radius_floor(60.0, n), float(height))
+    drone_ids, _steps, delta_h, height = params
+    ids = _subset(drone_ids, swarm_pos)
+    n = len(ids)
+    centre = _centre_xy(swarm_pos, ids)
+    layout = formations.ring(n, _ring_radius_floor(60.0, n), float(height)) + centre
 
     def build(pos: NDArray) -> SplineDict:
-        arcs = _rotating_arcs(pos, np.array([0.0, 0.0, height]), 2 * np.pi, tstart, tend, "xy")
+        arcs = _rotating_arcs(
+            pos, np.array([centre[0], centre[1], height]), 2 * np.pi, tstart, tend, "xy"
+        )
         return _add_translation(
             arcs, linear_translate(np.zeros(3), np.array([0.0, 0.0, float(delta_h)]), tstart, tend)
         )
 
-    return _assign_to_motion(swarm_pos, swarm_vel, layout, list(range(n)), tstart, tend, build)
+    return _assign_to_motion(swarm_pos, swarm_vel, layout, ids, tstart, tend, build)
 
 
 def twister(params, swarm_pos, tstart, tend, limits, swarm_vel=None):  # noqa: ANN001, ANN201
     """Spinning skewed-helix layout, rotating about z by ``omega``."""
-    _steps, omega, z_spacing = params
-    n = swarm_pos.shape[0]
-    layout = formations.helix_static(
-        n, min(400.0, limits["upper"][0] * 100), 100 * limits["lower"][2], float(z_spacing), 2.0
+    drone_ids, _steps, omega, z_spacing = params
+    ids = _subset(drone_ids, swarm_pos)
+    n = len(ids)
+    centre = _centre_xy(swarm_pos, ids)
+    layout = (
+        formations.helix_static(
+            n,
+            min(400.0, _room_radius(centre, limits)),
+            100 * limits["lower"][2],
+            float(z_spacing),
+            2.0,
+        )
+        + centre
     )
     dphi = min(omega / 10.0, 2.0) * (tend - tstart)
 
     def build(pos: NDArray) -> SplineDict:
-        return _rotating_arcs(pos, np.array([0.0, 0.0, pos[:, 2].mean()]), dphi, tstart, tend, "xy")
+        return _rotating_arcs(
+            pos, np.array([centre[0], centre[1], pos[:, 2].mean()]), dphi, tstart, tend, "xy"
+        )
 
-    return _assign_to_motion(swarm_pos, swarm_vel, layout, list(range(n)), tstart, tend, build)
+    return _assign_to_motion(swarm_pos, swarm_vel, layout, ids, tstart, tend, build)
 
 
 def orbit(params, swarm_pos, tstart, tend, limits, swarm_vel=None):  # noqa: ANN001, ANN201
@@ -478,7 +558,7 @@ def tumble(params, swarm_pos, tstart, tend, limits, swarm_vel=None):  # noqa: AN
 def move_z(params, swarm_pos, tstart, tend, limits, swarm_vel=None):  # noqa: ANN001, ANN201
     """Translate a drone subset along z by ``distance`` cm over the block."""
     drone_ids, distance = params
-    ids = _sanitize_drone_ids(drone_ids, swarm_pos.shape[0])
+    ids = _subset(drone_ids, swarm_pos)
     return {
         d: linear_translate(
             swarm_pos[d], swarm_pos[d] + np.array([0.0, 0.0, float(distance)]), tstart, tend
@@ -545,9 +625,10 @@ def shear(params, swarm_pos, tstart, tend, limits, swarm_vel=None):  # noqa: ANN
 
 def zig_zag(params, swarm_pos, tstart, tend, limits, swarm_vel=None):  # noqa: ANN001, ANN201
     """Grid formation translating in an alternating zig-zag while rising in z."""
-    steps, delta, delta_h = params
-    n = swarm_pos.shape[0]
-    c = np.mean(swarm_pos, axis=0)
+    drone_ids, steps, delta, delta_h = params
+    ids = _subset(drone_ids, swarm_pos)
+    n = len(ids)
+    c = np.mean(swarm_pos[ids], axis=0)
     layout = formations.grid(n, 50.0, c[2], c[:2])
     dxy = np.array([abs(delta), abs(delta), 0.0])
     dz = np.array([0.0, 0.0, float(delta_h)])
@@ -555,7 +636,7 @@ def zig_zag(params, swarm_pos, tstart, tend, limits, swarm_vel=None):  # noqa: A
     def build(pos: NDArray) -> SplineDict:
         return {i: zigzag_translate(pos[i], int(steps), dxy, dz, tstart, tend) for i in range(n)}
 
-    return _assign_to_motion(swarm_pos, swarm_vel, layout, list(range(n)), tstart, tend, build)
+    return _assign_to_motion(swarm_pos, swarm_vel, layout, ids, tstart, tend, build)
 
 
 def _field_block(
@@ -589,9 +670,10 @@ def _field_block(
 
 def wave(params, swarm_pos, tstart, tend, limits, swarm_vel=None):  # noqa: ANN001, ANN201
     """Grid formation with a vertical standing wave (amplitude varies across x)."""
-    _steps, height = params
-    n = swarm_pos.shape[0]
-    c = np.mean(swarm_pos, axis=0)
+    drone_ids, _steps, height = params
+    ids = _subset(drone_ids, swarm_pos)
+    n = len(ids)
+    c = np.mean(swarm_pos[ids], axis=0)
     layout = formations.grid(n, 50.0, max(float(height), 150.0), c[:2])
 
     def build(pos: NDArray) -> SplineDict:
@@ -599,9 +681,11 @@ def wave(params, swarm_pos, tstart, tend, limits, swarm_vel=None):  # noqa: ANN0
         spatial = np.sin(np.pi * (pos[:, 0] - pos[:, 0].min()) / span)
         amp = np.zeros((n, 3))
         amp[:, 2] = 25.0 * spatial
+        # Row-indexed on purpose: `build` works in slot space and `_assign_to_motion` maps
+        # slots onto real drone ids afterwards.
         return _field_block(pos, list(range(n)), amp, np.zeros(n), 1, tstart, tend)
 
-    return _assign_to_motion(swarm_pos, swarm_vel, layout, list(range(n)), tstart, tend, build)
+    return _assign_to_motion(swarm_pos, swarm_vel, layout, ids, tstart, tend, build)
 
 
 def ripple(params, swarm_pos, tstart, tend, limits, swarm_vel=None):  # noqa: ANN001, ANN201
@@ -673,38 +757,38 @@ def twist(params, swarm_pos, tstart, tend, limits, swarm_vel=None):  # noqa: ANN
 
 SPLINE_PRIMITIVE_N_ARGS: dict[str, int] = {
     # formations (held)
-    "form_circle": 4,   # drone_ids, radius_cm, z_cm, time_to_finish_s
-    "form_star": 4,     # height_cm, min_spacing_cm, delta_radius_cm, time_to_finish_s
-    "form_cone": 4,     # delta_height_cm, spacing_cm, is_inverted, time_to_finish_s
-    "center": 1,        # drone_ids
-    "line": 1,          # length_cm
-    "grid": 1,          # spacing_cm
-    "vee": 2,           # spread_deg, spacing_cm
-    "polygon": 3,       # n_sides, radius_cm, height_cm
+    "form_circle": 4,  # drone_ids, radius_cm, z_cm, time_to_finish_s
+    "form_star": 5,  # drone_ids, height_cm, min_spacing_cm, delta_radius_cm, time_to_finish_s
+    "form_cone": 5,  # drone_ids, delta_height_cm, spacing_cm, is_inverted, time_to_finish_s
+    "center": 1,  # drone_ids
+    "line": 1,  # length_cm
+    "grid": 1,  # spacing_cm
+    "vee": 2,  # spread_deg, spacing_cm
+    "polygon": 3,  # n_sides, radius_cm, height_cm
     "helix_static": 3,  # radius_cm, pitch_cm, turns
     # motions
-    "rotate": 2,        # angle_deg, axis
-    "spiral": 2,        # steps, height_cm
-    "spiral_speed": 4,  # steps, height_cm, degrees, radius_increase
-    "helix": 3,         # steps, delta_height_cm, height_cm
-    "twister": 3,       # steps, omega_times_ten, z_spacing_cm
-    "orbit": 2,         # angle_deg, radius_cm
-    "tumble": 2,        # angle_deg, axis
-    "move_z": 2,        # drone_ids, delta_cm
-    "move": 4,          # x_cm, y_cm, z_cm, drone_id
-    "swap": 2,          # drone_id_1, drone_id_2
-    "translate": 3,     # dx_cm, dy_cm, dz_cm
-    "scale": 1,         # factor
-    "shear": 2,         # k, axis_pair
-    "zig_zag": 3,       # steps, delta_xy_cm, delta_z_cm
+    "rotate": 3,  # drone_ids, angle_deg, axis
+    "spiral": 3,  # drone_ids, steps, height_cm
+    "spiral_speed": 5,  # drone_ids, steps, height_cm, degrees, radius_increase
+    "helix": 4,  # drone_ids, steps, delta_height_cm, height_cm
+    "twister": 4,  # drone_ids, steps, omega_times_ten, z_spacing_cm
+    "orbit": 2,  # angle_deg, radius_cm
+    "tumble": 2,  # angle_deg, axis
+    "move_z": 2,  # drone_ids, delta_cm
+    "move": 4,  # x_cm, y_cm, z_cm, drone_id
+    "swap": 2,  # drone_id_1, drone_id_2
+    "translate": 3,  # dx_cm, dy_cm, dz_cm
+    "scale": 1,  # factor
+    "shear": 2,  # k, axis_pair
+    "zig_zag": 4,  # drone_ids, steps, delta_xy_cm, delta_z_cm
     # fields
-    "wave": 2,          # steps, height_cm
-    "ripple": 2,        # amp_cm, periods
+    "wave": 3,  # drone_ids, steps, height_cm
+    "ripple": 2,  # amp_cm, periods
     "traveling_wave": 2,  # amp_cm, periods
-    "pulse": 2,         # amp_cm, periods
-    "cascade": 2,       # amp_cm, periods
-    "breathe": 2,       # max_factor, periods
-    "twist": 1,         # angle_deg
+    "pulse": 2,  # amp_cm, periods
+    "cascade": 2,  # amp_cm, periods
+    "breathe": 2,  # max_factor, periods
+    "twist": 1,  # angle_deg
 }
 
 SPLINE_PRIMITIVES: dict[str, Callable[..., SplineDict]] = {

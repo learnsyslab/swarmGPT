@@ -3,6 +3,7 @@
 from pathlib import Path
 
 import numpy as np
+import pytest
 from conftest import virtual_crazyswarm_config
 
 from swarm_gpt.core.choreographer import Choreographer
@@ -51,7 +52,13 @@ def test_choreo2splines_returns_one_fragment_list_per_drone():
     """form_star + rotate at one beat → every drone gets a spline-1 fragment for the block."""
     c = _spline_choreographer(10)
     structure = _single_bar_structure()
-    choreography = {(1, 1, 1): "form_star(100, 60, 80, 1.0); rotate(45, 'z')"}
+    choreography = {
+        (
+            1,
+            1,
+            1,
+        ): "form_star([1, 2, 3, 4, 5, 6], 100, 60, 80, 1.0); rotate([1, 2, 3, 4, 5, 6], 45, 'z')"
+    }
 
     per_drone = c._choreo2splines(choreography, structure)
 
@@ -65,9 +72,18 @@ def test_last_fn_wins_so_rotate_supersedes_the_form_hold():
     """A same-beat rotate replaces form_star's hold: drones end up moving, not held."""
     c = _spline_choreographer(10)
     structure = _single_bar_structure()
-    held = c._choreo2splines({(1, 1, 1): "form_star(100, 60, 80, 1.0)"}, structure)
+    held = c._choreo2splines(
+        {(1, 1, 1): "form_star([1, 2, 3, 4, 5, 6], 100, 60, 80, 1.0)"}, structure
+    )
     rotated = c._choreo2splines(
-        {(1, 1, 1): "form_star(100, 60, 80, 1.0); rotate(45, 'z')"}, structure
+        {
+            (
+                1,
+                1,
+                1,
+            ): "form_star([1, 2, 3, 4, 5, 6], 100, 60, 80, 1.0); rotate([1, 2, 3, 4, 5, 6], 45, 'z')"
+        },
+        structure,
     )
     # Pure hold has zero boundary velocity; the rotate block must move at least one drone.
     assert all(np.allclose(frags[0].end_state()[1], 0.0) for frags in held.values())
@@ -78,7 +94,7 @@ def test_response2splines_threads_real_boundary_velocity():
     """The spline path yields real (nonzero) endpoint velocities, not legacy zeros."""
     c = _spline_choreographer(6)
     structure = _single_bar_structure()
-    text = "choreography:\n  s1b1t1: spiral(4, 150)"
+    text = "choreography:\n  s1b1t1: spiral([1, 2, 3, 4, 5, 6], 4, 150)"
     per_drone = c.response2splines(text, structure)
     moved = any(
         np.any(np.abs(frag.end_state()[1]) > 1e-6) for frags in per_drone.values() for frag in frags
@@ -109,7 +125,7 @@ def test_response2trajectory_handles_arc_primitives():
     """A spiral yields PiecewiseSpline (arc) fragments; assembly must run end-to-end on them."""
     c = _spline_choreographer(6)
     structure = _single_bar_structure()
-    text = "choreography:\n  s1b1t1: spiral(4, 150)"
+    text = "choreography:\n  s1b1t1: spiral([1, 2, 3, 4, 5, 6], 4, 150)"
     trajectories = c.response2trajectory(text, structure)
     assert set(trajectories) == set(range(6))
     for drone_id, traj in trajectories.items():
@@ -140,11 +156,11 @@ def test_response2trajectory_multi_block_formations_and_motion():
         "choreography:\n"
         "  s1b1t1: form_circle([1, 2, 3, 4, 5, 6], 120, 100, 1.0)\n"
         "  s1b1t2: TRANSITION\n"
-        "  s1b1t3: spiral(4, 150)\n"
+        "  s1b1t3: spiral([1, 2, 3, 4, 5, 6], 4, 150)\n"
         "  s1b1t4: TRANSITION\n"
-        "  s1b1t5: form_star(100, 60, 80, 1.0)\n"
+        "  s1b1t5: form_star([1, 2, 3, 4, 5, 6], 100, 60, 80, 1.0)\n"
         "  s1b1t6: TRANSITION\n"
-        "  s1b1t7: rotate(45, 'z')"
+        "  s1b1t7: rotate([1, 2, 3, 4, 5, 6], 45, 'z')"
     )
     trajectories = c.response2trajectory(text, structure)
     assert set(trajectories) == set(range(6))
@@ -165,7 +181,7 @@ def test_explicit_transition_between_primitives_is_continuous():
         "choreography:\n"
         "  s1b1t1: form_circle([1, 2, 3, 4, 5, 6], 120, 100, 1.0)\n"
         "  s1b1t2: TRANSITION\n"
-        "  s1b1t3: form_star(100, 60, 80, 1.0)"
+        "  s1b1t3: form_star([1, 2, 3, 4, 5, 6], 100, 60, 80, 1.0)"
     )
     trajectories = c.response2trajectory(text, structure)
     assert set(trajectories) == set(range(6))
@@ -190,7 +206,7 @@ def test_two_primitives_without_transition_raise_validation_error():
     text = (
         "choreography:\n"
         "  s1b1t1: form_circle([1, 2, 3, 4, 5, 6], 120, 100, 1.0)\n"
-        "  s1b1t2: form_star(100, 60, 80, 1.0)"
+        "  s1b1t2: form_star([1, 2, 3, 4, 5, 6], 100, 60, 80, 1.0)"
     )
     with pytest.raises(LLMResponseProcessingError, match="without a TRANSITION"):
         c.response2trajectory(text, structure)
@@ -219,3 +235,30 @@ def test_load_drone_config_uses_active_list(tmp_path: Path) -> None:
     assert c.num_drones == 2
     assert c.uris[0] == "radio://0/40/2M/E7E7E7E729"  # cf41, channel=40, addr=0x29
     assert c.uris[1] == "radio://0/30/2M/E7E7E7E71F"  # cf31, channel=30, addr=0x1F
+
+
+def test_response2waypoints_produces_a_grid_axswarm_can_consume():
+    """The WS4 deliverable end to end: nothing else in the suite calls `response2waypoints`."""
+    import yaml
+
+    c = _spline_choreographer(6)
+    structure = _single_bar_structure()
+    text = (
+        "choreography:\n"
+        "  s1b1t1: form_circle([1, 2, 3, 4, 5, 6], 120, 100, 1.0)\n"
+        "  s1b1t3: TRANSITION\n"
+        "  s1b1t4: helix([1, 2, 3], 2, 40, 90)\n"
+    )
+    wp = c.response2waypoints(text, structure, strict=False)
+    settings = yaml.safe_load(
+        (Path(__file__).resolve().parents[2] / "swarm_gpt/data/settings.yaml").read_text()
+    )
+    freq, horizon = settings["axswarm"]["freq"], settings["axswarm"]["K"]
+    t = wp["time"][0]
+
+    assert wp["pos"].shape == (6, t.size, 3)
+    assert t[0] == pytest.approx(0.0), "the sim clock starts at 0 and SolverData reads column 0"
+    gaps = np.diff(t)
+    assert gaps.min() >= 1.0 / freq, "two waypoints would collapse onto one MPC index"
+    assert gaps.max() < horizon / freq, "a gap this wide empties the lookahead, silently"
+    assert len({round(float(x) * freq) for x in t}) == t.size, "MPC index collision"

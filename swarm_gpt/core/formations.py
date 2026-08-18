@@ -128,7 +128,7 @@ def star(n: int, radius: float, delta_radius: float, height: float) -> NDArray:
     pts = np.vstack(
         [
             ring(per, radius, height),
-            ring(per, radius + delta_radius, height, angle_offset=np.pi / per),
+            ring(per, radius + delta_radius, height, angle_offset=np.pi / per if per else 0.0),
         ]
     )
     if n != per * 2:

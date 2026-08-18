@@ -298,18 +298,24 @@ def build_motion_primitive_response_schema(
 
 
 _PRIMITIVE_ARG_ORDER: dict[str, list[str]] = {
-    "rotate": ["angle_deg", "axis"],
+    "rotate": ["drone_ids", "angle_deg", "axis"],
     "center": ["drone_ids"],
     "move_z": ["drone_ids", "delta_cm"],
-    "spiral": ["steps", "height_cm"],
-    "spiral_speed": ["steps", "height_cm", "degrees", "radius_increase"],
-    "helix": ["steps", "delta_height_cm", "height_cm"],
+    "spiral": ["drone_ids", "steps", "height_cm"],
+    "spiral_speed": ["drone_ids", "steps", "height_cm", "degrees", "radius_increase"],
+    "helix": ["drone_ids", "steps", "delta_height_cm", "height_cm"],
     "form_circle": ["drone_ids", "radius_cm", "z_coord_cm", "time_to_finish_s"],
-    "zig_zag": ["steps", "delta_xy_cm", "delta_z_cm"],
-    "wave": ["steps", "height_cm"],
-    "twister": ["steps", "omega_times_ten", "z_spacing_cm"],
-    "form_star": ["height_cm", "min_spacing_cm", "delta_radius_cm", "time_to_finish_s"],
-    "form_cone": ["delta_height_cm", "spacing_cm", "is_inverted", "time_to_finish_s"],
+    "zig_zag": ["drone_ids", "steps", "delta_xy_cm", "delta_z_cm"],
+    "wave": ["drone_ids", "steps", "height_cm"],
+    "twister": ["drone_ids", "steps", "omega_times_ten", "z_spacing_cm"],
+    "form_star": [
+        "drone_ids",
+        "height_cm",
+        "min_spacing_cm",
+        "delta_radius_cm",
+        "time_to_finish_s",
+    ],
+    "form_cone": ["drone_ids", "delta_height_cm", "spacing_cm", "is_inverted", "time_to_finish_s"],
 }
 
 # The catalogue's parameter order, which is also the rendered call's argument order: every
@@ -329,6 +335,14 @@ _LIGHTING_PRIMITIVE_ARG_ORDER: dict[str, list[str]] = {
     "ripple_light": ["sel", "period_beats", "deck"],
     "alternate_blink": ["sel", "period_beats", "by", "deck"],
 }
+
+
+# Every primitive whose first argument is a `drone_ids` selector. Derived, not restated: two call
+# sites gate duplicate-id validation and overlap computation on this set, and both silently do the
+# wrong thing for a primitive that gains a selector without being added to a hand-written literal.
+_SUBSET_PRIMITIVES = frozenset(
+    name for name, order in _PRIMITIVE_ARG_ORDER.items() if order and order[0] == "drone_ids"
+)
 
 
 def _python_literal(value: Any) -> str:
@@ -383,7 +397,7 @@ def action_to_motion_primitive(action: dict[str, Any]) -> str:
             f"Primitive '{primitive}' expects {len(ordered_arg_names)} args "
             f"({ordered_arg_names}), got {len(args)} args: {args}"
         )
-    if primitive in {"center", "move_z", "form_circle"}:
+    if primitive in _SUBSET_PRIMITIVES:
         # Neither uniqueness nor -- for the compact spec -- the syntax itself is expressible in
         # the strict schema, so both are checked on the way out. The swarm bound is not: it needs
         # `num_drones`, and `_sanitize_drone_ids` raises for it when the primitive runs.

@@ -117,7 +117,9 @@ user_initial: |
   because a drone cannot fly to two targets at once. Every id must be in 1..{num_drones}.
 
   Single-shot (executes once over the interval until the next emitted action):
-  - rotate(angle_deg, axis) — all drones; axis usually 'z'
+  Every primitive below takes drone_ids first. Two primitives at the same key must name disjoint
+  sets; splitting the swarm is how a moment gets internal structure.
+  - rotate(drone_ids, angle_deg, axis) — axis usually 'z'
   - center(drone_ids) — listed drones to formation around their centroid
   - move_z(drone_ids, delta_cm) — vertical shift; aim for |delta_cm| ~{move_z_typical_cm} so the motion is visibly noticeable
   - form_circle(drone_ids, radius_cm, z_coord_cm, time_to_finish_s)
@@ -128,18 +130,18 @@ user_initial: |
       When stacking two disjoint form_circle calls vertically, their z_coord_cm values MUST differ
       by at least 60 (e.g. 80 and 140): a smaller gap puts the drones inside each other's collision
       envelope and they will jitter instead of holding the rings.
-  - form_star(height_cm, spacing 40-80, delta_radius 50-100, time_to_finish_s)
+  - form_star(drone_ids, height_cm, spacing 40-80, delta_radius 50-100, time_to_finish_s)
       time_to_finish_s: seconds to arrive in the star; same guidance as form_circle.
-  - form_cone(delta_height 30-80, spacing 40-80, is_inverted 0|1, time_to_finish_s)
+  - form_cone(drone_ids, delta_height 30-80, spacing 40-80, is_inverted 0|1, time_to_finish_s)
       time_to_finish_s: seconds to arrive in the cone; same guidance as form_circle.
 
   Multi-step (plays out across the interval; pick steps in [2, 3]):
-  - spiral(steps, height_cm)
-  - spiral_speed(steps, height_cm, degrees 0-360, radius_increase 1-3)
-  - helix(steps, delta_height_cm 0-100, height_cm 50-100)
-  - twister(steps, omega_times_ten 2-20, z_spacing_cm 5-30)
-  - zig_zag(steps, delta_xy_cm, delta_z_cm)
-  - wave(steps, height_cm) — 2D standing-wave surface; drones first form a grid then oscillate.
+  - spiral(drone_ids, steps, height_cm)
+  - spiral_speed(drone_ids, steps, height_cm, degrees 0-360, radius_increase 1-3)
+  - helix(drone_ids, steps, delta_height_cm 0-100, height_cm 50-100)
+  - twister(drone_ids, steps, omega_times_ten 2-20, z_spacing_cm 5-30)
+  - zig_zag(drone_ids, steps, delta_xy_cm, delta_z_cm)
+  - wave(drone_ids, steps, height_cm) — 2D standing-wave surface; drones first form a grid then oscillate.
   </primitives>
 
   <lighting>
@@ -249,13 +251,13 @@ example: |
     third beat of bar 1 with a rotation, then sweeps through a helix at the start of bar 2. Each
     consecutive pair of primitives is joined by one TRANSITION marking where the move begins.
   choreography:
-    s1b1t1: spiral(3, 100)
+    s1b1t1: spiral([1, 2, 3, 4, 5, 6], 3, 100)
     s1b2t3: TRANSITION
     s2b1t1: form_circle('1-3', 120, 100, 1.5)
     s2b1t2: TRANSITION
-    s2b1t3: rotate(60, 'z')
+    s2b1t3: rotate([1, 2, 3], 60, 'z')
     s2b1t4: TRANSITION
-    s2b2t1: helix(2, 40, 90)
+    s2b2t1: helix([1, 2, 3, 4, 5, 6], 2, 40, 90)
     END
   </example>
 
@@ -307,8 +309,8 @@ output_format_structured: |
        radius or x/y center.
     2. Formation + motion on overlapping drones — formation arrives, then motion takes over:
          "actions": [
-           {"primitive":"form_star","params":{"height_cm":100,"min_spacing_cm":60,"delta_radius_cm":80,"time_to_finish_s":2.0}},
-           {"primitive":"rotate","params":{"angle_deg":60,"axis":"z"}}
+           {"primitive":"form_star","params":{"drone_ids":[1,2,3],"height_cm":100,"min_spacing_cm":60,"delta_radius_cm":80,"time_to_finish_s":2.0}},
+           {"primitive":"rotate","params":{"drone_ids":[1,2,3],"angle_deg":60,"axis":"z"}}
          ]
        The system suppresses form_* hold waypoints automatically — no extra timing needed.
     Do NOT stack two formations on overlapping drones.
@@ -328,9 +330,9 @@ output_format_structured: |
   Correct JSON param examples:
   - center(drone_ids) -> {"primitive":"center","params":{"drone_ids":"1-4"}}
   - move_z(drone_ids, delta_cm) -> {"primitive":"move_z","params":{"drone_ids":"1-4","delta_cm":30}}
-  - form_cone(delta_height_cm, spacing_cm, is_inverted) -> {"primitive":"form_cone","params":{"delta_height_cm":60,"spacing_cm":60,"is_inverted":0,"time_to_finish_s":2.0}}
-  - spiral_speed(steps, height_cm, degrees, radius_increase) -> {"primitive":"spiral_speed","params":{"steps":3,"height_cm":100,"degrees":180,"radius_increase":1}}
-  - wave(steps, height_cm) -> {"primitive":"wave","params":{"steps":2,"height_cm":80}}
+  - form_cone(drone_ids, delta_height_cm, spacing_cm, is_inverted) -> {"primitive":"form_cone","params":{"drone_ids":"1-3","delta_height_cm":60,"spacing_cm":60,"is_inverted":0,"time_to_finish_s":2.0}}
+  - spiral_speed(drone_ids, steps, height_cm, degrees, radius_increase) -> {"primitive":"spiral_speed","params":{"drone_ids":"1-3","steps":3,"height_cm":100,"degrees":180,"radius_increase":1}}
+  - wave(drone_ids, steps, height_cm) -> {"primitive":"wave","params":{"drone_ids":"1-4","steps":2,"height_cm":80}}
 
   Correct lighting JSON examples:
   - every drone blue on both rings ->
@@ -349,10 +351,10 @@ output_format_structured: |
     {"key":"s4b1t1","actions":[{"primitive":"light_color","params":{"sel":{"kind":"all","ids":[],"count":1},"color":"amber","deck":"top"}},{"primitive":"light_color","params":{"sel":{"kind":"all","ids":[],"count":1},"color":"azure","deck":"bot"}}]}
 
   Common mistakes that will fail syntax checks:
-  - Wrong: {"primitive":"form_cone","params":{"drone_ids":"1-3",...}} because form_cone has no drone_ids param.
+  - Wrong: {"primitive":"form_cone","params":{"delta_height_cm":60,...}} because every primitive needs drone_ids first.
   - Wrong: {"drone_ids":[1,2,3]} because drone_ids is the string "1-3", never an array.
   - Wrong: two actions at one key with "drone_ids":"1-10" and "drone_ids":"10-20" because
     endpoints are inclusive and drone 10 is named twice; write "1-10" and "11-20".
   - Wrong: {"primitive":"spiral_speed","params":{"steps":3,"angle_deg":90,...}} because spiral_speed uses 'degrees', not 'angle_deg'.
   - Wrong: {"primitive":"move_z","params":{"delta_cm":30}} because move_z also needs drone_ids.
-  - Wrong: {"primitive":"form_star","params":{"height_cm":100,"min_spacing_cm":60,"delta_radius_cm":80}} because form_star also needs time_to_finish_s.
+  - Wrong: {"primitive":"form_star","params":{"drone_ids":[1,2],"height_cm":100,"min_spacing_cm":60,"delta_radius_cm":80}} because form_star also needs time_to_finish_s.

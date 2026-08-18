@@ -14,11 +14,13 @@ import numpy as np
 import toml
 import yaml
 
+from swarm_gpt.core.blocks import SPLINE_PRIMITIVE_N_ARGS, constant_spline, spline_primitive_by_name
 from swarm_gpt.core.lighting import LightingTimeline, build_look, load_lighting_config
 from swarm_gpt.core.motion_primitives import _sanitize_drone_ids, primitive_by_name
-from swarm_gpt.core.blocks import constant_spline, spline_primitive_by_name
 from swarm_gpt.core.motion_primitives import motion_primitives as motion_primitives_collection
+from swarm_gpt.core.sampling import sample_trajectories
 from swarm_gpt.core.structured_output_schema import (
+    _SUBSET_PRIMITIVES,
     KEY_PATTERN,
     LIGHTING_PRIMITIVE_ARG_ORDER,
     build_motion_primitive_response_schema,
@@ -68,11 +70,19 @@ _MOTION_PRIMITIVES_FOR_COMPOSITION: frozenset[str] = frozenset(
 def _overlapping_drone_set(action: dict[str, tuple], num_drones: int) -> frozenset[int]:
     """Return the 0-indexed drone IDs the ``{fn_name: args}`` action touches.
 
-    Subsets go through the same `_sanitize_drone_ids` the primitives use, so a compact range spec
-    and an explicit id list agree on which drones an action covers.
+    Every primitive in `_SUBSET_PRIMITIVES` takes an explicit drone subset as its first arg, and
+    that set is derived from the schema rather than restated so it cannot drift. ``swap`` takes two
+    individual drone IDs and ``move`` a single one as its fourth arg; the rest cover the swarm.
+
+    Args:
+        action: Single-entry dict ``{fn_name: args_tuple}``.
+        num_drones: Total number of drones in the swarm.
+
+    Returns:
+        Frozenset of 0-indexed drone IDs the action applies to.
     """
     fn_name, args = next(iter(action.items()))
-    if fn_name in {"form_circle", "move_z", "center"}:
+    if fn_name in _SUBSET_PRIMITIVES:
         return frozenset(_sanitize_drone_ids(args[0], num_drones))
     if fn_name == "swap":
         return frozenset({args[0] - 1, args[1] - 1})
@@ -573,23 +583,46 @@ class Choreographer:
     def response2waypoints(
         self, text: str, structure: SongStructure, strict: bool = True, t_rth: float = 3.0
     ) -> dict[str, NDArray]:
-        """Translate the raw-waypoint LLM output into waypoints.
+        """Translate the LLM output into the discrete waypoints axswarm consumes.
 
-        Motion-primitive mode now produces continuous splines; call :meth:`response2splines`
-        instead. Spline execution (sampling for axswarm) lands in WS4.
+        Motion-primitive mode composes continuous splines (:meth:`response2trajectory`) and samples
+        them at the axswarm boundary; ``t_rth`` is unused there, because `assemble_trajectory`
+        already appends a min-snap return to hover. Raw-waypoint mode is unchanged.
 
-        Returns "time" of shape (n_drones, T) plus "pos", "vel" and "acc" of shape (n_drones, T, 3).
-        ``strict`` enables the proximity checks; ``t_rth`` is the return-to-home time.
+        Args:
+            text: The output of the LLM, in the YAML-like form produced by the prompt.
+            structure: Hierarchical song structure used to resolve action keys to seconds.
+            strict: Enable/disable waypoint proximity and distance checks.
+            t_rth: Return-to-home time. Raw-waypoint mode only.
+
+        Returns:
+            The waypoints as a dictionary of "time", "pos", "vel", "acc". "time" has shape
+            (n_drones, T), and "pos", "vel", "acc" have shape (n_drones, T, 3).
         """
         logger.debug("Converting LLM output into waypoints")
         if self.use_motion_primitives:
-            choreo = self._response2choreo(text, structure)
-            waypoints = self._choreo2waypoints(choreo, structure)
-        else:
-            # Raw-waypoint mode predates the structure rewrite and still expects a flat
-            # beat_times list. Pull it from the structure for the time being.
-            flat_times = [b.time_s for s in structure.segments for bar in s.bars for b in bar.beats]
-            waypoints = self._raw_response2waypoints(text, np.asarray(flat_times), structure)
+            trajectories = self.response2trajectory(text, structure)
+            start_pos = np.array([self.starting_pos[i] for i in sorted(self.starting_pos)])
+            waypoints = sample_trajectories(trajectories, self.settings, start_pos)
+            waypoints["pos"] = np.clip(waypoints["pos"], self.lim_lower, self.lim_upper)
+            if strict:
+                # The docked configuration is excluded, as it is on the raw path: every drone sits
+                # at its home at t=0 and again after the return-to-hover, and an LLMPlanError
+                # naming those moments asks the model to fix something it does not control.
+                flying = (waypoints["time"][0] > 0.0) & (
+                    waypoints["time"][0] < max(c.t1 for c in trajectories.values())
+                )
+                self._collision_check(
+                    waypoints["pos"][:, flying],
+                    time=waypoints["time"][0][flying],
+                    structure=structure,
+                )
+            return waypoints
+        # Raw-waypoint mode predates the structure rewrite and still expects a flat
+        # beat_times list. Pull it from the structure for the time being.
+        flat_times = [b.time_s for s in structure.segments for bar in s.bars for b in bar.beats]
+        waypoints = self._raw_response2waypoints(text, np.asarray(flat_times), structure)
+        # Clip waypoint values to the physical limits
         waypoints["pos"] = np.clip(waypoints["pos"], self.lim_lower, self.lim_upper)
         if strict:
             self._collision_check(waypoints["pos"], time=waypoints["time"][0], structure=structure)
@@ -790,6 +823,7 @@ class Choreographer:
             ),
             key=lambda triple: triple[0],
         )
+        self._validate_transition_alternation(ordered, required)
 
         motion_primitives: dict[int, list[dict[str, tuple]]] = {}
         for synth_idx, (_time, addr, action_str) in enumerate(ordered, start=1):
@@ -797,10 +831,15 @@ class Choreographer:
             moves = action_str.strip(" ;").split(";")
             for move in moves:
                 fn_name = move.split("(")[0].strip(" -\n")
-                if fn_name == "PLAN":
+                if fn_name == "TRANSITION":
+                    if len(moves) > 1:
+                        raise LLMFormatError(
+                            f"TRANSITION at {encode_key(*addr)} must be the sole action of its "
+                            "entry, but it is mixed with other functions"
+                        )
                     motion_primitives[synth_idx].append({fn_name: ()})
                     continue
-                if fn_name not in motion_primitives_collection:
+                if fn_name not in SPLINE_PRIMITIVE_N_ARGS:
                     raise LLMResponseProcessingError(
                         f"Unknown motion primitive '{fn_name}' at {encode_key(*addr)}"
                     )
@@ -813,7 +852,7 @@ class Choreographer:
                         f"Cannot interpret arguments of '{move}' at {encode_key(*addr)}. "
                         f"Failed with {e.__class__.__name__}: {e}"
                     )
-                n_args = motion_primitives_collection[fn_name.lower()]["n_args"]
+                n_args = SPLINE_PRIMITIVE_N_ARGS[fn_name]
                 if len(fn_args) != n_args:
                     raise LLMFormatError(
                         f"{fn_name} at {encode_key(*addr)} must have {n_args} arguments, "
@@ -827,6 +866,45 @@ class Choreographer:
         if t_end <= timestamps[-1]:
             t_end = float(timestamps[-1]) + 1.0  # guard against a zero-length final interval
         return self._compose_blocks_to_splines(motion_primitives, timestamps, t_end)
+
+    def _validate_transition_alternation(
+        self,
+        ordered: list[tuple[float, tuple[int, int, int], str]],
+        required: set[tuple[int, int, int]],
+    ) -> None:
+        """Enforce that real primitives and ``TRANSITION`` markers strictly alternate."""
+
+        def _is_transition(action_str: str) -> bool:
+            return action_str.strip() == "TRANSITION"
+
+        bad_required = [
+            encode_key(*addr)
+            for _t, addr, action in ordered
+            if addr in required and _is_transition(action)
+        ]
+        if bad_required:
+            raise LLMResponseProcessingError(
+                f"Required keys {bad_required} carry a TRANSITION; they must carry a real primitive instead"
+            )
+        if _is_transition(ordered[0][2]) or _is_transition(ordered[-1][2]):
+            offending = encode_key(
+                *(ordered[0] if _is_transition(ordered[0][2]) else ordered[-1])[1]
+            )
+            raise LLMResponseProcessingError(
+                f"TRANSITION at {offending} cannot be the first or last choreography entry; "
+                "transitions must sit between two real primitives"
+            )
+        for (_tl, addr_l, action_l), (_tr, addr_r, action_r) in zip(ordered[:-1], ordered[1:]):
+            if _is_transition(action_l) and _is_transition(action_r):
+                raise LLMResponseProcessingError(
+                    f"Consecutive TRANSITIONs at {encode_key(*addr_l)} and {encode_key(*addr_r)}; "
+                    "a real primitive must sit between them"
+                )
+            if not _is_transition(action_l) and not _is_transition(action_r):
+                raise LLMResponseProcessingError(
+                    f"Consecutive primitives at {encode_key(*addr_l)} and {encode_key(*addr_r)} "
+                    "without a TRANSITION between them; insert a TRANSITION to separate them"
+                )
 
     def _compose_blocks_to_splines(
         self, motion_primitives: dict, timestamps: NDArray, t_end: float
@@ -854,6 +932,8 @@ class Choreographer:
         timesteps = np.concatenate((timestamps, [t_end]))
         blocks = self._merge_motion_primitives(motion_primitives, timesteps)
         for block in blocks.values():
+            if block["fn"] == ["TRANSITION"]:
+                continue
             tstart, tend = float(block["tstart"]), float(block["tend"])
             block_curves: dict[int, _Curve] = {}
             for fn, args in zip(block["fn"], block["args"]):
