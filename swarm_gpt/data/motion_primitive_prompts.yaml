@@ -162,12 +162,18 @@ user_initial: |
   blue downward on every drone at once.
 
   colors (exactly these, no others): red, orange, amber, yellow, green, teal, cyan, azure, blue,
-  indigo, magenta, pink, white
+  indigo, violet, magenta, pink, white, gold, silver
+  gold and silver are white-mixed, so they read as metallic rather than as a hue; rainbow never
+  produces them and a gradient into one washes out rather than sweeping.
 
   Colour primitives — which hue each drone carries:
   - light_color(sel, color, deck) — one palette colour across the subset.
   - gradient(sel, color_a, color_b, by, deck) — blend two palette colours across the subset;
     by is index, x, y, z or radius. Static in time.
+  - fade(sel, color_a, color_b, duration_beats, deck) — cross-fade the subset from color_a to
+    color_b over duration_beats, then hold color_b. The time counterpart of gradient: uniform
+    across the swarm, moving in time. Use it for a colour that arrives with a phrase rather than
+    snapping on the beat.
   - rainbow(sel, period_beats, spread, deck) — spectrum cycle through the whole wheel. spread
     none cycles the group in sync, neighbour runs the rainbow around the formation in spatial
     order, index runs it along drone id order instead, x/y/z sweeps it across the stage, radius

@@ -456,6 +456,7 @@ def test_form_cone_schema_includes_time_to_finish_s():
 LIGHTING_CATALOGUE: dict[str, list[str]] = {
     "light_color": ["sel", "color", "deck"],
     "gradient": ["sel", "color_a", "color_b", "by", "deck"],
+    "fade": ["sel", "color_a", "color_b", "duration_beats", "deck"],
     "rainbow": ["sel", "period_beats", "spread", "deck"],
     "light_on": ["sel", "deck"],
     "light_off": ["sel", "deck"],

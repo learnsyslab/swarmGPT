@@ -172,6 +172,8 @@ def _lighting_param_schemas(num_drones: int) -> dict[str, dict[str, Any]]:
         "color_b": {"type": "string", "enum": palette},
         # Periods are in beats, not seconds; `build_look` converts them via the song BPM.
         "period_beats": {"type": "number", "exclusiveMinimum": 0},
+        # Like `period_beats`, in beats rather than seconds; `_fade` converts it with the song BPM.
+        "duration_beats": {"type": "number", "exclusiveMinimum": 0},
         "duty": {"type": "number", "exclusiveMinimum": 0, "maximum": 1},
         "length": _int_schema(minimum=1, maximum=num_drones),
         "group_size": _int_schema(minimum=1, maximum=num_drones),
@@ -299,6 +301,7 @@ _PRIMITIVE_ARG_ORDER: dict[str, list[str]] = {
 _LIGHTING_PRIMITIVE_ARG_ORDER: dict[str, list[str]] = {
     "light_color": ["sel", "color", "deck"],
     "gradient": ["sel", "color_a", "color_b", "by", "deck"],
+    "fade": ["sel", "color_a", "color_b", "duration_beats", "deck"],
     "rainbow": ["sel", "period_beats", "spread", "deck"],
     "light_on": ["sel", "deck"],
     "light_off": ["sel", "deck"],

@@ -82,10 +82,11 @@ def clamp_log(
     return caplog
 
 
-def test_the_catalogue_holds_exactly_the_twelve_spec_primitives():
+def test_the_catalogue_holds_exactly_the_spec_primitives():
     assert set(LIGHTING_PRIMITIVES) == {
         "light_color",
         "gradient",
+        "fade",
         "rainbow",
         "light_on",
         "light_off",
@@ -750,3 +751,65 @@ def test_two_colour_actions_on_opposite_decks_make_one_drone_two_tone():
     wrgb = LightingTimeline([look], N6, 60.0, CFG).evaluate(0.0)
     assert wrgb[0, 0] == pytest.approx(CFG.palette["amber"], abs=1.0), "top ring amber"
     assert wrgb[0, 1] == pytest.approx(CFG.palette["azure"], abs=1.0), "bot ring azure"
+
+
+def test_the_new_palette_entries_hold_the_constant_channel_sum():
+    """A hue that breaks the sum reads brighter or dimmer than the rest of the wheel."""
+    cfg = CFG
+    gain_b = cfg.channel_gain[3]
+    for name in ("violet", "gold", "silver"):
+        w, r, g, b = cfg.palette[name]
+        assert w + r + g + b / gain_b == pytest.approx(255.0, abs=0.5), name
+
+
+def test_violet_lands_between_indigo_and_magenta():
+    cfg = CFG
+    assert cfg.palette["indigo"][1] < cfg.palette["violet"][1] < cfg.palette["magenta"][1]
+    assert cfg.palette["magenta"][3] < cfg.palette["violet"][3] < cfg.palette["indigo"][3]
+
+
+def test_gold_and_silver_are_the_only_hue_plus_white_entries():
+    """`rainbow` cannot reach a W-mixed entry, so which ones exist is worth pinning."""
+    cfg = CFG
+    mixed = {n for n, v in cfg.palette.items() if v[0] > 0 and v[1:].sum() > 0}
+    assert mixed == {"gold", "silver"}
+
+
+def test_fade_interpolates_in_time_and_holds_the_far_end():
+    action = _action(
+        "fade", sel=["all", []], color_a="red", color_b="blue", duration_beats=4.0, deck="both"
+    )
+    look = build_look([action], 10.0, POSITIONS_6, N6, CFG, BPM)
+    cfg = CFG
+    layer = look.colour_layers[0]
+    red, blue = cfg.palette["red"], cfg.palette["blue"]
+    # 4 beats at 120 BPM is 2 s, so the fade runs over t = 10..12.
+    assert np.allclose(layer.evaluate(10.0, cfg)[0], red)
+    assert np.allclose(layer.evaluate(12.0, cfg)[0], blue)
+    assert np.allclose(layer.evaluate(11.0, cfg)[0], 0.5 * red + 0.5 * blue)
+    # A one-shot, so it holds rather than looping once the look outlives its duration.
+    assert np.allclose(layer.evaluate(40.0, cfg)[0], blue)
+
+
+def test_fade_before_its_look_starts_is_pinned_to_color_a():
+    action = _action(
+        "fade", sel=["all", []], color_a="red", color_b="blue", duration_beats=4.0, deck="both"
+    )
+    look = build_look([action], 10.0, POSITIONS_6, N6, CFG, BPM)
+    assert np.allclose(look.colour_layers[0].evaluate(0.0, CFG)[0], CFG.palette["red"])
+
+
+def test_fade_shorter_than_a_cue_tick_is_clamped(clamp_log: pytest.LogCaptureFixture):
+    tick_s = 1.0 / CFG.col_freq
+    look = _build(
+        _action(
+            "fade",
+            sel=["all", []],
+            color_a="red",
+            color_b="blue",
+            duration_beats=0.001,
+            deck="both",
+        )
+    )
+    assert look.colour_layers[0].params["duration_s"] == pytest.approx(tick_s)
+    assert "quantize to a cut" in clamp_log.text

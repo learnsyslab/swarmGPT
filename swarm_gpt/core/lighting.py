@@ -331,10 +331,14 @@ def hue_to_wrgb(hue: NDArray, cfg: LightingConfig) -> NDArray:
 
 @dataclass(frozen=True)
 class ColourLayer:
-    """One colour source ("named", "gradient" or "cycled") covering a subset of the swarm.
+    """One colour source ("named", "gradient", "cycled" or "fade") covering a subset of the swarm.
 
     Within a look, later colour layers overwrite earlier ones over the rows their mask covers.
-    ``params`` is ``{"color"}``, ``{"color_a", "color_b", "s"}`` or ``{"period_s", "offsets"}``.
+    ``params`` is ``{"color"}``, ``{"color_a", "color_b", "s"}``, ``{"period_s", "offsets"}`` or
+    ``{"color_a", "color_b", "t_start", "duration_s"}``.
+
+    "gradient" interpolates across the swarm and is frozen in time; "fade" interpolates in time and
+    is uniform across the swarm. They are the two halves of the same operation.
     """
 
     mask: NDArray
@@ -352,6 +356,14 @@ class ColourLayer:
             colours[idx] = cfg.palette[self.params["color"]]
         elif self.kind == "gradient":
             s = np.asarray(self.params["s"], dtype=float)[idx, None]
+            colours[idx] = (1.0 - s) * cfg.palette[self.params["color_a"]] + s * cfg.palette[
+                self.params["color_b"]
+            ]
+        elif self.kind == "fade":
+            # Held at color_b past the end rather than looping: a fade is a one-shot, and the look
+            # persists until the next key, which may be far later.
+            span = (t - self.params["t_start"]) / self.params["duration_s"]
+            s = float(np.clip(span, 0.0, 1.0))
             colours[idx] = (1.0 - s) * cfg.palette[self.params["color_a"]] + s * cfg.palette[
                 self.params["color_b"]
             ]
@@ -515,7 +527,9 @@ class _BuildContext:
     """Everything a primitive builder reads besides its own parameters.
 
     ``primitive`` is the name the action was emitted under, for diagnostics; ``bpm`` converts every
-    `period_beats` into seconds.
+    `period_beats` into seconds. ``t_start`` is the look's own start, which only a time-anchored
+    effect needs -- layers are evaluated at absolute show time, so a one-shot cannot locate itself
+    without it.
     """
 
     primitive: str
@@ -524,6 +538,7 @@ class _BuildContext:
     positions: NDArray
     cfg: LightingConfig
     bpm: float
+    t_start: float = 0.0
 
 
 def _period_seconds(
@@ -742,9 +757,41 @@ def _alternate_blink(params: dict, ctx: _BuildContext) -> BrightnessLayer:
 # tying it back here, so it is the one that rots -- tests in test_structured_output.py parse that
 # prose and diff it against the schema to keep the pair honest. Selector and spread names are the
 # same story, minus the builder.
+def _fade(params: dict, ctx: _BuildContext) -> ColourLayer:
+    """`fade(sel, color_a, color_b, duration_beats, deck)`: cross-fade the subset over time.
+
+    The temporal counterpart of `gradient`. Clamped to a whole cue tick, below which the fade
+    resolves to a single step and reads as a cut.
+    """
+    duration_s = float(params["duration_beats"]) * 60.0 / ctx.bpm
+    tick_s = 1.0 / ctx.cfg.col_freq
+    if duration_s < tick_s:
+        logger.warning(
+            "Lighting fade duration_beats=%g is %.3f s at %.1f BPM, under the %.3f s cue tick, so "
+            "it would quantize to a cut rather than a fade. Clamping to one tick.",
+            params["duration_beats"],
+            duration_s,
+            ctx.bpm,
+            tick_s,
+        )
+        duration_s = tick_s
+    return ColourLayer(
+        ctx.mask,
+        ctx.decks,
+        "fade",
+        {
+            "color_a": _palette_colour(params["color_a"], ctx.cfg),
+            "color_b": _palette_colour(params["color_b"], ctx.cfg),
+            "t_start": ctx.t_start,
+            "duration_s": duration_s,
+        },
+    )
+
+
 LIGHTING_PRIMITIVES: dict[str, _Builder] = {
     "light_color": _light_color,
     "gradient": _gradient,
+    "fade": _fade,
     "rainbow": _rainbow,
     "light_on": _light_on,
     "light_off": _light_off,
@@ -776,7 +823,7 @@ def build_look(
         params = action["params"]
         decks = _DECK_CHOICES[params["deck"]]
         mask = select(params["sel"], n, positions, cfg)
-        ctx = _BuildContext(name, mask, decks, positions, cfg, bpm)
+        ctx = _BuildContext(name, mask, decks, positions, cfg, bpm, t_start)
         layer = LIGHTING_PRIMITIVES[name](params, ctx)
         if layer is None:
             for deck in decks:
