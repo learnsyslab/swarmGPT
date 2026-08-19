@@ -444,13 +444,3 @@ def test_piecewise_subdivide_at_a_breakpoint_is_clean():
     assert len(left.segments) == 1 and len(right.segments) == 1
     np.testing.assert_allclose(left.end_state()[0], [1.0, 0.0, 0.0])
     np.testing.assert_allclose(right.start_state()[0], [1.0, 0.0, 0.0])
-
-
-def test_piecewise_subdivide_on_a_segment_boundary_splits_cleanly():
-    # Cutting exactly on a join must route whole segments either side, never split one.
-    seg_a = Spline(np.array([[0.0, 0.0, 0.0], [1.0, 0.0, 0.0]]), t0=0.0, t1=1.0)
-    seg_b = Spline(np.array([[1.0, 0.0, 0.0], [1.0, 2.0, 0.0]]), t0=1.0, t1=3.0)
-    left, right = PiecewiseSpline([seg_a, seg_b]).subdivide(1.0)
-    assert len(left.segments) == 1 and len(right.segments) == 1
-    assert left.t1 == 1.0 and right.t0 == 1.0
-    np.testing.assert_allclose(left.end_state()[0], right.start_state()[0], atol=1e-12)
