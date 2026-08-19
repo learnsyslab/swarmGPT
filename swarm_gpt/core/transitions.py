@@ -3,10 +3,14 @@
 Joins WS1's per-drone spline-1 fragments into one continuous, C2 ``PiecewiseSpline`` per
 drone. A degree-8 min-snap Bezier fills the explicit gap each ``TRANSITION`` marker leaves
 between consecutive fragments; the lead-in from and return-to hover are added automatically.
+
+An authored gap too short for the distance it must cover is widened by giving up the tail of the
+preceding fragment, so the next fragment still starts on its beat.
 """
 
 from __future__ import annotations
 
+import logging
 import math
 from typing import TYPE_CHECKING
 
@@ -27,6 +31,13 @@ State = tuple["NDArray", "NDArray", "NDArray"]
 
 _Curve = Spline | PiecewiseSpline
 _TRANSITION_DEGREE = 8
+# Largest share of the preceding fragment a transition may consume. Fragment 0 arrives already
+# head-carved by the lead-in, so the two together can leave very little of what the LLM authored.
+_MAX_TRIM = 0.9
+# Trimming moves the fragment's end state, which changes the distance to cover; re-solve this often.
+_TRIM_ITERS = 3
+
+logger = logging.getLogger(__name__)
 
 
 def _snap_gram(degree: int) -> NDArray:
@@ -132,13 +143,48 @@ def _segments(curve: _Curve) -> list[Spline]:
     return curve.segments if isinstance(curve, PiecewiseSpline) else [curve]
 
 
+def _trim_for_transition(prev: _Curve, target_pos: NDArray, t_end: float) -> _Curve:
+    """Shorten ``prev``'s tail until the transition to ``target_pos`` fits its speed budget.
+
+    Args:
+        prev: The preceding fragment, whose tail may be given up.
+        target_pos: Position the transition must reach, in cm.
+        t_end: Beat-locked time the transition must arrive at.
+
+    Returns:
+        ``prev`` unchanged, or its leading part over a shortened interval.
+    """
+    trimmed = prev
+    for _ in range(_TRIM_ITERS):
+        need = _transition_duration(target_pos - trimmed.end_state()[0])
+        have = t_end - trimmed.t1
+        if need <= have:
+            return trimmed
+        # Measured against the original fragment: successive cuts must not compound past the cap.
+        extra = min(need - have, _MAX_TRIM * prev.duration - (prev.t1 - trimmed.t1))
+        if extra <= 1e-9:
+            break
+        trimmed = trimmed.subdivide(trimmed.t1 - extra)[0]
+    # A curved fragment moves its own end state as it is cut, so the last pass may have succeeded.
+    need = _transition_duration(target_pos - trimmed.end_state()[0])
+    have = t_end - trimmed.t1
+    if need > have:
+        logger.warning(
+            f"Transition into t={t_end:.2f}s needs {need:.2f}s but only {have:.2f}s is available "
+            "after trimming the preceding primitive; it will be flown faster than the effective "
+            "speed limit"
+        )
+    return trimmed
+
+
 def assemble_trajectory(fragments: list[_Curve], home_state: State) -> PiecewiseSpline:
     """Join per-drone spline-1 fragments into one continuous, C2 trajectory.
 
     The fragments are non-contiguous: an explicit ``TRANSITION`` marker upstream leaves a real
     time gap ``[prev.t1, frag.t0]`` between every consecutive pair. Each gap is filled by one
     min-snap transition connecting ``prev.end_state()`` to ``frag.start_state()`` over that
-    window. The lead-in from hover stays automatic: a ``delta`` is carved from the head of
+    window, widened by :func:`_trim_for_transition` when the gap is too short for the distance.
+    The lead-in from hover stays automatic: a ``delta`` is carved from the head of
     fragment 0 (nothing precedes it) and a min-snap transition leads in from ``home_state``; a
     return-to-home transition is appended after the last fragment. Lead-in and return use
     :func:`_transition_duration`.
@@ -174,6 +220,7 @@ def assemble_trajectory(fragments: list[_Curve], home_state: State) -> Piecewise
                 f"fragments are contiguous over [{prev.t1}, {frag.t0}]: a TRANSITION must "
                 "separate consecutive primitives so a transition window exists between them"
             )
+        prev = _trim_for_transition(prev, frag.start_state()[0], frag.t0)
         out += _segments(prev)
         out += _segments(transition_spline(prev.end_state(), frag.start_state(), prev.t1, frag.t0))
         prev = frag
