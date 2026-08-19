@@ -41,7 +41,7 @@ axswarm:
   max_iters: 1000 # Maximum number of iterations
 
   # Constraints
-  pos_constraints: hard  # Either hard, soft or false
+  pos_constraints: soft  # Either hard, soft or false
   vel_constraints: false
   acc_constraints: false
   input_continuity_constraints: hard

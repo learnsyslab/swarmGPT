@@ -9,8 +9,7 @@ The sampling rate is not a free choice. axswarm takes waypoints as *sparse const
 trajectory, and three of its properties bound the grid from both sides:
 
 - Waypoint times snap to the MPC grid (``round((t - now) * freq)``), so two samples closer than
-  ``1 / freq`` collapse onto one index. Under ``pos_constraints: hard`` that is two contradictory
-  equality rows.
+  ``1 / freq`` collapse onto one index, so one of the two is silently discarded.
 - Only waypoints inside ``(0, K]`` steps are in the horizon. A gap wider than ``K / freq`` empties
   it -- and empties it *silently*: with an all-False mask axswarm's ``argmax`` bounds still produce
   a non-empty range, so its own "no waypoints within current horizon" guard never fires and the QP
