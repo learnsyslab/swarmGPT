@@ -117,7 +117,6 @@ analyze = { cmd = "python tools/analyze_songs.py", description = "Analyze every 
 
 [tool.pixi.pypi-dependencies]
 swarmgpt = { path = ".", editable = true }
-minsnap_trajectories = ">=0.2.0"
 
 # feature[kilted]
 [tool.pixi.feature.kilted]

@@ -14,6 +14,7 @@ import sys
 from pathlib import Path
 
 import matplotlib
+
 matplotlib.use("TkAgg")  # interactive backend — must be set before importing pyplot
 
 import matplotlib.pyplot as plt
