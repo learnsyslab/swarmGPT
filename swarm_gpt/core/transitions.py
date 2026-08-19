@@ -183,3 +183,22 @@ def assemble_trajectory(fragments: list[_Curve], home_state: State) -> Piecewise
     ret_delta = _transition_duration(home_pos - prev.end_state()[0])
     out += _segments(transition_spline(prev.end_state(), home_state, prev.t1, prev.t1 + ret_delta))
     return PiecewiseSpline(out)
+
+
+def authored_span(trajectories: dict[int, PiecewiseSpline]) -> tuple[float, float]:
+    """The window in which every drone is flying material the LLM actually wrote.
+
+    :func:`assemble_trajectory` brackets each drone's fragments with a lead-in from hover and a
+    return to it. Neither is authored and neither is collision-aware, so blaming the model for a
+    conflict there asks it to fix something it cannot address.
+
+    Args:
+        trajectories: Drone id -> assembled trajectory, as built by :func:`assemble_trajectory`.
+
+    Returns:
+        ``(t_start, t_end)``: after the last drone's lead-in, before the first drone's return.
+    """
+    return (
+        max(t.segments[0].t1 for t in trajectories.values()),
+        min(t.segments[-1].t0 for t in trajectories.values()),
+    )

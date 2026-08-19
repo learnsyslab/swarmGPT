@@ -29,7 +29,7 @@ from swarm_gpt.core.structured_output_schema import (
     structured_payload_to_choreography,
     structured_payload_to_lighting,
 )
-from swarm_gpt.core.transitions import assemble_trajectory
+from swarm_gpt.core.transitions import assemble_trajectory, authored_span
 from swarm_gpt.exception import LLMFormatError, LLMPlanError, LLMResponseProcessingError
 from swarm_gpt.utils.llm_providers import (
     RESPONSES_TEMPERATURE,
@@ -606,15 +606,13 @@ class Choreographer:
             waypoints = sample_trajectories(trajectories, self.settings, start_pos)
             waypoints["pos"] = np.clip(waypoints["pos"], self.lim_lower, self.lim_upper)
             if strict:
-                # The docked configuration is excluded, as it is on the raw path: every drone sits
-                # at its home at t=0 and again after the return-to-hover, and an LLMPlanError
-                # naming those moments asks the model to fix something it does not control.
-                flying = (waypoints["time"][0] > 0.0) & (
-                    waypoints["time"][0] < max(c.t1 for c in trajectories.values())
-                )
+                # Only the authored window is the model's to fix: the hover lead-in and return are
+                # per-drone min-snap legs it never wrote and cannot separate.
+                t_start, t_end = authored_span(trajectories)
+                authored = (waypoints["time"][0] >= t_start) & (waypoints["time"][0] <= t_end)
                 self._collision_check(
-                    waypoints["pos"][:, flying],
-                    time=waypoints["time"][0][flying],
+                    waypoints["pos"][:, authored],
+                    time=waypoints["time"][0][authored],
                     structure=structure,
                 )
             return waypoints

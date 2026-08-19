@@ -260,7 +260,9 @@ def form_circle(params, swarm_pos, tstart, tend, limits, swarm_vel=None):  # noq
     drone_ids, radius_cm, z_cm, _t = params
     ids = _subset(drone_ids, swarm_pos)
     n = len(ids)
-    r = max(float(radius_cm), _ring_radius_floor(80.0, n))
+    # The spacing floor outgrows the room past ~16 drones, and the room wins: a ring planned
+    # outside the box is clipped flat onto the wall at the axswarm boundary.
+    r = min(max(float(radius_cm), _ring_radius_floor(80.0, n)), _room_radius(np.zeros(3), limits))
     homes = _assign(swarm_pos, formations.ring(n, r, float(z_cm)), ids, swarm_vel, tend - tstart)
     return _hold(homes, ids, tstart, tend)
 
@@ -281,8 +283,13 @@ def form_cone(params, swarm_pos, tstart, tend, limits, swarm_vel=None):  # noqa:
     drone_ids, delta_height, spacing, is_inverted, _t = params
     ids = _subset(drone_ids, swarm_pos)
     n = len(ids)
-    z0 = (limits["lower"][2] if is_inverted else limits["upper"][2]) * 100
-    homes = formations.cone(n, spacing, z0, delta_height * (1 if is_inverted else -1)) + _centre_xy(
+    z_lo, z_hi = limits["lower"][2] * 100, limits["upper"][2] * 100
+    z0 = z_lo if is_inverted else z_hi
+    # Anchored on one z limit, the stack marches toward the other; shrink the step so it stops there
+    # rather than being clipped, which would flatten the outer layers onto the ceiling or floor.
+    layers = formations.cone_layers(n)
+    step = min(float(delta_height), (z_hi - z_lo) / layers) if layers else float(delta_height)
+    homes = formations.cone(n, spacing, z0, step * (1 if is_inverted else -1)) + _centre_xy(
         swarm_pos, ids
     )
     return _hold(_assign(swarm_pos, homes, ids, swarm_vel, tend - tstart), ids, tstart, tend)
@@ -510,15 +517,12 @@ def twister(params, swarm_pos, tstart, tend, limits, swarm_vel=None):  # noqa: A
     ids = _subset(drone_ids, swarm_pos)
     n = len(ids)
     centre = _centre_xy(swarm_pos, ids)
+    # One turn, not two: a second turn puts every drone directly above another, and the pitch the
+    # prompt advertises is far under the vertical collision envelope. Within a single turn the
+    # drones are separated in x/y instead, so the pitch stays free.
+    radius = min(max(400.0, _ring_radius_floor(60.0, n)), _room_radius(centre, limits))
     layout = (
-        formations.helix_static(
-            n,
-            min(400.0, _room_radius(centre, limits)),
-            100 * limits["lower"][2],
-            float(z_spacing),
-            2.0,
-        )
-        + centre
+        formations.helix_static(n, radius, 100 * limits["lower"][2], float(z_spacing), 1.0) + centre
     )
     dphi = min(omega / 10.0, 2.0) * (tend - tstart)
 

@@ -422,3 +422,48 @@ def test_duplicate_drone_ids_are_rejected_rather_than_silently_collapsed():
 def test_the_primitives_that_always_had_a_selector_also_bounds_check():
     with pytest.raises(LLMFormatError):
         form_circle(([99], 100, 100, 1.0), _swarm(4), 0.0, 4.0, _LIMITS, None)
+
+
+# Mirrors settings.yaml `axswarm.collision_envelope`, in cm.
+_ENVELOPE = np.array([25.0, 25.0, 60.0])
+
+
+def _closest_pair(curves: dict, t: float) -> float:
+    """Smallest envelope-scaled separation between any two drones at time t."""
+    pts = np.array([np.asarray(curves[d].evaluate(t)) for d in sorted(curves)])
+    scaled = np.linalg.norm((pts[:, None] - pts[None, :]) / _ENVELOPE, axis=-1)
+    return (scaled + np.eye(len(pts)) * 1e3).min()
+
+
+@pytest.mark.parametrize("n", [10, 20])
+@pytest.mark.parametrize("z_spacing", [5, 15, 30])
+def test_twister_layout_clears_the_collision_envelope(n: int, z_spacing: int) -> None:
+    """Two turns stacked drones one pitch apart, well inside the 60cm vertical envelope."""
+    swarm = np.array([[0.0, 0.0, 100.0]] * n)
+    out = twister((f"1-{n}", 3, 8, z_spacing), swarm, 0.0, 6.0, _LIMITS, None)
+    assert _closest_pair(out, 0.0) > 1.0
+
+
+@pytest.mark.parametrize("n", [10, 20])
+def test_form_circle_stays_inside_the_arena(n: int) -> None:
+    """The chord-spacing floor outgrows the room at 20 drones; the ring must still fit."""
+    lo, hi = _LIMITS["lower"] * 100.0, _LIMITS["upper"] * 100.0
+    out = form_circle((f"1-{n}", 120, 100, 2.0), _swarm(n), 0.0, 4.0, _LIMITS, None)
+    for curve in out.values():
+        p = curve.evaluate(2.0)
+        assert lo[0] <= p[0] <= hi[0] and lo[1] <= p[1] <= hi[1], p
+
+
+# The real lab box from settings.yaml; shallower in z than `_LIMITS`, which is what bites.
+_LAB_LIMITS = {"lower": np.array([-2.0, -2.0, 0.25]), "upper": np.array([2.0, 2.0, 1.7])}
+
+
+@pytest.mark.parametrize("n", [10, 20])
+@pytest.mark.parametrize("inverted", [0, 1])
+def test_form_cone_stays_inside_the_arena(n: int, inverted: int) -> None:
+    """The cone is anchored on a z limit, so its layers must not march out the other side."""
+    lo, hi = _LAB_LIMITS["lower"] * 100.0, _LAB_LIMITS["upper"] * 100.0
+    out = form_cone((f"1-{n}", 50, 60, inverted, 2.0), _swarm(n), 0.0, 4.0, _LAB_LIMITS, None)
+    for curve in out.values():
+        # The layer step accumulates, so allow ULP drift onto the limit itself.
+        assert lo[2] - 1e-6 <= curve.evaluate(2.0)[2] <= hi[2] + 1e-6

@@ -136,6 +136,24 @@ def star(n: int, radius: float, delta_radius: float, height: float) -> NDArray:
     return pts
 
 
+def cone_layers(n: int, layer_growth: int = 4) -> int:
+    """Number of rings :func:`cone` stacks below its apex, so a caller can bound the z span.
+
+    Args:
+        n: Number of drones.
+        layer_growth: Number of additional drones per layer.
+
+    Returns:
+        The ring count (zero for a lone apex).
+    """
+    left, in_layer, layers = n - 1, 0, 0
+    while left > 0:
+        in_layer += layer_growth
+        left -= min(in_layer, left)
+        layers += 1
+    return layers
+
+
 def cone(n: int, spacing: float, z0: float, delta_h: float, layer_growth: int = 4) -> NDArray:
     """Return a cone: an apex with widening z-stacked rings (cm).
 
@@ -173,6 +191,8 @@ def helix_static(n: int, radius: float, z0: float, pitch: float, turns: float) -
     Returns:
         Home positions of shape ``(n, 3)`` in cm.
     """
-    a = np.linspace(0.0, 2 * np.pi * turns, n)
+    # Exclusive in angle: closing the turn would put the last drone directly above the first,
+    # separated only by the rise.
+    a = np.linspace(0.0, 2 * np.pi * turns, n, endpoint=False)
     z = z0 + np.linspace(0.0, pitch * turns, n)
     return np.stack([radius * np.cos(a), radius * np.sin(a), z], axis=1)

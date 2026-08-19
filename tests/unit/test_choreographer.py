@@ -8,6 +8,7 @@ from conftest import virtual_crazyswarm_config
 
 from swarm_gpt.core.choreographer import Choreographer
 from swarm_gpt.core.spline import PiecewiseSpline, Spline
+from swarm_gpt.exception import LLMPlanError
 
 
 def test_schema_allows_multiple_actions_per_entry():
@@ -262,3 +263,32 @@ def test_response2waypoints_produces_a_grid_axswarm_can_consume():
     assert gaps.min() >= 1.0 / freq, "two waypoints would collapse onto one MPC index"
     assert gaps.max() < horizon / freq, "a gap this wide empties the lookahead, silently"
     assert len({round(float(x) * freq) for x in t}) == t.size, "MPC index collision"
+
+
+def _lab_choreographer(n: int) -> Choreographer:
+    """A 20-drone-capable choreographer on the real lab dock layout."""
+    config = Path(__file__).resolve().parents[2] / "swarm_gpt/data/drones.toml"
+    c = Choreographer(config_file=config, llm_provider="openai", use_motion_primitives=True)
+    assert c.num_drones == n, f"drones.toml activates {c.num_drones}, expected {n}"
+    return c
+
+
+def _plan(body: str) -> str:
+    return f'song_mood: "x"\nchoreography_plan: "x"\nchoreography:\n{body}  END\nlighting:\n  END\n'
+
+
+def test_collision_check_ignores_the_hover_lead_in_and_return():
+    """Those two legs are built per-drone by `assemble_trajectory`; the LLM cannot separate them."""
+    c = _lab_choreographer(20)
+    structure = _single_bar_structure(end_s=32.0)
+    c.response2waypoints(_plan("  s1b1t1: rotate('1-20', 90, 'z')\n"), structure, strict=True)
+
+
+def test_collision_check_still_flags_a_collision_the_llm_authored():
+    """Two subsets given the same origin-centred ring land on each other, and that is on the LLM."""
+    c = _lab_choreographer(20)
+    structure = _single_bar_structure(end_s=32.0)
+    with pytest.raises(LLMPlanError, match="too close"):
+        c.response2waypoints(
+            _plan("  s1b1t1: center('1-10'); center('11-20')\n"), structure, strict=True
+        )
