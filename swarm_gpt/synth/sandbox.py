@@ -11,6 +11,7 @@ from __future__ import annotations
 import ast
 import builtins
 import signal
+import threading
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -180,6 +181,8 @@ def call_guarded(fn: Callable[..., Any], *args: Any) -> Any:
     Raises:
         SynthError: If the call exceeds the timeout or raises.
     """
+    if threading.current_thread() is not threading.main_thread():
+        return _call_guarded_offthread(fn, *args)
 
     def _timeout(signum: int, frame: Any) -> None:
         raise TimeoutError(f"exceeded {_CALL_TIMEOUT_S:.0f}s")
@@ -195,6 +198,37 @@ def call_guarded(fn: Callable[..., Any], *args: Any) -> Any:
     finally:
         signal.setitimer(signal.ITIMER_REAL, 0.0)
         signal.signal(signal.SIGALRM, previous)
+
+
+def _call_guarded_offthread(fn: Callable[..., Any], *args: Any) -> Any:
+    """The same guard for a worker thread, where SIGALRM cannot be installed.
+
+    A runaway call is abandoned rather than interrupted -- Python offers no way to stop another
+    thread -- so it keeps burning a daemon thread until the process exits. The loop must stay
+    alive, which is what this buys, and the AST whitelist is the guard that actually matters.
+
+    Raises:
+        SynthError: If the call exceeds the timeout or raises.
+    """
+    outcome: dict[str, Any] = {}
+
+    def _target() -> None:
+        try:
+            outcome["value"] = fn(*args)
+        except BaseException as e:  # noqa: BLE001 -- re-raised on the calling thread below
+            outcome["error"] = e
+
+    worker = threading.Thread(target=_target, daemon=True, name="synth-primitive-call")
+    worker.start()
+    worker.join(_CALL_TIMEOUT_S)
+    if worker.is_alive():
+        raise SynthError(f"Call raised TimeoutError: exceeded {_CALL_TIMEOUT_S:.0f}s")
+    error = outcome.get("error")
+    if isinstance(error, SynthError):
+        raise error
+    if error is not None:
+        raise SynthError(f"Call raised {error.__class__.__name__}: {error}") from error
+    return outcome["value"]
 
 
 def validate_waypoints(

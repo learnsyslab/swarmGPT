@@ -61,6 +61,13 @@ def register_synthesized(
     motion_primitives[name] = {"n_args": n_args}
 
 
+def clear_synthesized() -> None:
+    """Drop every runtime-authored primitive, leaving the hand-written library untouched."""
+    for name in list(_synthesized):
+        del _synthesized[name]
+        motion_primitives.pop(name, None)
+
+
 def primitive_by_name(
     name: str,
 ) -> Callable[

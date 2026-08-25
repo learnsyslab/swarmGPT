@@ -24,6 +24,34 @@ A positive control settles that this is the instrument's fault, not the library'
 (`helix` takes no drone subsets and no rotation direction). **Never ask an LLM what capability it
 is missing.**
 
+### `coverage/gap-classifier.json` — asking about one request instead of about itself
+
+The instrument above fails because self-examination is the wrong question. The frontend needs the
+same information at refine time, so it asks a narrower one: *here is one user request and the list
+of primitives that exist — does this need one that is not on the list?* Judgement about a concrete
+case, not introspection.
+
+20 hand-labelled refinement messages, 1 run each, against the hand-written library. On the 17 the
+author can label with confidence: **15/17 correct (88%)**, and the breakdown is what matters more
+than the total — **0 false positives** and 2 false negatives. It never invented a gap for a
+request the library covers, which is the expensive direction: a false positive spends minutes of
+synthesis on nothing. It misses gaps instead, twice — "the outline of a cube", and "a DNA double
+helix", which it judged covered because `helix` is on the list. That second miss is the
+introspective failure mode surviving in weaker form.
+
+One probe in 20 returned ~98 kB of unparseable text instead of a verdict. The classifier treats an
+unreadable answer as "no gap" so a runaway response cannot block the refinement it was asked
+about.
+
+Because it under-fires rather than over-fires, the refine box also carries an explicit override. A
+demo that must show synthesis should use it rather than depend on a judgement call.
+
+The catalogue it is shown is whatever is registered at that moment, which is why a primitive
+authored during a refine is discarded when another song is selected: a promoted heart in the
+catalogue makes the classifier answer "covered" for a heart request, correctly, and there is then
+nothing to demonstrate. Verified both ways -- with the heart registered, "put a heart at the drop"
+returns covered while "a butterfly at the bridge" still returns a gap.
+
 ### `coverage/decoy.json` — revealed preference
 
 13 fake motion primitives and 6 fake lighting primitives added to the prompt *and* the output

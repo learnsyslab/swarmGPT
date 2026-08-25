@@ -241,3 +241,88 @@ def test_prompt_sent_reaches_the_socket_with_its_messages_while_the_model_thinks
             assert not any(event["type"] == "conversation" for event in seen)
     finally:
         backends[0].may_answer.set()
+
+
+def test_a_failed_synthesis_abandons_the_refine_instead_of_reprompting(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A request needing a primitive that could not be built must not fall back to the library.
+
+    The choreographer would approximate the shape one drone at a time with `move`, which is worse
+    than not trying, so the existing choreography is left exactly as it is.
+    """
+
+    class Backend:
+        def __init__(self) -> None:
+            self.settings = {"axswarm": {"pos_min": [-1, -1, 0], "pos_max": [1, 1, 2]}}
+            self.music_manager = SimpleNamespace(song="Test Song")
+            self.songs = ["Test Song"]
+            self.presets: list[str] = []
+            self.browser_cues = lambda: _lighting_stub(1)
+            self.choreographer = SimpleNamespace(
+                last_reasoning_summary=None,
+                model_id="gpt",
+                llm_provider="openai",
+                configure_llm=lambda *a, **k: None,
+            )
+            self.splines: dict[int, object] = {}
+            self.reprompts: list[str] = []
+
+        def initial_prompt(self, selection: str, **_kwargs: object) -> list[dict[str, str]]:
+            return []
+
+        def reprompt(self, message: str, **_kwargs: object) -> list[dict[str, str]]:
+            self.reprompts.append(message)
+            return []
+
+        def simulate(self) -> Generator[None, None, dict[str, object]]:
+            self.splines[0] = object()
+            states = np.zeros((1, 1, 13))
+            states[:, :, 3:7] = [0, 0, 0, 1]
+            if False:
+                yield None
+            return {"timestamps": np.array([0.0]), "states": states, "num_drones": 1}
+
+        def crop_window(self, song: str) -> tuple[float, float]:
+            return (0.0, 60.0)
+
+    backends: list[Backend] = []
+
+    def backend_from_config(config: ApiConfig, provider: str, model_id: str) -> Backend:
+        backend = Backend()
+        backends.append(backend)
+        return backend
+
+    def failed_synthesis(message: str, **kwargs: object) -> server.SynthesisOutcome:
+        return server.SynthesisOutcome(1, "not accepted; model closed on 'tweak'")
+
+    (tmp_path / "Test Song.mp3").write_bytes(b"")
+    monkeypatch.setattr(server, "_backend_from_config", backend_from_config)
+    monkeypatch.setattr(server, "starting_positions", lambda: np.zeros((1, 3)))
+    monkeypatch.setattr(server, "synthesize_for_refine", failed_synthesis)
+    client = TestClient(create_app(ApiConfig(music_dir=tmp_path)))
+
+    job_id = client.post(
+        "/api/jobs", json={"selection": "Test Song", "provider": "openai", "modelId": "gpt"}
+    ).json()["jobId"]
+    for _ in range(100):
+        if client.get(f"/api/jobs/{job_id}").json()["status"] == "ready":
+            break
+        time.sleep(0.01)
+    backend = backends[0]
+
+    client.post(
+        f"/api/jobs/{job_id}/refine",
+        json={"message": "put a heart at the drop", "synthesis": "force"},
+    ).raise_for_status()
+    for _ in range(100):
+        if client.get(f"/api/jobs/{job_id}").json()["status"] == "ready":
+            break
+        time.sleep(0.01)
+
+    assert backend.reprompts == []
+    snapshot = client.get(f"/api/jobs/{job_id}").json()
+    assert snapshot["status"] == "ready"
+    assert snapshot["error"] is None
+    # The choreography that was already solved is still playable.
+    client.get(f"/api/jobs/{job_id}/playback").raise_for_status()

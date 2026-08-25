@@ -21,6 +21,8 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from swarm_gpt.core import AppBackend
+from swarm_gpt.synth.promote import reset_synthesized, starting_positions
+from swarm_gpt.synth.refine import SynthesisMode, SynthesisOutcome, synthesize_for_refine
 from swarm_gpt.utils.llm_providers import (
     DEFAULT_OPENAI_MODEL_CHOICES,
     PROVIDER_LABEL_OLLAMA,
@@ -39,7 +41,9 @@ WEB_DIST_DIR = ROOT / "web" / "dist"
 SWARM_BACKGROUND = ROOT / "swarm_gpt" / "ui" / "swarm.png"
 DRONE_ASSET_DIR = Path(drone_models.__file__).resolve().parent / "data" / "assets"
 
-JobStatus = Literal["queued", "thinking", "filtering", "ready", "deploying", "failed"]
+JobStatus = Literal[
+    "queued", "synthesizing", "thinking", "filtering", "ready", "deploying", "failed"
+]
 
 
 @dataclass(frozen=True)
@@ -69,6 +73,7 @@ class RefineRequest(BaseModel):
     message: str = Field(min_length=1)
     provider: LLMProvider | None = None
     model_id: str | None = Field(default=None, alias="modelId")
+    synthesis: SynthesisMode = "auto"
 
 
 class Job:
@@ -296,13 +301,51 @@ def _run_initial_job(store: JobStore, job: Job, selection: str) -> None:
         store.fail(job, exc)
 
 
+def _run_synthesis(
+    store: JobStore, job: Job, message: str, mode: SynthesisMode
+) -> SynthesisOutcome:
+    """Author the primitive this refinement needs, if it needs one.
+
+    Synthesis is minutes long and may legitimately fail; a failure is reported rather than raised.
+    """
+    store.emit(job, "synthesis_considering", {"mode": mode}, status="synthesizing")
+    try:
+        return synthesize_for_refine(
+            message,
+            mode=mode,
+            settings=job.backend.settings,
+            start_pos_m=starting_positions(),
+            model_id=job.backend.choreographer.model_id,
+            llm_provider=job.backend.choreographer.llm_provider,
+            on_event=lambda kind, payload: store.emit(job, kind, payload),
+        )
+    except Exception as exc:
+        logger.exception("Synthesis failed during refine on job %s", job.id)
+        status = f"{type(exc).__name__}: {exc}"
+        store.emit(job, "synthesis_failed", {"code": 3, "status": status})
+        return SynthesisOutcome(3, status)
+
+
 def _run_refine_job(
-    store: JobStore, job: Job, message: str, provider: LLMProvider | None, model_id: str | None
+    store: JobStore,
+    job: Job,
+    message: str,
+    provider: LLMProvider | None,
+    model_id: str | None,
+    synthesis: SynthesisMode,
 ) -> None:
     try:
         if provider is not None and model_id:
             job.backend.choreographer.configure_llm(provider, model_id)
             store.emit(job, "llm_configured", {"provider": provider, "modelId": model_id})
+        outcome = _run_synthesis(store, job, message, synthesis)
+        if outcome.failed:
+            # The request needed a primitive that could not be built. Reprompting anyway makes the
+            # choreographer approximate the shape one drone at a time with `move`, which is worse
+            # than not trying. Leave the existing choreography exactly as it is.
+            store.emit(job, "refine_abandoned", {"reason": outcome.status}, status="ready")
+            return
+        message = outcome.prefix(message)
         store.emit(job, "thinking_started", {"refine": True}, status="thinking")
         messages = job.backend.reprompt(
             message, on_prompt=lambda prompt: store.emit(job, "prompt_sent", {"messages": prompt})
@@ -414,6 +457,10 @@ def create_app(config: ApiConfig | None = None) -> FastAPI:
         backend = _backend_from_config(config, request.provider, request.model_id)
         if request.selection not in backend.songs and request.selection not in backend.presets:
             raise HTTPException(status_code=404, detail="Song or preset not found")
+        # A primitive authored for one choreography does not carry over to the next song. The
+        # registries it writes are module-level, so selecting a song clears them -- which assumes
+        # one choreography is being worked on at a time, as this local single-user app intends.
+        reset_synthesized()
         job = store.create(backend)
         _start_thread(job, lambda: _run_initial_job(store, job, request.selection))
         return {"jobId": job.id, "eventsUrl": f"/api/jobs/{job.id}/events"}
@@ -465,7 +512,7 @@ def create_app(config: ApiConfig | None = None) -> FastAPI:
         _start_thread(
             job,
             lambda: _run_refine_job(
-                store, job, request.message, request.provider, request.model_id
+                store, job, request.message, request.provider, request.model_id, request.synthesis
             ),
         )
         return {"jobId": job.id}

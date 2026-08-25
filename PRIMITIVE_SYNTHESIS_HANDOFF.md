@@ -304,10 +304,8 @@ Each cost real time or API credit. Do not re-investigate.
 
 ## 8. Next steps, ranked
 
-1. **Wire synthesis into the frontend** so a refinement request that names a primitive the library
-   lacks triggers the loop, promotes the result, and re-solves the choreography with it. Everything
-   downstream already works: registration writes all four places, and a promoted primitive is
-   indistinguishable from a hand-written one at choreography time. This is the demo.
+1. ~~**Wire synthesis into the frontend.**~~ **Done** — see §11. A refine can now author the
+   primitive it needs, and the browser shows the loop failing and fixing itself while it happens.
 2. **Synthesize more primitives and re-run the coverage instrument.** This is what turns the
    existence proof into the paper's headline: with the hand library 88% of blind intents fall
    short, so promote N primitives and re-measure the same 88 intents against the extended library.
@@ -342,6 +340,10 @@ Each cost real time or API credit. Do not re-investigate.
 | `manifest.py` | The single declaration; `register()` writes all four places. |
 | `sandbox.py` | AST whitelist plus `HELPERS` — the library's own `assign` and `arrival_time`, bound by reference so authored primitives cannot drift from what the hand-written ones use. |
 | `feedback.py` | Unchanged: the three ablation arms. |
+| `promote.py` | `gate()` (trust) vs `promote()` (trust + persist), `reset_synthesized()`, `load_promoted` for offline tools. |
+| `trigger.py` | The per-request gap classifier that decides whether a refine needs synthesis. |
+| `refine.py` | Orchestrates classify -> synthesize -> gate -> register for one browser refine. |
+| `run_log.py` | The JSONL capture both paths write to the gitignored `synth_runs/`. |
 
 `experiments/synth_to_library.py` is the single entry point (it replaced `synth_single_run.py`,
 which logged a run and threw the primitive away). `ablation_feedback.py` and the four coverage
@@ -358,7 +360,7 @@ back by adding them to `active` and re-running the ring layout. A ring makes eve
 which is the failure that cost five runs. Only `pos` was changed; `addr` and `channel` are as they
 were.
 
-Tests: `tests/unit/test_synth_{schema,verifier,sandbox,feedback}.py`. 818 pass.
+Tests: `tests/unit/test_synth_{schema,verifier,sandbox,feedback,promote}.py`. 837 pass.
 
 Two artifacts are kept deliberately: `results/synthesis-rejected/double_helix-...selfcertified.json`
 is outside the load path because it is the *evidence* for the self-certification finding, and
@@ -377,3 +379,96 @@ direction of every thread, and has a current picture of where this stands.
 This thread has no second owner. It is the proposal plus the three coverage instruments, the
 feedback ablation, and the synthesis loop in §5 — self-contained enough for a student to pick up.
 I'm reachable at yiyi.xu@mail.utoronto.ca after I leave.
+
+---
+
+## 11. The frontend path
+
+All on this branch. The lifetime rule below is the load-bearing decision; the three pieces the work
+was scoped as -- loading, triggering, progress -- follow from it.
+
+**A refine's primitive lives only as long as the choreography that asked for it.** This is the
+rule the rest of the frontend path is built around, and it is a deliberate reversal of the obvious
+design. Selecting a song calls `reset_synthesized()`, which clears the runtime registries; a
+primitive authored during a refine is registered in memory, used by that choreography, and gone the
+moment another song is picked. The running app **never** reads `results/synthesized/` — there is no
+startup load — and a refine **never** writes to it.
+
+Two reasons, and the second is the one that matters:
+
+- Persistence quietly kills the demo. With `upright_heart_outline` on disk and loaded, the
+  classifier is shown it in the catalogue and correctly answers "covered" for *"put a heart at the
+  drop"* — no synthesis, no loop, nothing to watch. Each demo request burned itself out after one
+  use. Verified directly: heart → COVERED, butterfly → GAP.
+- Authoring the library is a deliberate act, not a side effect of someone refining a show. The CLI
+  is where that happens.
+
+So the split is: `gate()` decides whether a run may be trusted, `promote()` is `gate()` plus
+persistence. The browser calls `gate()`; only `experiments/synth_to_library.py` calls `promote()`.
+Every run, from either path, writes a JSONL record to the gitignored `synth_runs/` via
+`synth/run_log.py` — capture is not gated, and that record is not a load path.
+
+`load_promoted` still exists for offline tools that need a promoted entry resolvable (rendering the
+tracked preset that contains the heart, for instance). Nothing in the running app calls it. It
+skips any entry whose `provenance.n_drones` differs from the active swarm — `double_helix.json`
+hardcodes 20 drone indices and would misfire on the 10-drone ring.
+
+**One assumption worth knowing.** The synthesized registries are module-level globals, so clearing
+them on song selection assumes one choreography is being worked on at a time. That is what this
+local single-user app intends, but two concurrent jobs would tread on each other. Making the
+registry per-backend is the real fix if that ever matters.
+
+**The trigger is a per-request classifier**, `synth/trigger.py`. It is shown the signature of every
+primitive that exists — built from the same two tables the response schema is built from, so it
+cannot drift — plus one refine message, and asked whether that message needs a primitive not on the
+list. This is deliberately *not* the introspective question of §4.1: it is a judgement about one
+concrete case, and it works where introspection did not. Measured before it was built on, in
+`results/coverage/gap-classifier.json`: **15/17 on the unambiguous labels, and 0 false positives.**
+It under-fires — it missed "the outline of a cube" and judged "a DNA double helix" covered because
+`helix` is on the list, which is the §4.1 failure mode surviving in weaker form. Under-firing is
+the right direction, since a false positive spends minutes of synthesis on nothing.
+
+Because it under-fires, the refine box also carries an explicit mode: *auto* (classifier), *force*
+(always), *off* (never). **A demo should use `force`, or lean on the fact that a primitive already
+promoted needs no synthesis at all.** §8.4 still stands: this is library authoring, and running it
+live for an audience is a minutes-long bet that can legitimately fail.
+
+**Progress is streamed, not spun.** `SynthesisLoop.run` takes an `on_iteration` callback; the API
+turns each turn into a `synthesis_iteration` event carrying stage, authored and flown separation,
+and steps inside the envelope, and the browser renders one line per attempt — "rejected before
+flying: the drones reach 0.48 of the 1.00 spacing they need", then "flew clear". Watching it fail
+and fix itself is the interesting part for a viewer.
+
+**Failure is a path, not an exception.** Whatever happens — no gap, the model never accepts, a gate
+refuses what it kept, or synthesis raises — the refinement goes ahead against whatever library
+exists, and the UI says which. Nothing about a synthesis failure loses the user their choreography.
+
+**Four bugs the browser path surfaced.** None are frontend bugs; the loop had simply only ever run
+on the main thread of a short-lived CLI process.
+
+- **`signal.SIGALRM` cannot be installed off the main thread.** Refine jobs run in a worker, so the
+  first browser run died with `ValueError: signal only works in main thread`. `call_guarded` now
+  falls back to a join-with-timeout on a daemon thread. A runaway call is abandoned rather than
+  interrupted — Python cannot stop another thread — so it leaks a thread until exit. The loop
+  staying alive is what that buys; the AST whitelist is the guard that actually matters. **The
+  main-thread path is byte-for-byte unchanged, so the ablation's code path is untouched.**
+- **A runaway reply killed the whole run.** Twice, on a hard revise turn, the model returned tens of
+  kB of unparseable text and `json.loads` raised out of `_call`. It is now a `SynthError`, which the
+  loop already knows how to turn into feedback, and the runaway text is kept **out** of the message
+  history — replaying it is what makes the next turn run away too.
+- **Retries stack.** The SDK default pairs a 600 s read timeout with two retries, so one stalled
+  call could hold a browser job for half an hour with nothing to show. Cut to one retry.
+- **A turn is minutes, and the panel looked frozen between them.** `run()` also takes an
+  `on_authoring` callback, so the UI can say which attempt is currently with the model.
+
+**Open, and not to be trusted yet.** The classifier call carries a 90 s timeout so a slow API cannot
+hold a refine open. `APITimeoutError` fires correctly in isolation (verified at a 1 ms timeout), but
+during a degraded-API window a live classifier call was observed running well past 90 s without
+raising, and I could not explain it before the window closed. Check this before relying on it.
+
+**Timing, measured, and worse than §6 implies.** The synthesis runs in §2 were roughly a minute an
+iteration. In the browser runs on 2026-08-25 the API was degraded and iterations took several
+minutes each, making a 14-iteration `force` run a 45-60 minute bet rather than ten. A crescent-moon
+request was also watched failing the pre-solve screen with authored separation *falling* across
+attempts (0.65, 0.53, 0.45) — ten drones on one vertical arc may be infeasible the way the
+counter-rotating helix is.

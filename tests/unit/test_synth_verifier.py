@@ -178,8 +178,15 @@ def _spread_positions(n: int = 6) -> np.ndarray:
     return pos
 
 
+class _UncalledClient:
+    """Stands in for the OpenAI client in tests that never reach the model."""
+
+    def with_options(self, **_kwargs: object) -> "_UncalledClient":
+        return self
+
+
 def _loop(monkeypatch: pytest.MonkeyPatch, *, screen: bool) -> SynthesisLoop:
-    monkeypatch.setattr(loopmod, "openai_client_for_provider", lambda *a, **k: object())
+    monkeypatch.setattr(loopmod, "openai_client_for_provider", lambda *a, **k: _UncalledClient())
     return SynthesisLoop(
         settings=_settings(),
         start_pos_m=_spread_positions(),
@@ -305,3 +312,19 @@ def test_screen_feedback_names_the_limit_that_was_broken(monkeypatch: pytest.Mon
     loop = _loop(monkeypatch, screen=True)
     record = loop._evaluate(_manifest("dash", TELEPORTS, 1.0, 400.0), [300.0])
     assert str(_settings()["axswarm"]["vel_max"]) in record.feedback
+
+
+def test_a_screened_record_carries_each_broken_limit_verbatim(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(
+        loopmod, "solve_only", lambda *a, **k: (_ for _ in ()).throw(SolverReached())
+    )
+    loop = _loop(monkeypatch, screen=True)
+    record = loop._evaluate(_manifest("dash", TELEPORTS, 1.0, 400.0), [300.0])
+
+    assert record.stage == "screened"
+    assert record.violations
+    # The swarm teleports rather than crowds, so the rejection is kinematic. Reporting it as a
+    # separation failure is what the browser panel used to do.
+    assert any("speed" in v for v in record.violations)
+    assert record.metrics["authored_min_sep_norm"] >= 1.0
+    assert not any("separation" in v for v in record.violations)

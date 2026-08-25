@@ -1,5 +1,9 @@
 import type { LibraryItem, LibraryResponse, LlmResponse, Playback } from "./types";
 
+// "auto" asks a classifier whether the request needs a primitive that does not exist; "force"
+// synthesizes unconditionally; "off" never does.
+export type SynthesisMode = "auto" | "force" | "off";
+
 async function request<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, {
     headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
@@ -57,11 +61,12 @@ export function refineJob(
   jobId: string,
   message: string,
   provider: string,
-  modelId: string
+  modelId: string,
+  synthesis: SynthesisMode
 ) {
   return request<{ jobId: string }>(`/api/jobs/${jobId}/refine`, {
     method: "POST",
-    body: JSON.stringify({ message, provider, modelId })
+    body: JSON.stringify({ message, provider, modelId, synthesis })
   });
 }
 

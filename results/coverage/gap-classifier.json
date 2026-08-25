@@ -1,0 +1,215 @@
+{
+  "model": "gpt-5.6-luna",
+  "repeats": 1,
+  "probed_at": "2026-08-25T16:45:39",
+  "catalogue": "- move(x_cm, y_cm, z_cm, drone_id)\n- rotate(angle_deg, axis)\n- center(drone_ids)\n- swap(drone_id_1, drone_id_2)\n- move_z(drone_ids, delta_cm)\n- spiral(steps, height_cm)\n- spiral_speed(steps, height_cm, degrees, radius_increase)\n- helix(steps, delta_height_cm, height_cm)\n- form_circle(drone_ids, radius_cm, z_coord_cm, time_to_finish_s)\n- zig_zag(steps, delta_xy_cm, delta_z_cm)\n- wave(steps, height_cm)\n- twister(steps, omega_times_ten, z_spacing_cm)\n- form_star(height_cm, min_spacing_cm, delta_radius_cm, time_to_finish_s)\n- form_cone(delta_height_cm, spacing_cm, is_inverted, time_to_finish_s)",
+  "counts": {
+    "true_positive": 5,
+    "false_negative": 2,
+    "true_negative": 10,
+    "false_positive": 0,
+    "accuracy": 0.8823529411764706
+  },
+  "rows": [
+    {
+      "message": "make the chorus more energetic",
+      "label": false,
+      "arguable": false,
+      "repeat": 0,
+      "predicted": false,
+      "name": "",
+      "request": "",
+      "reasoning": ""
+    },
+    {
+      "message": "put a circle at the drop",
+      "label": false,
+      "arguable": false,
+      "repeat": 0,
+      "predicted": false,
+      "name": "",
+      "request": "",
+      "reasoning": ""
+    },
+    {
+      "message": "add a star formation in the bridge",
+      "label": false,
+      "arguable": false,
+      "repeat": 0,
+      "predicted": false,
+      "name": "",
+      "request": "",
+      "reasoning": ""
+    },
+    {
+      "message": "make the drones spiral higher during the solo",
+      "label": false,
+      "arguable": false,
+      "repeat": 0,
+      "predicted": false,
+      "name": "",
+      "request": "",
+      "reasoning": ""
+    },
+    {
+      "message": "turn everything deep red at the drop",
+      "label": false,
+      "arguable": false,
+      "repeat": 0,
+      "predicted": false,
+      "name": "",
+      "request": "",
+      "reasoning": ""
+    },
+    {
+      "message": "have them fly lower overall, it feels too high",
+      "label": false,
+      "arguable": false,
+      "repeat": 0,
+      "predicted": false,
+      "name": "",
+      "request": "",
+      "reasoning": ""
+    },
+    {
+      "message": "add a cone at the very end as they land",
+      "label": false,
+      "arguable": false,
+      "repeat": 0,
+      "predicted": false,
+      "name": "",
+      "request": "",
+      "reasoning": ""
+    },
+    {
+      "message": "the wave section is too busy, slow it down",
+      "label": false,
+      "arguable": false,
+      "repeat": 0,
+      "predicted": false,
+      "name": "",
+      "request": "",
+      "reasoning": ""
+    },
+    {
+      "message": "split the swarm into two circles at different heights",
+      "label": false,
+      "arguable": false,
+      "repeat": 0,
+      "predicted": false,
+      "name": "",
+      "request": "",
+      "reasoning": ""
+    },
+    {
+      "message": "spin the whole formation 180 degrees at the chorus",
+      "label": false,
+      "arguable": false,
+      "repeat": 0,
+      "predicted": false,
+      "name": "",
+      "request": "",
+      "reasoning": ""
+    },
+    {
+      "message": "put a heart at the drop",
+      "label": true,
+      "arguable": false,
+      "repeat": 0,
+      "predicted": true,
+      "name": "heart_shape",
+      "request": "Build an upright, two-dimensional heart-shaped formation with a specified overall width and height.",
+      "reasoning": "No listed primitive or composition directly produces a heart-shaped arrangement."
+    },
+    {
+      "message": "have them form a butterfly during the bridge",
+      "label": true,
+      "arguable": false,
+      "repeat": 0,
+      "predicted": true,
+      "name": "butterfly",
+      "request": "Build a butterfly-shaped formation in a vertical plane, with two symmetric wings extending outward from a narrow central body and spanning the available formation area.",
+      "reasoning": "No listed primitive directly produces a butterfly-shaped spatial arrangement, and the available formation primitives do not provide that named geometry."
+    },
+    {
+      "message": "spell out the letter S in the air",
+      "label": true,
+      "arguable": false,
+      "repeat": 0,
+      "predicted": true,
+      "name": "form_letter_s",
+      "request": "Form a clearly recognizable capital letter S as a continuous aerial outline in a vertical plane, with a defined overall height and width.",
+      "reasoning": "The available primitives include circles, stars, cones, spirals, helices, zigzags, waves, and twisters, but none directly produces a capital S outline; composing them does not provide the requested specific letter shape."
+    },
+    {
+      "message": "arrange them into the outline of a cube",
+      "label": true,
+      "arguable": false,
+      "repeat": 0,
+      "predicted": false,
+      "name": "",
+      "request": "",
+      "reasoning": ""
+    },
+    {
+      "message": "make a crescent moon shape in the quiet section",
+      "label": true,
+      "arguable": false,
+      "repeat": 0,
+      "predicted": true,
+      "name": "form_crescent_moon",
+      "request": "Form a crescent moon shape as a planar, inward-curving arc with two pointed tips, centered in the display area and spanning a specified horizontal width and vertical height.",
+      "reasoning": "None of the available primitives directly produces a crescent moon, and the listed primitives cannot reliably compose its distinctive curved, pointed geometry."
+    },
+    {
+      "message": "form an arrow pointing straight up at the climax",
+      "label": true,
+      "arguable": false,
+      "repeat": 0,
+      "predicted": true,
+      "name": "form_arrow",
+      "request": "Form an arrow-shaped arrangement in a vertical plane, with the arrowhead pointing straight upward and the arrangement's extent determined by the drone formation.",
+      "reasoning": "The available primitives include circle, star, cone, and other motions, but no primitive or clear composition for forming an arrow-shaped arrangement."
+    },
+    {
+      "message": "make a DNA double helix at the climax",
+      "label": true,
+      "arguable": false,
+      "repeat": 0,
+      "predicted": false,
+      "name": "",
+      "request": "",
+      "reasoning": ""
+    },
+    {
+      "message": "form a triangle standing upright facing the audience",
+      "label": true,
+      "arguable": true,
+      "repeat": 0,
+      "predicted": false,
+      "name": "",
+      "request": "",
+      "reasoning": ""
+    },
+    {
+      "message": "tilt the ring on its side so it reads like a coin",
+      "label": true,
+      "arguable": true,
+      "repeat": 0,
+      "predicted": false,
+      "name": "",
+      "request": "",
+      "reasoning": ""
+    },
+    {
+      "message": "have them form a grid that ripples outward from the centre",
+      "label": false,
+      "arguable": true,
+      "repeat": 0,
+      "predicted": false,
+      "name": "",
+      "request": "",
+      "reasoning": ""
+    }
+  ]
+}

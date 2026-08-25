@@ -1,3 +1,6 @@
+import threading
+from collections.abc import Callable
+
 import numpy as np
 import pytest
 
@@ -228,3 +231,59 @@ def test_arrival_time_respects_the_interval():
     far = np.tile(np.array([300.0, 0.0, 0.0]), (4, 1))
     assert HELPERS["arrival_time"](far, current, 0.0, 1.0) == 1.0
     assert 0.0 < HELPERS["arrival_time"](far, current, 0.0, 30.0) < 30.0
+
+
+def _in_thread(target: Callable[[], None]) -> threading.Thread:
+    worker = threading.Thread(target=target)
+    worker.start()
+    worker.join(30.0)
+    return worker
+
+
+def test_call_guarded_runs_off_the_main_thread():
+    result = {}
+
+    def _run():
+        result["value"] = call_guarded(
+            compile_primitive(GOOD_SOURCE, "rise"),
+            (50.0,),
+            np.zeros((4, 3)),
+            0.0,
+            4.0,
+            {"lower": np.array([-2.0, -2.0, 0.0]), "upper": np.array([2.0, 2.0, 2.0])},
+        )
+
+    assert not _in_thread(_run).is_alive()
+    assert result["value"][0].shape == (4, 3)
+
+
+def test_call_guarded_times_out_off_the_main_thread():
+    fn = compile_primitive(
+        "def f(params, swarm_pos, tstart, tend, limits):\n    while True:\n        pass\n", "f"
+    )
+    result = {}
+
+    def _run():
+        try:
+            call_guarded(fn, (), np.zeros((2, 3)), 0.0, 1.0, {})
+        except SynthError as e:
+            result["error"] = str(e)
+
+    assert not _in_thread(_run).is_alive()
+    assert "exceeded" in result["error"]
+
+
+def test_call_guarded_reports_a_raise_off_the_main_thread():
+    fn = compile_primitive(
+        "def f(params, swarm_pos, tstart, tend, limits):\n    return 1 / 0\n", "f"
+    )
+    result = {}
+
+    def _run():
+        try:
+            call_guarded(fn, (), np.zeros((2, 3)), 0.0, 1.0, {})
+        except SynthError as e:
+            result["error"] = str(e)
+
+    assert not _in_thread(_run).is_alive()
+    assert "ZeroDivisionError" in result["error"]

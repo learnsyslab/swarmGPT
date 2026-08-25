@@ -527,3 +527,78 @@ button:disabled {
     align-items: stretch;
   }
 }
+
+.synthesis-panel {
+  margin-top: 20px;
+  border: 1px solid rgba(220, 235, 226, 0.16);
+  border-radius: 14px;
+  padding: 16px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.synthesis-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.synthesis-intro {
+  margin: 10px 0 14px;
+  color: #b9cbc2;
+  font-size: 0.88rem;
+  line-height: 1.45;
+}
+
+.synthesis-iterations {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.synthesis-iteration {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr);
+  gap: 12px;
+  border-left: 2px solid rgba(255, 180, 168, 0.6);
+  padding: 4px 0 4px 10px;
+  color: #d6e4dd;
+  font-size: 0.88rem;
+}
+
+.synthesis-iteration.clear {
+  border-left-color: #9bd4b5;
+}
+
+.synthesis-index {
+  color: #8ea099;
+}
+
+.synthesis-outcome {
+  margin: 14px 0 0;
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+.synthesis-outcome.promoted {
+  color: #9bd4b5;
+}
+
+.synthesis-outcome.failed {
+  color: #ffb4a8;
+}
+
+.synthesis-mode {
+  display: grid;
+  gap: 6px;
+  color: #b9cbc2;
+  font-size: 0.85rem;
+}
+
+.synthesis-authoring {
+  margin: 12px 0 0;
+  color: #8ea099;
+  font-size: 0.88rem;
+}

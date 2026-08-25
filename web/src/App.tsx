@@ -24,10 +24,77 @@ import {
   refineJob,
   savePreset
 } from "./api";
+import type { SynthesisMode } from "./api";
 import { Player } from "./Player";
-import type { ChatMessage, JobEvent, LibraryItem, LibraryResponse, LlmResponse, Playback } from "./types";
+import type {
+  ChatMessage,
+  JobEvent,
+  LibraryItem,
+  LibraryResponse,
+  LlmResponse,
+  Playback,
+  SynthesisIteration,
+  SynthesisState
+} from "./types";
 
-type Stage = "select" | "thinking" | "filtering" | "ready" | "playing" | "deploying" | "failed";
+type Stage =
+  | "select"
+  | "synthesizing"
+  | "thinking"
+  | "filtering"
+  | "ready"
+  | "playing"
+  | "deploying"
+  | "failed";
+
+const NO_SYNTHESIS: SynthesisState = {
+  active: false,
+  request: "",
+  authoring: 0,
+  iterations: [],
+  promoted: "",
+  signature: "",
+  failure: ""
+};
+
+function num(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function toIteration(payload: Record<string, unknown>): SynthesisIteration {
+  const metrics = (payload.metrics ?? {}) as Record<string, unknown>;
+  return {
+    index: Number(payload.index ?? 0),
+    stage: String(payload.stage ?? ""),
+    name: String(payload.name ?? ""),
+    violations: Array.isArray(payload.violations) ? payload.violations.map(String) : [],
+    error: payload.error ? String(payload.error) : null,
+    flownMinSep: num(metrics.min_sep_norm),
+    stepsInsideEnvelope: num(metrics.steps_inside_envelope)
+  };
+}
+
+// The loop's own account of one turn, in the terms a viewer can follow: what it tried, and how
+// close the drones came to each other as a multiple of the envelope they must stay outside of.
+function iterationStory(iteration: SynthesisIteration): string {
+  if (iteration.error) {
+    return `did not run — ${iteration.error}`;
+  }
+  if (iteration.stage === "screened") {
+    return iteration.violations.length > 0
+      ? `rejected before flying: ${iteration.violations.join("; ")}`
+      : "rejected before flying: the waypoints it wrote are not flyable";
+  }
+  if (iteration.stage === "measured") {
+    const flown = iteration.flownMinSep;
+    const inside = iteration.stepsInsideEnvelope;
+    const separation = flown === null ? "unmeasured" : `${flown.toFixed(2)} closest approach`;
+    return inside === 0
+      ? `flew clear — ${separation}, no step inside the envelope`
+      : `flew, but ${inside} steps were inside the envelope — ${separation}`;
+  }
+  return `stopped at ${iteration.stage}`;
+}
 
 function eventLabel(type: string): string {
   return type.replaceAll("_", " ");
@@ -70,6 +137,8 @@ export function App() {
   const [savingPreset, setSavingPreset] = useState(false);
   const [deletingPreset, setDeletingPreset] = useState<string | null>(null);
   const [emergencyStopping, setEmergencyStopping] = useState(false);
+  const [synthesisMode, setSynthesisMode] = useState<SynthesisMode>("auto");
+  const [synthesis, setSynthesis] = useState<SynthesisState>(NO_SYNTHESIS);
   const socketRef = useRef<WebSocket | null>(null);
 
   const providerInfo = llm?.providers.find((entry) => entry.id === provider);
@@ -81,7 +150,11 @@ export function App() {
     }
   }, [modelOptions, modelId, providerInfo]);
 
-  const busy = stage === "thinking" || stage === "filtering" || stage === "deploying";
+  const busy =
+    stage === "thinking" ||
+    stage === "filtering" ||
+    stage === "deploying" ||
+    stage === "synthesizing";
   const visibleEvents = useMemo(
     () => events.filter((event) => event.type !== "safety_progress"),
     [events]
@@ -119,6 +192,46 @@ export function App() {
       if (event.type === "thinking_started") {
         setStage("thinking");
       }
+      if (event.type === "synthesis_considering" && event.payload.mode !== "off") {
+        setStage("synthesizing");
+        setSynthesis({ ...NO_SYNTHESIS, active: true });
+      }
+      if (event.type === "synthesis_skipped") {
+        setSynthesis(NO_SYNTHESIS);
+      }
+      if (event.type === "synthesis_started") {
+        setStage("synthesizing");
+        setSynthesis({
+          ...NO_SYNTHESIS,
+          active: true,
+          request: String(event.payload.request ?? "")
+        });
+      }
+      if (event.type === "synthesis_authoring") {
+        setSynthesis((current) => ({ ...current, authoring: Number(event.payload.index ?? 0) }));
+      }
+      if (event.type === "synthesis_iteration") {
+        const iteration = toIteration(event.payload);
+        setSynthesis((current) => ({
+          ...current,
+          iterations: [...current.iterations, iteration]
+        }));
+      }
+      if (event.type === "synthesis_promoted") {
+        setSynthesis((current) => ({
+          ...current,
+          active: false,
+          promoted: String(event.payload.name ?? ""),
+          signature: String(event.payload.signature ?? "")
+        }));
+      }
+      if (event.type === "synthesis_failed") {
+        setSynthesis((current) => ({
+          ...current,
+          active: false,
+          failure: String(event.payload.status ?? "synthesis failed")
+        }));
+      }
       // prompt_sent lands as the request leaves for the model, conversation once it answers.
       if (event.type === "prompt_sent" || event.type === "conversation") {
         const messages = event.payload.messages;
@@ -141,6 +254,12 @@ export function App() {
         const percent = Number(event.payload.percent ?? 0);
         setStage("filtering");
         setProgress(percent);
+      }
+      // Synthesis could not build the primitive the request needed, so the choreography was left
+      // untouched. Back to ready: refine again, or play/deploy what is already there.
+      if (event.type === "refine_abandoned") {
+        setStage("ready");
+        setRefineOpen(true);
       }
       if (event.type === "ready") {
         setStage("ready");
@@ -179,6 +298,7 @@ export function App() {
     setProgress(0);
     setStage("thinking");
     setDetailsOpen(false);
+    setSynthesis(NO_SYNTHESIS);
     const job = await createJob(item.id, provider, modelId);
     setJobId(job.jobId);
     connectEvents(job.jobId);
@@ -203,7 +323,8 @@ export function App() {
     setProgress(0);
     setStage("thinking");
     setDetailsOpen(false);
-    await refineJob(jobId, refineText.trim(), provider, modelId);
+    setSynthesis(NO_SYNTHESIS);
+    await refineJob(jobId, refineText.trim(), provider, modelId, synthesisMode);
     setRefineText("");
     setRefineOpen(false);
   };
@@ -292,6 +413,7 @@ export function App() {
     setError(null);
     setPresetNotice(null);
     setEmergencyStopping(false);
+    setSynthesis(NO_SYNTHESIS);
   };
 
   if (stage === "playing" && playback) {
@@ -471,6 +593,55 @@ export function App() {
               </div>
             )}
 
+            {(synthesis.active || synthesis.iterations.length > 0) && (
+              <section className="synthesis-panel">
+                <div className="synthesis-header">
+                  <div>
+                    <p className="eyebrow">Authoring a new primitive</p>
+                    <strong>{synthesis.request || "Deciding whether one is needed"}</strong>
+                  </div>
+                  {synthesis.active && <Loader2 size={18} className="spin" />}
+                </div>
+                <p className="synthesis-intro">
+                  {synthesis.request
+                    ? "Nothing in the library expresses this, so the model is writing a primitive and the safety filter is grading it. Each attempt must fly the whole swarm without any pair entering the collision envelope. This takes a few minutes."
+                    : "Checking the request against the primitives that already exist."}
+                </p>
+                <ol className="synthesis-iterations">
+                  {synthesis.iterations.map((iteration) => (
+                    <li
+                      key={iteration.index}
+                      className={
+                        iteration.stage === "measured" && iteration.stepsInsideEnvelope === 0
+                          ? "synthesis-iteration clear"
+                          : "synthesis-iteration"
+                      }
+                    >
+                      <span className="synthesis-index">Attempt {iteration.index}</span>
+                      <span className="synthesis-detail">{iterationStory(iteration)}</span>
+                    </li>
+                  ))}
+                </ol>
+                {synthesis.active && synthesis.authoring > synthesis.iterations.length && (
+                  <p className="synthesis-authoring">
+                    Attempt {synthesis.authoring} — the model is writing it. A turn takes minutes.
+                  </p>
+                )}
+                {synthesis.promoted && (
+                  <p className="synthesis-outcome promoted">
+                    Verified and added to the library: <code>{synthesis.signature}</code>. The
+                    choreography is being regenerated with it available.
+                  </p>
+                )}
+                {synthesis.failure && (
+                  <p className="synthesis-outcome failed">
+                    No primitive was authored — {synthesis.failure}. Your choreography is unchanged;
+                    try a different refinement, or play and deploy the one you have.
+                  </p>
+                )}
+              </section>
+            )}
+
             {stage === "ready" && (
               <div className="ready-actions">
                 <button className="primary-action" onClick={() => showPlayback().catch((err: Error) => setError(err.message))}>
@@ -531,6 +702,17 @@ export function App() {
                   onChange={(event) => setRefineText(event.target.value)}
                   placeholder="Describe the choreography change"
                 />
+                <label className="synthesis-mode">
+                  New primitives
+                  <select
+                    value={synthesisMode}
+                    onChange={(event) => setSynthesisMode(event.target.value as SynthesisMode)}
+                  >
+                    <option value="auto">Author one if the library cannot express this</option>
+                    <option value="force">Always author one (minutes)</option>
+                    <option value="off">Never — use the existing library</option>
+                  </select>
+                </label>
                 <button
                   className="primary-action"
                   disabled={!refineText.trim()}

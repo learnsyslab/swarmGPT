@@ -30,6 +30,9 @@ def main(
     logging.basicConfig(level=logging.WARNING)
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("jax").setLevel(logging.WARNING)
+    # Which synthesized primitives loaded decides what the choreographer can emit, so it belongs
+    # in the startup output rather than behind a debug flag.
+    logging.getLogger("swarm_gpt.synth").setLevel(logging.INFO)
     # logging.getLogger("swarm_gpt").setLevel(logging.DEBUG)
 
     if llm_provider not in ("openai", "ollama"):

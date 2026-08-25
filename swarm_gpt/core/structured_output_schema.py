@@ -366,6 +366,18 @@ def _synthesized_signature(name: str, params: tuple[SynthesizedParam, ...]) -> s
     return f"{name}({rendered})"
 
 
+def primitive_signatures() -> list[str]:
+    """One signature per motion primitive that currently exists, hand-written then synthesized."""
+    lines = [f"{name}({', '.join(args)})" for name, args in _PRIMITIVE_ARG_ORDER.items()]
+    lines += [_synthesized_signature(name, params) for name, (_, params) in _SYNTHESIZED.items()]
+    return lines
+
+
+def primitive_exists(name: str) -> bool:
+    """Return whether ``name`` is already a motion primitive, hand-written or synthesized."""
+    return name in _PRIMITIVE_ARG_ORDER or name in _SYNTHESIZED
+
+
 def synthesized_catalogue() -> str:
     """Render the registered synthesized primitives as a prompt block, or "" if there are none."""
     if not _SYNTHESIZED:

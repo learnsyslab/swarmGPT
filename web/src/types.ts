@@ -34,6 +34,34 @@ export type JobEvent = {
   payload: Record<string, unknown>;
 };
 
+// One turn of the synthesis loop as the server streams it. `stage` is how far the candidate got:
+// "screened" means its own waypoints were already infeasible and it never reached the filter,
+// "measured" means it flew. Separations are multiples of the collision envelope, so 1.0 is the
+// boundary and anything below it is a collision.
+export type SynthesisIteration = {
+  index: number;
+  stage: string;
+  name: string;
+  // One sentence per limit the pre-solve screen broke. A screened attempt can fail on separation,
+  // speed, or acceleration, so the reason is carried rather than guessed from the separation.
+  violations: string[];
+  error: string | null;
+  flownMinSep: number | null;
+  stepsInsideEnvelope: number | null;
+};
+
+export type SynthesisState = {
+  active: boolean;
+  request: string;
+  // The attempt currently with the model. A turn runs into minutes, so without this the panel
+  // looks frozen between iterations.
+  authoring: number;
+  iterations: SynthesisIteration[];
+  promoted: string;
+  signature: string;
+  failure: string;
+};
+
 export type ChatMessage = {
   role: string;
   content: string;

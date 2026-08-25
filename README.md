@@ -117,6 +117,18 @@ Then open `http://127.0.0.1:5173`.
 5. **Refine as needed** by providing additional prompts or modifications
 6. **Deploy when satisfied** with the generated choreography
 
+A refinement that asks for a shape the primitive library cannot express — "put a heart at the
+drop" — can author the missing primitive first. The refine box chooses when: *auto* asks a
+classifier whether the request needs a primitive that does not exist, *force* always authors one,
+*off* never does. Authoring takes minutes and can legitimately fail; either way the refinement then
+goes ahead against whatever library exists. A primitive is only used if it flies the whole swarm
+with no pair inside the collision envelope.
+
+Such a primitive belongs to the choreography that asked for it: it is held in memory and discarded
+when another song is selected, so the library on disk never grows behind your back. Adding one
+permanently is a separate, deliberate act — `experiments/synth_to_library.py`. Every run is
+recorded either way, in the gitignored `synth_runs/`.
+
 The system will automatically:
 - Analyze the selected music for beats, rhythm, and musical features
 - Generate safe, collision-free trajectories for your drone swarm

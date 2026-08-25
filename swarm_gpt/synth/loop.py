@@ -31,6 +31,8 @@ from swarm_gpt.utils.llm_providers import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from numpy.typing import NDArray
 
 logger = logging.getLogger(__name__)
@@ -158,6 +160,9 @@ class Iteration:
     stage: str = "proposed"
     error: str | None = None
     metrics: dict[str, Any] | None = None
+    # One sentence per limit the pre-solve screen found broken -- separation, speed, or
+    # acceleration. Kept verbatim so a reader is never left inferring which one it was.
+    violations: list[str] = field(default_factory=list)
     checks: list[dict[str, Any]] = field(default_factory=list)
     feedback: str = ""
     # `verdict` judges the *previous* iteration, since the model proposes and judges in one turn.
@@ -199,7 +204,10 @@ class SynthesisLoop:
             "upper": np.asarray(settings["axswarm"]["pos_max"], dtype=float),
         }
         self.messages: list[dict[str, str]] = []
-        self._client = openai_client_for_provider(llm_provider)
+        # The SDK default stacks a 600 s read timeout with two retries, so one stalled call can
+        # hold a browser job for half an hour with nothing to show. A turn legitimately runs into
+        # minutes, so the read timeout stays generous and only the retries are cut.
+        self._client = openai_client_for_provider(llm_provider).with_options(max_retries=1)
 
     def _call(self) -> dict[str, Any]:
         """Send the accumulated history and parse one structured turn out of the model."""
@@ -222,8 +230,20 @@ class SynthesisLoop:
             raise RuntimeError(f"Model {self.model_id!r} errored: {response.error.message}")
         if not response.output_text:
             raise RuntimeError(f"Model {self.model_id!r} returned no content.")
+        try:
+            turn = json.loads(response.output_text)
+        except json.JSONDecodeError as e:
+            # Seen twice on hard revise turns: the model runs away and returns tens of kB of
+            # unparseable text. That is a bad turn, not a broken run, so it becomes feedback like
+            # any other failure rather than ending the loop. The runaway text itself is kept out
+            # of the history -- replaying it every turn is what makes the next one run away too.
+            self.messages.append({"role": "assistant", "content": "(unparseable reply, discarded)"})
+            raise SynthError(
+                f"Your reply was not valid JSON ({e}). Return one JSON object matching the "
+                f"schema, and keep the source short enough to finish."
+            ) from e
         self.messages.append({"role": "assistant", "content": response.output_text})
-        return json.loads(response.output_text)
+        return turn
 
     def _evaluate(self, manifest: PrimitiveManifest, args: list[float]) -> Iteration:
         """Compile, run, filter, and measure one candidate, or record where it fell over."""
@@ -248,6 +268,7 @@ class SynthesisLoop:
             if violations:
                 record.stage = "screened"
                 record.metrics = screened
+                record.violations = violations
                 record.feedback = _screen_report(violations)
                 return record
 
@@ -262,8 +283,19 @@ class SynthesisLoop:
         record.stage = "measured"
         return record
 
-    def run(self, request: str, max_iterations: int = 4) -> list[Iteration]:
-        """Author and refine a primitive for ``request``, stopping when the model says "keep"."""
+    def run(
+        self,
+        request: str,
+        max_iterations: int = 4,
+        on_iteration: Callable[[Iteration], None] | None = None,
+        on_authoring: Callable[[int], None] | None = None,
+    ) -> list[Iteration]:
+        """Author and refine a primitive for ``request``, stopping when the model says "keep".
+
+        ``on_iteration`` is called with each finished turn and ``on_authoring`` with the index of
+        each turn as it is sent, for a caller streaming progress. A turn is minutes of model time,
+        so without the second one a caller has nothing to show between iterations.
+        """
         self.messages = [
             {
                 "role": "system",
@@ -280,7 +312,19 @@ class SynthesisLoop:
         ]
         history: list[Iteration] = []
         for index in range(1, max_iterations + 1):
-            turn = self._call()
+            if on_authoring is not None:
+                on_authoring(index)
+            try:
+                turn = self._call()
+            except SynthError as e:
+                record = Iteration(
+                    index=index, verdict="", reasoning="", manifest={}, args=[], error=str(e)
+                )
+                history.append(record)
+                if on_iteration is not None:
+                    on_iteration(record)
+                self.messages.append({"role": "user", "content": _next_prompt(str(e))})
+                continue
             try:
                 manifest = PrimitiveManifest.from_payload(turn["manifest"])
             except SynthError as e:
@@ -293,6 +337,8 @@ class SynthesisLoop:
                     error=str(e),
                 )
                 history.append(record)
+                if on_iteration is not None:
+                    on_iteration(record)
                 self.messages.append({"role": "user", "content": _next_prompt(str(e))})
                 continue
 
@@ -304,6 +350,8 @@ class SynthesisLoop:
             logger.info(
                 "iteration %d: %s -> %s (%s)", index, manifest.signature(), record.stage, self.arm
             )
+            if on_iteration is not None:
+                on_iteration(record)
             if turn["verdict"] == "keep" and record.error is None:
                 record.closing_verdict, record.closing_reasoning = (
                     turn["verdict"],
