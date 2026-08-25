@@ -8,11 +8,22 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from swarm_gpt.core.lighting import LIGHTING_PRIMITIVES, load_lighting_config
 from swarm_gpt.core.motion_primitives import DRONE_ID_SPEC_PATTERN, expand_drone_id_spec
 from swarm_gpt.exception import LLMFormatError
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+# One positional parameter of a runtime-authored primitive: name, type, minimum, maximum.
+SynthesizedParam = tuple[str, str, float, float]
+
+# Runtime-authored primitives, registered by `swarm_gpt.synth.manifest`, as name -> (intent,
+# params). A primitive's signature otherwise lives in four places and drifts between them; this
+# is the one the schema, the prompt catalogue, and the rendered call all read.
+_SYNTHESIZED: dict[str, tuple[str, tuple[SynthesizedParam, ...]]] = {}
 
 _AXIS_ENUM = ["x", "y", "z"]
 _KEY_PATTERN = r"s\d+b\d+t\d+"
@@ -133,11 +144,37 @@ def _action_variant_schema(primitive: str, num_drones: int) -> dict[str, Any]:
     }
 
 
+def _synthesized_param_schema(spec: SynthesizedParam) -> dict[str, Any]:
+    _name, type_, minimum, maximum = spec
+    if type_ == "int":
+        return {"type": "integer", "minimum": int(minimum), "maximum": int(maximum)}
+    return {"type": "number", "minimum": float(minimum), "maximum": float(maximum)}
+
+
+def _synthesized_variant_schema(primitive: str) -> dict[str, Any]:
+    _intent, params = _SYNTHESIZED[primitive]
+    return {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            "primitive": {"type": "string", "enum": [primitive]},
+            "params": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {p[0]: _synthesized_param_schema(p) for p in params},
+                "required": [p[0] for p in params],
+            },
+        },
+        "required": ["primitive", "params"],
+    }
+
+
 def _action_schema(num_drones: int) -> dict[str, Any]:
     return {
         "anyOf": [
             _action_variant_schema(primitive, num_drones) for primitive in _PRIMITIVE_ARG_ORDER
         ]
+        + [_synthesized_variant_schema(primitive) for primitive in _SYNTHESIZED]
     }
 
 
@@ -296,6 +333,53 @@ _PRIMITIVE_ARG_ORDER: dict[str, list[str]] = {
     "form_cone": ["delta_height_cm", "spacing_cm", "is_inverted", "time_to_finish_s"],
 }
 
+
+def register_synthesized_action(name: str, intent: str, params: Sequence[SynthesizedParam]) -> None:
+    """Make a runtime-authored primitive emittable: schema variant, prompt entry, rendered call.
+
+    Raises:
+        ValueError: If the name collides with a hand-written primitive.
+    """
+    if name in _PRIMITIVE_ARG_ORDER:
+        raise ValueError(f"Synthesized primitive {name!r} shadows a hand-written primitive")
+    _SYNTHESIZED[name] = (intent, tuple(params))
+
+
+def clear_synthesized_actions() -> None:
+    """Drop every registered synthesized primitive."""
+    _SYNTHESIZED.clear()
+
+
+def _arg_order() -> dict[str, list[str]]:
+    merged = {name: list(order) for name, order in _PRIMITIVE_ARG_ORDER.items()}
+    for name, (_intent, params) in _SYNTHESIZED.items():
+        merged[name] = [p[0] for p in params]
+    return merged
+
+
+def _synthesized_signature(name: str, params: tuple[SynthesizedParam, ...]) -> str:
+    rendered = ", ".join(
+        f"{p_name}: {type_} [{int(lo) if type_ == 'int' else lo}, "
+        f"{int(hi) if type_ == 'int' else hi}]"
+        for p_name, type_, lo, hi in params
+    )
+    return f"{name}({rendered})"
+
+
+def synthesized_catalogue() -> str:
+    """Render the registered synthesized primitives as a prompt block, or "" if there are none."""
+    if not _SYNTHESIZED:
+        return ""
+    # Leads with a blank line to sit apart from the catalogue's other sections, which the prompt
+    # template cannot supply itself: it would leave a stray gap whenever nothing is registered.
+    lines = ["", "Synthesized (authored at runtime, verified by the safety filter):"]
+    lines += [
+        f"- {_synthesized_signature(name, params)} — {intent}"
+        for name, (intent, params) in _SYNTHESIZED.items()
+    ]
+    return "\n".join(lines)
+
+
 # The catalogue's parameter order, which is also the rendered call's argument order: every
 # lighting primitive takes `sel` first and `deck` last.
 _LIGHTING_PRIMITIVE_ARG_ORDER: dict[str, list[str]] = {
@@ -350,12 +434,13 @@ def action_to_motion_primitive(action: dict[str, Any]) -> str:
         raise LLMFormatError(
             f"Structured choreography action must be an object, got {type(action).__name__}"
         )
+    arg_order = _arg_order()
     primitive = action.get("primitive")
-    if primitive not in _PRIMITIVE_ARG_ORDER:
+    if primitive not in arg_order:
         raise LLMFormatError(f"Unknown motion primitive '{primitive}' in structured output")
-    ordered_arg_names = _PRIMITIVE_ARG_ORDER[primitive]
+    ordered_arg_names = arg_order[primitive]
     if "params" in action:
-        args = _args_from_params(primitive, action["params"], _PRIMITIVE_ARG_ORDER)
+        args = _args_from_params(primitive, action["params"], arg_order)
     else:
         args = action.get("args", [])
         if not isinstance(args, list):

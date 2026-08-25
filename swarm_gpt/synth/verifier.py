@@ -17,6 +17,7 @@ from axswarm import SolverData, SolverSettings, solve
 
 from swarm_gpt.core.choreographer import dicts2arrays
 from swarm_gpt.synth.sandbox import SynthError, call_guarded, validate_waypoints
+from swarm_gpt.synth.shapes import check_shape
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -142,6 +143,70 @@ def _interpolate(authored: dict[str, NDArray], time: NDArray) -> NDArray:
         for axis in range(3):
             out[:, d, axis] = np.interp(time, src_t, src_pos[d, :, axis])
     return out
+
+
+def check_shape_of(
+    shape: str, repaired: dict[str, NDArray], window: tuple[float, float]
+) -> list[dict[str, Any]]:
+    """Run a hand-written shape predicate over the flown trajectory, in the author's own units.
+
+    Returns:
+        One ``{"name", "ok", "detail"}`` entry per property of the requested shape.
+    """
+    inside = (repaired["time"] >= window[0]) & (repaired["time"] <= window[1])
+    pos_cm = np.transpose(repaired["pos"][inside], (1, 0, 2)) * 100
+    return check_shape(shape, pos_cm, repaired["time"][inside])
+
+
+def screen_authored(
+    authored: dict[str, NDArray], settings: dict, window: tuple[float, float]
+) -> tuple[dict[str, Any], list[str]]:
+    """Judge the authored trajectory on its own, before paying for a solve.
+
+    A solve costs ~30 s and repairs nothing when the waypoints already collide or demand motion no
+    drone can fly. Reuses the grid and metric `measure` uses, so ``authored_min_sep_norm`` here is
+    the figure it would report.
+
+    Returns:
+        The measured dict, and one sentence per broken limit (empty if worth solving).
+    """
+    axswarm = settings["axswarm"]
+    freq = axswarm["freq"]
+    envelope = np.asarray(axswarm["collision_envelope"], dtype=float)
+    time = np.arange(int(float(authored["time"][0, -1]) * freq)) / freq
+    time = time[(time >= window[0]) & (time <= window[1])]
+    reference = _interpolate(authored, time)
+
+    norm, worst_i, worst_j = _pairwise_min(reference, envelope)
+    step = int(norm.argmin())
+    speed = np.linalg.norm(np.diff(reference, axis=0), axis=-1) * freq
+    accel = np.linalg.norm(np.diff(reference, n=2, axis=0), axis=-1) * freq * freq
+    measured = {
+        "authored_min_sep_norm": float(norm[step]),
+        "worst_pair": [int(worst_i[step]), int(worst_j[step])],
+        "worst_time_s": float(time[step]),
+        "authored_max_speed_mps": float(speed.max()) if speed.size else 0.0,
+        "authored_max_accel_mps2": float(accel.max()) if accel.size else 0.0,
+    }
+
+    violations = []
+    if measured["authored_min_sep_norm"] < 1.0:
+        i, j = measured["worst_pair"]
+        violations.append(
+            f"drones {i} and {j} close to {measured['authored_min_sep_norm']:.3f} of the required "
+            f"separation at t={measured['worst_time_s']:.1f} s, which must be at least 1.0"
+        )
+    if measured["authored_max_speed_mps"] > axswarm["vel_max"]:
+        violations.append(
+            f"peak speed {measured['authored_max_speed_mps']:.2f} m/s exceeds the drones' "
+            f"{axswarm['vel_max']} m/s limit"
+        )
+    if measured["authored_max_accel_mps2"] > axswarm["acc_max"]:
+        violations.append(
+            f"peak acceleration {measured['authored_max_accel_mps2']:.2f} m/s^2 exceeds the "
+            f"drones' {axswarm['acc_max']} m/s^2 limit"
+        )
+    return measured, violations
 
 
 def measure(

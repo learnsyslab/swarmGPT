@@ -125,6 +125,7 @@ user_initial: |
   - twister(steps, omega_times_ten 2-20, z_spacing_cm 5-30)
   - zig_zag(steps, delta_xy_cm, delta_z_cm)
   - wave(steps, height_cm) — 2D standing-wave surface; drones first form a grid then oscillate.
+  {synthesized_primitives}
   </primitives>
 
   <lighting>

@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from swarm_gpt.core.motion_primitives import register_synthesized
+from swarm_gpt.core.structured_output_schema import register_synthesized_action
 from swarm_gpt.synth.sandbox import SynthError, compile_invariants, compile_primitive
 
 if TYPE_CHECKING:
@@ -134,5 +135,8 @@ class PrimitiveManifest:
         return compile_primitive(self.source, self.name), compile_invariants(self.invariants)
 
     def register(self, fn: Callable[..., tuple]) -> None:
-        """Make the compiled primitive resolvable through ``primitive_by_name``."""
+        """Make the compiled primitive resolvable, emittable, and visible in the prompt."""
         register_synthesized(self.name, fn, self.n_args)
+        register_synthesized_action(
+            self.name, self.intent, [(p.name, p.type, p.minimum, p.maximum) for p in self.params]
+        )

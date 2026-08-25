@@ -25,6 +25,7 @@ from swarm_gpt.core.structured_output_schema import (
     encode_key,
     structured_payload_to_choreography,
     structured_payload_to_lighting,
+    synthesized_catalogue,
 )
 from swarm_gpt.exception import LLMFormatError, LLMPlanError, LLMResponseProcessingError
 from swarm_gpt.utils.llm_providers import (
@@ -309,6 +310,7 @@ class Choreographer:
             "move_z_typical_cm": int((self.lim_upper[2] - self.lim_lower[2]) * 100 / 2),
             "wave_eqn": data["wave"] if self.use_motion_primitives else None,
             "dynamics_table": dynamics_table,
+            "synthesized_primitives": synthesized_catalogue(),
         }
         return self.prompts["user_initial"].format(**prompt_kwargs)
 

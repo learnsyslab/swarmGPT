@@ -17,7 +17,15 @@ import numpy as np
 from swarm_gpt.synth import feedback as feedback_arms
 from swarm_gpt.synth.manifest import PrimitiveManifest
 from swarm_gpt.synth.sandbox import SynthError
-from swarm_gpt.synth.verifier import authored_trajectory, check_invariants, measure, solve_only
+from swarm_gpt.synth.shapes import describe_shape
+from swarm_gpt.synth.verifier import (
+    authored_trajectory,
+    check_invariants,
+    check_shape_of,
+    measure,
+    screen_authored,
+    solve_only,
+)
 from swarm_gpt.utils.llm_providers import (
     openai_client_for_provider,
     prepare_responses_messages,
@@ -82,6 +90,11 @@ A primitive is one function with exactly this signature:
 - `limits` is {{"lower": (3,), "upper": (3,)}} **in metres** -- multiply by 100 to compare against
   positions. The arena is x,y in [{lim_lower[0]:.1f}, {lim_upper[0]:.1f}] m and z in
   [{lim_lower[2]:.2f}, {lim_upper[2]:.2f}] m.
+- These are real drones with real limits: **speed must stay under {vel_max} m/s and acceleration
+  under {acc_max} m/s^2**. Consecutive waypoints must be reachable in the time between them, so a
+  drone that has to cross 2 m needs at least {crossing_s:.0f} s of waypoints to do it in. Snapping
+  the swarm between poses demands speeds no drone can fly; the trajectory is rejected before the
+  filter ever sees it, and you are told by how much you exceeded the limit.
 - `final_pos` is the (n_drones, 3) position array in cm after the primitive finishes.
 - `waypoints` is {{time_s: {{drone_index: (3,) cm position}}}}, drone indices 0-indexed. A primitive
   may move only some drones; the rest hold.
@@ -116,7 +129,7 @@ Repeat the manifest you want to stand on with every verdict, including "keep".""
 
 _USER = """\
 Write a motion primitive for: {request}
-
+{requirement}
 Return the manifest, a concrete `args` list to test it with (one value per declared parameter, in
 order), verdict "author", and your reasoning."""
 
@@ -134,6 +147,8 @@ class Iteration:
     error: str | None = None
     metrics: dict[str, Any] | None = None
     checks: list[dict[str, Any]] = field(default_factory=list)
+    # Hand-written, selected by the requester, never authored or seen by the model.
+    shape_checks: list[dict[str, Any]] = field(default_factory=list)
     feedback: str = ""
     # `verdict` judges the *previous* iteration, since the model proposes and judges in one turn.
     # These carry the judgement of this iteration's own result, filled in on the last one.
@@ -153,8 +168,15 @@ class SynthesisLoop:
         model_id: str,
         duration_s: float = 12.0,
         llm_provider: str = "openai",
+        screen: bool = False,
+        shape: str | None = None,
     ):
-        """Configure the loop against a swarm, a solver config, and a feedback arm."""
+        """Configure the loop against a swarm, a solver config, and a feedback arm.
+
+        ``screen`` skips the solve when the authored geometry is already infeasible. ``shape``
+        names a hand-written predicate the result must satisfy. Both are off by default because
+        they change what the model is told, and the feedback ablation was measured without them.
+        """
         if arm not in feedback_arms.ARMS:
             raise ValueError(f"Unknown feedback arm {arm!r}; expected one of {feedback_arms.ARMS}")
         self.settings = settings
@@ -162,6 +184,8 @@ class SynthesisLoop:
         self.arm = arm
         self.model_id = model_id
         self.duration_s = duration_s
+        self.screen = screen
+        self.shape = shape
         self.limits = {
             "lower": np.asarray(settings["axswarm"]["pos_min"], dtype=float),
             "upper": np.asarray(settings["axswarm"]["pos_max"], dtype=float),
@@ -210,20 +234,33 @@ class SynthesisLoop:
             record.error = str(e)
             return record
 
+        window = (0.0, self.duration_s)
+        if self.screen:
+            screened, violations = screen_authored(authored, self.settings, window)
+            if violations:
+                record.stage = "screened"
+                record.metrics = screened
+                record.feedback = _screen_report(violations)
+                return record
+
         repaired = solve_only(authored, self.settings)
         record.stage = "filtered"
-        window = (0.0, self.duration_s)
         record.metrics = measure(authored, repaired, self.settings, window)
         try:
             record.checks = check_invariants(check_fn, repaired, bound, window)
         except SynthError as e:
             record.checks = [{"name": "check", "ok": False, "detail": f"check failed to run: {e}"}]
+        if self.shape is not None:
+            record.shape_checks = check_shape_of(self.shape, repaired, window)
         record.feedback = feedback_arms.render(self.arm, record.metrics, record.checks)
+        if record.shape_checks:
+            record.feedback += _shape_report(record.shape_checks)
         record.stage = "measured"
         return record
 
     def run(self, request: str, max_iterations: int = 4) -> list[Iteration]:
         """Author and refine a primitive for ``request``, stopping when the model says "keep"."""
+        requirement = "" if self.shape is None else _shape_requirement(self.shape)
         self.messages = [
             {
                 "role": "system",
@@ -231,9 +268,12 @@ class SynthesisLoop:
                     n_drones=self.start_pos_m.shape[0],
                     lim_lower=self.limits["lower"],
                     lim_upper=self.limits["upper"],
+                    vel_max=self.settings["axswarm"]["vel_max"],
+                    acc_max=self.settings["axswarm"]["acc_max"],
+                    crossing_s=2.0 / self.settings["axswarm"]["vel_max"],
                 ),
             },
-            {"role": "user", "content": _USER.format(request=request)},
+            {"role": "user", "content": _USER.format(request=request, requirement=requirement)},
         ]
         history: list[Iteration] = []
         for index in range(1, max_iterations + 1):
@@ -278,6 +318,46 @@ class SynthesisLoop:
                 record.closing_reasoning = closing["reasoning"]
                 break
         return history
+
+
+def _shape_requirement(shape: str) -> str:
+    """State the requester's shape requirement, so the model is not failing a hidden criterion."""
+    return (
+        f"\nThis must be a {shape}, judged by a check you do not write and cannot edit:\n"
+        f"{describe_shape(shape)}\n"
+        "Your own invariants are still yours to write, but they do not decide this.\n"
+    )
+
+
+def _shape_report(shape_checks: list[dict[str, Any]]) -> str:
+    """Append the independent verdict, kept visibly separate from the model's own checks."""
+    lines = [f"  {'PASS' if c['ok'] else 'FAIL'}  {c['name']}: {c['detail']}" for c in shape_checks]
+    failed = [c for c in shape_checks if not c["ok"]]
+    verdict = (
+        "This is not yet the shape that was asked for."
+        if failed
+        else "The shape requirement is satisfied."
+    )
+    return (
+        "\n\nIndependent shape check (not yours, not editable):\n"
+        + "\n".join(lines)
+        + f"\n{verdict}"
+    )
+
+
+def _screen_report(violations: list[str]) -> str:
+    """Render a pre-solve rejection. Deliberately not a feedback arm: arms are the experiment."""
+    listed = "\n".join(f"  - {v}" for v in violations)
+    return (
+        "Your primitive was NOT run through the safety filter. What it authored is already "
+        "impossible, so there is nothing for the filter to repair:\n\n"
+        f"{listed}\n\n"
+        "Two drones cannot occupy the same place at once, and a drone cannot exceed its speed or "
+        "acceleration limit. Interpolating each drone straight from where it is to where you want "
+        "it crosses paths and demands whatever speed the gap requires. Choose which drone goes to "
+        "which target so the paths do not cross, and spread every movement over enough time that "
+        "the swarm can actually fly it."
+    )
 
 
 def _next_prompt(body: str) -> str:

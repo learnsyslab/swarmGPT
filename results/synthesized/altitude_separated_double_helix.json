@@ -1,0 +1,116 @@
+{
+  "manifest": {
+    "name": "altitude_separated_double_helix",
+    "intent": "Two counter-rotating ten-drone strands wind upward around a common axis on a wide common-radius cylinder, with a large fixed vertical separation between strands.",
+    "params": [
+      {
+        "name": "radius_m",
+        "type": "float",
+        "minimum": 1.0,
+        "maximum": 1.8
+      },
+      {
+        "name": "turns",
+        "type": "float",
+        "minimum": 0.1,
+        "maximum": 0.8
+      },
+      {
+        "name": "rise_m",
+        "type": "float",
+        "minimum": 0.1,
+        "maximum": 0.8
+      }
+    ],
+    "source": "def altitude_separated_double_helix(params, swarm_pos, tstart, tend, limits):\n    radius_m, turns, rise_m = params\n    n = swarm_pos.shape[0]\n    half = n // 2\n    lower = limits[\"lower\"]\n    upper = limits[\"upper\"]\n    cx = (lower[0] + upper[0]) * 50.0\n    cy = (lower[1] + upper[1]) * 50.0\n    min_x = lower[0] * 100.0\n    max_x = upper[0] * 100.0\n    min_y = lower[1] * 100.0\n    max_y = upper[1] * 100.0\n    min_z = lower[2] * 100.0\n    max_z = upper[2] * 100.0\n    radius = radius_m * 100.0\n    max_radius = min(cx - min_x, max_x - cx, cy - min_y, max_y - cy)\n    if radius > max_radius - 12.0:\n        radius = max_radius - 12.0\n    if radius < 100.0:\n        radius = 100.0\n    if turns < 0.0:\n        turns = -turns\n    if turns > 0.8:\n        turns = 0.8\n    rise = rise_m * 100.0\n    if rise < 8.0:\n        rise = 8.0\n    low_z = min_z + 8.0\n    high_z = max_z - rise - 8.0\n    if high_z - low_z < 55.0:\n        low_z = min_z + 5.0\n        high_z = max_z - rise - 5.0\n    if high_z <= low_z:\n        high_z = low_z + 55.0\n    angles = np.zeros(n)\n    radii0 = np.zeros(n)\n    order = np.zeros(n, dtype=int)\n    for i in range(n):\n        dx = swarm_pos[i, 0] - cx\n        dy = swarm_pos[i, 1] - cy\n        radii0[i] = np.sqrt(dx * dx + dy * dy)\n        angles[i] = np.arctan2(dy, dx)\n        order[i] = i\n    for a in range(n):\n        for b in range(a + 1, n):\n            if angles[order[b]] < angles[order[a]]:\n                q = order[a]\n                order[a] = order[b]\n                order[b] = q\n    target_z = np.zeros(n)\n    spin = np.zeros(n)\n    for rank in range(n):\n        drone = order[rank]\n        slot = rank // 2\n        if rank % 2 == 0:\n            target_z[drone] = high_z\n            spin[drone] = 1.0\n        else:\n            target_z[drone] = low_z\n            spin[drone] = -1.0\n    final_pos = np.zeros_like(swarm_pos)\n    waypoints = {}\n    steps = 60\n    for step in range(1, steps + 1):\n        s = step / float(steps)\n        tm = tstart + (tend - tstart) * s\n        frame = {}\n        for i in range(n):\n            if s < 0.30:\n                u = s / 0.30\n                r = radii0[i] + (radius - radii0[i]) * u\n                angle = angles[i]\n                z = swarm_pos[i, 2] + (target_z[i] - swarm_pos[i, 2]) * u\n            else:\n                u = (s - 0.30) / 0.70\n                r = radius\n                angle = angles[i] + spin[i] * 2.0 * np.pi * turns * u\n                z = target_z[i] + rise * u\n            x = cx + r * np.cos(angle)\n            y = cy + r * np.sin(angle)\n            if x < min_x:\n                x = min_x\n            if x > max_x:\n                x = max_x\n            if y < min_y:\n                y = min_y\n            if y > max_y:\n                y = max_y\n            if z < min_z:\n                z = min_z\n            if z > max_z:\n                z = max_z\n            point = np.array([x, y, z])\n            frame[i] = point\n            if step == steps:\n                final_pos[i] = point\n        waypoints[tm] = frame\n    return final_pos, waypoints",
+    "invariants": "def check(pos, time, params):\n    n = pos.shape[0]\n    half = n // 2\n    cx = np.mean(pos[:, :, 0])\n    cy = np.mean(pos[:, :, 1])\n    mean_r = np.zeros(n)\n    for i in range(n):\n        dx = pos[i, :, 0] - cx\n        dy = pos[i, :, 1] - cy\n        mean_r[i] = np.mean(np.sqrt(dx * dx + dy * dy))\n    radius_consistent = np.mean(np.abs(mean_r - np.mean(mean_r))) < 18.0\n    low = np.zeros(pos.shape[1])\n    high = np.zeros(pos.shape[1])\n    for k in range(pos.shape[1]):\n        idx = np.argsort(pos[:, k, 2])\n        low[k] = np.mean(pos[idx[:half], k, 2])\n        high[k] = np.mean(pos[idx[half:], k, 2])\n    altitude_gap = np.mean(high - low)\n    strands_separated = altitude_gap > 45.0\n    positive = 0\n    negative = 0\n    for i in range(n):\n        total = 0.0\n        for k in range(pos.shape[1] - 1):\n            a0 = np.arctan2(pos[i, k, 1] - cy, pos[i, k, 0] - cx)\n            a1 = np.arctan2(pos[i, k + 1, 1] - cy, pos[i, k + 1, 0] - cx)\n            total = total + np.arctan2(np.sin(a1 - a0), np.cos(a1 - a0))\n        if total > 0.2:\n            positive = positive + 1\n        if total < -0.2:\n            negative = negative + 1\n    counter_rotating = positive >= half - 2 and negative >= half - 2\n    gain = np.mean(pos[:, -1, 2] - pos[:, 0, 2])\n    rising = gain > 5.0\n    minimum = 1.0e9\n    for k in range(pos.shape[1]):\n        for i in range(n):\n            for j in range(i + 1, n):\n                dx = pos[i, k, 0] - pos[j, k, 0]\n                dy = pos[i, k, 1] - pos[j, k, 1]\n                dz = pos[i, k, 2] - pos[j, k, 2]\n                d = np.sqrt(dx * dx + dy * dy + dz * dz)\n                if d < minimum:\n                    minimum = d\n    collision_clear = minimum >= 29.0\n    return [(\"common_radius\", radius_consistent, \"mean radial deviation %.1f cm\" % np.mean(np.abs(mean_r - np.mean(mean_r)))), (\"two_altitude_strands\", strands_separated, \"mean altitude gap %.1f cm\" % altitude_gap), (\"counter_rotation\", counter_rotating, \"%d positive and %d negative angular totals\" % (positive, negative)), (\"upward_winding\", rising, \"mean altitude gain %.1f cm\" % gain), (\"sampled_clearance\", collision_clear, \"minimum sampled pair distance %.1f cm\" % minimum)]"
+  },
+  "args": [
+    1.6,
+    0.75,
+    0.35
+  ],
+  "provenance": {
+    "request": "a double helix: two counter-rotating strands winding upward around a common axis",
+    "arm": "absolute",
+    "model": "gpt-5.6-luna",
+    "iterations": 11,
+    "duration_s": 12.0,
+    "n_drones": 20,
+    "synthesized_at": "2026-08-25T13:10:02"
+  },
+  "metrics": {
+    "n_drones": 20,
+    "duration_s": 12.0,
+    "n_steps": 121,
+    "min_sep_m": 0.3281267285346985,
+    "min_sep_norm": 1.136098784734066,
+    "required_sep_m": 0.28881883595316515,
+    "worst_pair": [
+      2,
+      12
+    ],
+    "worst_time_s": 0.8,
+    "next_worst_norm": 1.3527930226613174,
+    "steps_inside_envelope": 0,
+    "authored_min_sep_norm": 1.3463745031978114,
+    "deviation_mean_m": 0.07347800255358454,
+    "deviation_max_m": 0.15017037854548543,
+    "deviation_per_drone_max_m": [
+      0.14944944224877316,
+      0.14429767818639608,
+      0.13295790046764142,
+      0.1455093375391562,
+      0.14310476731697558,
+      0.1436396520861595,
+      0.1425697458421602,
+      0.14023738866315352,
+      0.14129926655340683,
+      0.14032069759443114,
+      0.13901054700170473,
+      0.15017037854548543,
+      0.14145472276902518,
+      0.14101813824225806,
+      0.14017681650319755,
+      0.1401596629196174,
+      0.14690794410787383,
+      0.14103310879725062,
+      0.14368886830546027,
+      0.13664963074884975
+    ],
+    "deviation_worst_drone": 12,
+    "failed_solves": 57,
+    "max_speed_mps": 0.9186599850654602,
+    "max_accel_mps2": 1.2281649112701416,
+    "min_z_m": 0.3609268069267273,
+    "vel_max_mps": 1.73
+  },
+  "checks": [
+    {
+      "name": "common_radius",
+      "ok": true,
+      "detail": "mean radial deviation 6.1 cm"
+    },
+    {
+      "name": "two_altitude_strands",
+      "ok": true,
+      "detail": "mean altitude gap 78.6 cm"
+    },
+    {
+      "name": "counter_rotation",
+      "ok": true,
+      "detail": "10 positive and 10 negative angular totals"
+    },
+    {
+      "name": "upward_winding",
+      "ok": true,
+      "detail": "mean altitude gain 15.5 cm"
+    },
+    {
+      "name": "sampled_clearance",
+      "ok": true,
+      "detail": "minimum sampled pair distance 32.8 cm"
+    }
+  ],
+  "reasoning": "The filtered trajectory is safe: its closest approach is 0.33 m versus a 0.29 m requirement, with zero solver steps inside the collision envelope. The filter's maximum displacement was limited to 0.15 m, the peak speed stayed below its limit, and every shape invariant passed, including counter-rotation, two altitude-separated strands, upward motion, and sampled clearance. Although many solver steps failed to solve, the returned flown trajectory remained collision-clear and visibly retained the intended form, so further changes are not justified by this run."
+}

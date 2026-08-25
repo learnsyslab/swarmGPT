@@ -18,7 +18,7 @@ these. Each writes to the gitignored `synth_runs/`.
 | script | what it does |
 |---|---|
 | `ablation_feedback.py` | The grid: requests × feedback arms × repeats. Primary outcome fixed in the docstring before the data existed. Appends to JSONL per run so an interrupted sweep keeps what it had. |
-| `synth_single_run.py` | One synthesis loop, one arm. For debugging a single request; `ablation_feedback.py` is the experiment. |
+| `synth_to_library.py` | The synthesis loop's single entry point. Always writes `synth_runs/promote_<arm>_<stamp>.jsonl` and prints a per-iteration table, whatever the outcome. Promotes to `results/synthesized/<name>.json` only if the run clears all three gates — pre-solve screen, safety filter, and the `--shape` predicate the model neither writes nor sees. Exits 1 if the model never said "keep", 2 if a gate refused what it kept. |
 
 ## Utilities
 
