@@ -1,0 +1,6 @@
+[
+  {
+    "role": "assistant",
+    "content": "song_mood: \"One LLM-authored primitive: the swarm forms a double helix, then spins it about its axis.\"\nchoreography_plan: \"double_helix forms the shape once. Every later key rotates the formed helix about z, which preserves every radius and height so the formation cannot collide with itself while it turns.\"\nchoreography:\n  s1b1t1: double_helix(0.9, 1.1, 0.5)\n  s1b5t1: rotate(90, 'z')\n  s2b1t1: rotate(90, 'z')\n  s2b5t1: rotate(90, 'z')\n  s3b1t1: rotate(90, 'z')\n  END\nlighting:\n  s1b1t1: light_color(['all', []], 'cyan', 'both')\n  END\n"
+  }
+]

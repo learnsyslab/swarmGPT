@@ -181,3 +181,50 @@ def test_manifest_from_payload_rejects_bad_params():
 def test_manifest_from_payload_rejects_missing_field():
     with pytest.raises(SynthError, match="missing required fields"):
         PrimitiveManifest.from_payload({"name": "f"})
+
+
+ASSIGNS = """
+def ring(params, swarm_pos, tstart, tend, limits):
+    radius, = params
+    n = swarm_pos.shape[0]
+    targets = np.zeros_like(swarm_pos)
+    for i in range(n):
+        a = 2.0 * np.pi * i / n
+        targets[i] = np.array([radius * np.cos(a), radius * np.sin(a), swarm_pos[i, 2]])
+    slots = assign(swarm_pos, targets)
+    placed = np.zeros_like(swarm_pos)
+    for i in range(n):
+        placed[i] = targets[slots[i]]
+    t = arrival_time(placed, swarm_pos, tstart, tend)
+    return placed, {float(t): {i: p.copy() for i, p in enumerate(placed)}}
+"""
+
+
+def test_helpers_are_bound_in_the_sandbox():
+    fn = compile_primitive(ASSIGNS, "ring")
+    swarm = np.zeros((6, 3))
+    swarm[:, 0] = np.linspace(-150, 150, 6)
+    limits = {"lower": np.array([-2.0, -2.0, 0.0]), "upper": np.array([2.0, 2.0, 2.0])}
+    placed, waypoints = fn((120.0,), swarm, 0.0, 10.0, limits)
+    assert placed.shape == (6, 3)
+    assert len(waypoints) == 1
+
+
+def test_assign_returns_a_permutation():
+    from swarm_gpt.synth.sandbox import HELPERS
+
+    current = np.array([[0.0, 0.0, 0.0], [100.0, 0.0, 0.0], [200.0, 0.0, 0.0]])
+    targets = current[::-1].copy()
+    slots = HELPERS["assign"](current, targets)
+    assert sorted(slots) == [0, 1, 2]
+    # Each drone is sent to the target that is already where it stands, not to its own index.
+    assert [int(s) for s in slots] == [2, 1, 0]
+
+
+def test_arrival_time_respects_the_interval():
+    from swarm_gpt.synth.sandbox import HELPERS
+
+    current = np.zeros((4, 3))
+    far = np.tile(np.array([300.0, 0.0, 0.0]), (4, 1))
+    assert HELPERS["arrival_time"](far, current, 0.0, 1.0) == 1.0
+    assert 0.0 < HELPERS["arrival_time"](far, current, 0.0, 30.0) < 30.0

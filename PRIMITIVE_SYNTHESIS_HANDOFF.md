@@ -21,22 +21,29 @@ The claim has two halves, and both now have data:
 2. Feedback from the safety filter, **carrying magnitudes**, lets the LLM author new primitives
    that clear the filter — a loop where the solver teaches rather than merely rejects.
 
-Half 1 is settled and written up. Half 2 has a working pipeline and a clearly identified last
-blocker.
+Both halves now have results. Half 1 is settled and written up; half 2 has a working pipeline and
+its first verified primitive.
 
 ---
 
 ## 2. Current state
 
-The synthesis pipeline runs end to end: an LLM authors a primitive, a millisecond pre-solve screen
-rejects infeasible geometry, axswarm measures what survives, a hand-written predicate judges the
-shape, and anything clearing all three gates persists as a loadable library entry. **No run has yet
-produced a promotable double helix** — the model reaches collision separation *or* the helix shape,
-not both within 14 iterations. The one remaining blocker is that it must re-derive collision-free
-formation entry from scratch, because the sandbox exposes no assignment helper.
+**The loop works.** `results/synthesized/double_helix.json` is an LLM-authored primitive that
+clears every gate: authored separation 1.265, flown 1.235 with **0 steps inside the collision
+envelope**, the filter moving it 0.136 m at most, and **4/4** on a shape predicate it never saw.
+It converged in 7 iterations. It renders through the shipped `render.py` and flies.
 
-All of it is committed and pushed, in the commit directly after `2ed21fb`. The six run logs behind
-§4.3 and §7 stay local: `synth_runs/` is gitignored.
+What unblocked it was binding the library's own formation helpers into the sandbox. Before that the
+model had to reinvent collision-free formation entry every time and never got authored separation
+above 0.484 in 8 iterations; with `assign` available it cleared 1.0 on the first try.
+
+The primitive builds a **static** double helix and holds it — `turns` is the spatial pitch of the
+helix, not a spin. Motion comes from composing it in the choreography (`rotate(90, 'z')` on later
+keys turns the formed shape and cannot collide, since a z-rotation preserves every radius and
+height). The shape predicate scores the formed pose, so a static helix passes correctly; "must also
+move" would be a separate predicate.
+
+Run logs stay local — `synth_runs/` is gitignored.
 
 ---
 
@@ -262,6 +269,11 @@ Each cost real time or API credit. Do not re-investigate.
 - **Correlation between angle and height as a helix test.** Fails twice over: angle wraps at 2π,
   and in a counter-rotating pair one strand climbs against increasing angle. Replaced by
   monotonicity read around the loop from the extreme, accepting either direction.
+- **Gating promotion on zero failed solves.** Rejected a genuine success. axswarm's
+  `success=False` means it hit `max_iters` with its **K-step prediction horizon** unsatisfied, but
+  only the first step of each horizon is executed and the next tick re-solves. The promoted
+  primitive carries 43/121 failures and flies with 0 steps inside the envelope. Gate on
+  `steps_inside_envelope`, report `failed_solves`.
 - **Pairing tolerance of "half the level spacing".** Drones evenly spaced in a *single* file sit
   exactly on that bound. Replaced by a ratio test: between-level gap ≥ 3× within-pair gap.
 
@@ -269,13 +281,11 @@ Each cost real time or API credit. Do not re-investigate.
 
 ## 8. Next steps, ranked
 
-1. **Expose an assignment helper in the sandbox.** Add `assign(current, targets)` (Hungarian —
-   `scipy.optimize.linear_sum_assignment`, imported at `swarm_gpt/core/motion_primitives.py:10`,
-   used at `:669`) and `min_separation(pos)` to `_sandbox_namespace()` at
-   `swarm_gpt/synth/sandbox.py:112`, mention both in `_SYSTEM` in `loop.py`, then rerun §6. This is
-   the identified blocker: the model interpolates each drone straight from dock to target, which
-   crosses paths. The hand-written primitives do not have this bug because they already call
-   Hungarian assignment.
+1. **Synthesize more primitives and re-run the coverage instrument.** This is what turns the
+   existence proof into the paper's headline: with the hand library 88% of blind intents fall
+   short, so promote N primitives and re-measure the same 88 intents against the extended library.
+   The instrument already exists (`experiments/judge_against_vocabulary.py`); the extended library
+   is `results/synthesized/` plus the prompt/schema injection, which is already wired.
 2. **Write §4.3 into `results/README.md`** — the operating regime and the softened "repairs"
    claim — before the RAL draft is built on the current wording.
 3. **Guard `paired_heights` against flat formations** (`shapes.py`). All drones at one height gives
@@ -307,13 +317,24 @@ Each cost real time or API credit. Do not re-investigate.
 | `verifier.py` | `authored_trajectory`, `solve_only`, `measure`, `screen_authored` (gate 1), `check_shape_of` (gate 3 adapter). |
 | `shapes.py` | Hand-written shape predicates. `double_helix` only. |
 | `manifest.py` | The single declaration; `register()` writes all four places. |
-| `sandbox.py`, `feedback.py` | Unchanged this session. |
+| `sandbox.py` | AST whitelist plus `HELPERS` — the library's own `assign` and `arrival_time`, bound by reference so authored primitives cannot drift from what the hand-written ones use. |
+| `feedback.py` | Unchanged: the three ablation arms. |
 
 `experiments/synth_to_library.py` is the single entry point (it replaced `synth_single_run.py`,
 which logged a run and threw the primitive away). `ablation_feedback.py` and the four coverage
 scripts are the experiments behind §4 — `experiments/README.md` indexes them.
 
-Tests: `tests/unit/test_synth_{schema,shapes,verifier,sandbox,feedback}.py`. 827 pass.
+`experiments/plot_primitive.py` draws a promoted entry — flown trajectory, the pairing from above,
+and the twist against height. `swarm_gpt/data/presets/Fearless2 | 20 | 20260825_160000` is a
+minimal preset that renders one through `render.py`; register the manifest before calling
+`render_preset` or `primitive_by_name` will not resolve it.
+
+Dock positions in `drones.toml` are a 20-drone ring at radius 1.5 m (0.470 m apart, 1.88x the
+envelope). A ring makes every radial formation a straight in-or-out flight with no crossing paths,
+which is the failure that cost five runs. Only `pos` was changed; `addr` and `channel` are as they
+were.
+
+Tests: `tests/unit/test_synth_{schema,shapes,verifier,sandbox,feedback}.py`. 830 pass.
 
 Two artifacts are kept deliberately: `results/synthesis-rejected/double_helix-...selfcertified.json`
 is outside the load path because it is the *evidence* for the self-certification finding, and

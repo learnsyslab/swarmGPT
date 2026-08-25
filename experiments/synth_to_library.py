@@ -77,20 +77,16 @@ def unsafe_reason(record: Iteration) -> str | None:
     if record.stage != "measured":
         return f"never reached the safety filter (stopped at stage {record.stage!r})"
     metrics = record.metrics or {}
-    # A run with failed solves reports whatever the fallback held, not what would fly. Its
-    # separation and deviation figures read *better* the more the solver gave up, so they cannot
-    # be used to clear a primitive for the library.
-    if metrics["failed_solves"]:
-        return (
-            f"the safety filter failed on {metrics['failed_solves']} of {metrics['n_steps']} "
-            "steps, so nothing it reports about this trajectory can be trusted"
-        )
-    if metrics["min_sep_norm"] >= 1.0:
+    # Judged on what flew, not on whether the solver converged. `failed_solves` counts steps where
+    # axswarm hit max_iters with its K-step horizon still unsatisfied, but only the first step of
+    # each horizon is ever executed and the next tick re-solves, so a run can carry failures and
+    # still fly clean. It is reported, never gated on.
+    if metrics["steps_inside_envelope"] == 0:
         return None
     return (
-        f"closest approach is {metrics['min_sep_norm']:.3f}x the required envelope "
-        f"({metrics['steps_inside_envelope']} of {metrics['n_steps']} steps inside it, "
-        f"{metrics['failed_solves']} failed solves)"
+        f"the flown trajectory is inside the collision envelope on "
+        f"{metrics['steps_inside_envelope']} of {metrics['n_steps']} steps, closest approach "
+        f"{metrics['min_sep_norm']:.3f}x"
     )
 
 

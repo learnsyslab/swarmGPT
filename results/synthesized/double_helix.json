@@ -1,0 +1,128 @@
+{
+  "manifest": {
+    "name": "double_helix",
+    "intent": "Fly twenty drones as two same-handed strands around a common vertical axis; equal-height pairs are half a turn apart and the strand orientation advances by half a turn from bottom to top.",
+    "params": [
+      {
+        "name": "radius",
+        "type": "float",
+        "minimum": 0.55,
+        "maximum": 0.9
+      },
+      {
+        "name": "height",
+        "type": "float",
+        "minimum": 0.8,
+        "maximum": 1.1
+      },
+      {
+        "name": "turns",
+        "type": "float",
+        "minimum": 0.5,
+        "maximum": 1.0
+      }
+    ],
+    "source": "def double_helix(params, swarm_pos, tstart, tend, limits):\n    radius, height, turns = params\n    n = swarm_pos.shape[0]\n    pairs = n // 2\n    lo = limits[\"lower\"] * 100.0\n    hi = limits[\"upper\"] * 100.0\n    cx = 0.5 * (lo[0] + hi[0])\n    cy = 0.5 * (lo[1] + hi[1])\n    z0 = lo[2] + 10.0\n    z1 = z0 + height * 100.0\n    if z1 > hi[2] - 10.0:\n        z1 = hi[2] - 10.0\n    r = radius * 100.0\n    rs = r + 20.0\n    target = np.zeros((n, 3))\n    stage = np.zeros((n, 3))\n    for k in range(pairs):\n        f = float(k) / float(pairs - 1)\n        ang = 2.0 * np.pi * turns * f\n        z = z0 + (z1 - z0) * f\n        c = np.cos(ang)\n        s = np.sin(ang)\n        target[k] = (cx + r * c, cy + r * s, z)\n        target[k + pairs] = (cx - r * c, cy - r * s, z)\n        stage[k] = (cx + rs * c, cy + rs * s, z)\n        stage[k + pairs] = (cx - rs * c, cy - rs * s, z)\n    slots = assign(swarm_pos, target)\n    route = np.zeros_like(swarm_pos)\n    goal = np.zeros_like(swarm_pos)\n    for i in range(n):\n        route[i] = stage[slots[i]]\n        goal[i] = target[slots[i]]\n    total = tend - tstart\n    if total < 0.1:\n        total = 0.1\n    waypoints = {}\n    steps = 80\n    for q in range(1, steps + 1):\n        u = float(q) / float(steps)\n        t = tstart + total * u\n        if u < 0.60:\n            v = u / 0.60\n            p = 10.0 * v * v * v - 15.0 * v * v * v * v + 6.0 * v * v * v * v * v\n            pose = swarm_pos + p * (route - swarm_pos)\n        else:\n            v = (u - 0.60) / 0.40\n            p = 10.0 * v * v * v - 15.0 * v * v * v * v + 6.0 * v * v * v * v * v\n            pose = route + p * (goal - route)\n        waypoints[t] = {}\n        for i in range(n):\n            waypoints[t][i] = pose[i]\n    return goal, waypoints",
+    "invariants": "def check(pos, time, params):\n    radius, height, turns = params\n    p = pos[:, -1, :]\n    n = p.shape[0]\n    levels = n // 2\n    center = np.mean(p[:, :2], axis=0)\n    rr = radius * 100.0\n    radial = np.sqrt((p[:, 0] - center[0]) ** 2 + (p[:, 1] - center[1]) ** 2)\n    radius_ok = np.max(np.abs(radial - rr)) < 12.0\n    height_ok = np.max(p[:, 2]) - np.min(p[:, 2]) > 0.75 * height * 100.0\n    order = np.argsort(p[:, 2])\n    phase = np.zeros(levels)\n    opposed_ok = True\n    for k in range(levels):\n        i = order[2 * k]\n        j = order[2 * k + 1]\n        ax = p[i, 0] - center[0]\n        ay = p[i, 1] - center[1]\n        bx = p[j, 0] - center[0]\n        by = p[j, 1] - center[1]\n        opposed_ok = opposed_ok and (ax * bx + ay * by < -0.55 * rr * rr)\n        phase[k] = np.arctan2(ay, ax) % np.pi\n    unwrapped = np.zeros(levels)\n    unwrapped[0] = phase[0]\n    for k in range(1, levels):\n        unwrapped[k] = phase[k]\n        while unwrapped[k] < unwrapped[k - 1] - 0.5 * np.pi:\n            unwrapped[k] = unwrapped[k] + np.pi\n        while unwrapped[k] > unwrapped[k - 1] + 0.5 * np.pi:\n            unwrapped[k] = unwrapped[k] - np.pi\n    total_advance = unwrapped[levels - 1] - unwrapped[0]\n    winding_ok = total_advance > 0.35 * np.pi * turns\n    return [(\"two_strands\", radius_ok and height_ok, \"the endpoint formation has the requested radius and vertical span\"), (\"half_turn_pairs\", opposed_ok, \"equal-height pairs have opposite radial directions\"), (\"same_handed_winding\", winding_ok, \"the strand axis advances positively modulo pi with height\")]"
+  },
+  "args": [
+    0.9,
+    1.1,
+    0.5
+  ],
+  "provenance": {
+    "request": "a double helix: two strands half a turn apart at every height, both winding upward the same way around a common axis",
+    "arm": "absolute",
+    "model": "gpt-5.6-luna",
+    "iterations": 7,
+    "duration_s": 12.0,
+    "n_drones": 20,
+    "synthesized_at": "2026-08-25T15:19:32"
+  },
+  "metrics": {
+    "n_drones": 20,
+    "duration_s": 12.0,
+    "n_steps": 121,
+    "min_sep_m": 0.3267329931259155,
+    "min_sep_norm": 1.235274661502528,
+    "required_sep_m": 0.2645023032598219,
+    "worst_pair": [
+      4,
+      17
+    ],
+    "worst_time_s": 3.2,
+    "next_worst_norm": 1.2989586771948056,
+    "steps_inside_envelope": 0,
+    "authored_min_sep_norm": 1.2646720583881335,
+    "deviation_mean_m": 0.04957809431559323,
+    "deviation_max_m": 0.13622750919200868,
+    "deviation_per_drone_max_m": [
+      0.07594822674899715,
+      0.12847150743366614,
+      0.11639534734414564,
+      0.13622750919200868,
+      0.08170448684552238,
+      0.12154928187329649,
+      0.13620083615721285,
+      0.11639297516261693,
+      0.12844946323879244,
+      0.075929910460168,
+      0.1231523256373639,
+      0.11207834778775624,
+      0.10634799403584203,
+      0.1330861246794665,
+      0.1173585455429926,
+      0.11736044257697098,
+      0.13309711185514975,
+      0.10636285017727347,
+      0.11209237415515198,
+      0.13002570658827467
+    ],
+    "deviation_worst_drone": 4,
+    "failed_solves": 43,
+    "max_speed_mps": 0.36050596833229065,
+    "max_accel_mps2": 0.6883431077003479,
+    "min_z_m": 0.35579249262809753,
+    "vel_max_mps": 1.73
+  },
+  "checks": [
+    {
+      "name": "two_strands",
+      "ok": true,
+      "detail": "the endpoint formation has the requested radius and vertical span"
+    },
+    {
+      "name": "half_turn_pairs",
+      "ok": true,
+      "detail": "equal-height pairs have opposite radial directions"
+    },
+    {
+      "name": "same_handed_winding",
+      "ok": true,
+      "detail": "the strand axis advances positively modulo pi with height"
+    }
+  ],
+  "shape_checks": [
+    {
+      "name": "paired_heights",
+      "ok": true,
+      "detail": "heights sit 0.0 cm apart within a pair and 12.4 cm between levels, a ratio of 561.0 (needs 3)"
+    },
+    {
+      "name": "strands_opposed",
+      "ok": true,
+      "detail": "the least opposed pair sits 180 deg apart, needs 140-180 deg"
+    },
+    {
+      "name": "strands_climb",
+      "ok": true,
+      "detail": "the strands span 112.7 cm of height, needs 20 cm"
+    },
+    {
+      "name": "twists_with_height",
+      "ok": true,
+      "detail": "the pair axis turns 180 deg from bottom to top, advancing steadily for 100% of the climb; needs 90 deg at 80%"
+    }
+  ],
+  "reasoning": "The primitive is safe and its authored trajectory is close enough to the flown result: the worst repair displacement was 0.14 m, peak flown speed was only 0.36 m/s, and the filtered trajectory stayed outside the collision envelope. All three of my checks passed, and the independent checks confirm paired equal heights, 180-degree opposition, a substantial climb, and a steadily advancing 180-degree twist. The earlier invariant failure was corrected by measuring the pair axis modulo pi rather than alternating between the two opposed strands."
+}

@@ -106,6 +106,20 @@ Execution is sandboxed: no imports (numpy is already bound as `np`), no file or 
 dunder attributes. Builtins are limited to arithmetic and sequence helpers. A call must finish in
 a few seconds.
 
+Two helpers are bound for you. They are the ones every hand-written primitive in this library
+already uses, and you are expected to use them rather than rewrite them:
+
+    slots = assign(current_pos, target_pos)
+
+  Hungarian assignment. Both arrays are (n_drones, 3) in cm; `slots[i]` is the index of the target
+  that drone `i` should fly to. Sending drone `i` to `target_pos[i]` instead, and interpolating
+  straight there, is what makes twenty drones cross through each other.
+
+    t_arrive = arrival_time(target_pos, current_pos, tstart, tend)
+
+  The earliest time the whole swarm can reach `target_pos` without exceeding the speed limit,
+  sized by the drone with furthest to travel. Emit your formation waypoint at or after this.
+
 Both `source` and `invariants` are Python source text, never prose. `source` defines only the
 primitive; `invariants` defines only:
 

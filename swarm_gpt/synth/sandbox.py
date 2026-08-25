@@ -15,6 +15,8 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
+from swarm_gpt.core.motion_primitives import _assign_positions, _formation_arrival_time
+
 if TYPE_CHECKING:
     from collections.abc import Callable
 
@@ -109,10 +111,15 @@ def _reject_unsafe(tree: ast.AST) -> None:
                 raise SynthError(f"{node.id!r} is not available inside a primitive.")
 
 
+# The formation helpers every hand-written primitive already calls. Bound by reference rather
+# than reimplemented, so an authored primitive gets the library's own assignment and time budget.
+HELPERS = {"assign": _assign_positions, "arrival_time": _formation_arrival_time}
+
+
 def _sandbox_namespace() -> dict[str, Any]:
-    """A fresh execution namespace holding numpy and a whitelisted builtins mapping."""
+    """A fresh execution namespace holding numpy, the formation helpers, and safe builtins."""
     allowed = {name: getattr(builtins, name) for name in _ALLOWED_BUILTINS}
-    return {"np": np, "__builtins__": allowed}
+    return {"np": np, "__builtins__": allowed, **HELPERS}
 
 
 def _compile_function(
