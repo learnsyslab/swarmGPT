@@ -4,7 +4,7 @@ Branch `feat/primitive-synthesis`, pushed to `origin`. This document plus that b
 whole thread; nothing else is required to pick it up.
 
 Written by **Yiyi Xu** (yiyi.xu@mail.utoronto.ca), LSY Lab TUM, 19 May – 27 August 2026.
-Supervisor: **Marcel**.
+Supervisor: **Marcel**. Collaborators: **Martin**, **Alex**.
 Last updated **2026-08-25**. Tracked on this branch, so a clone carries it.
 
 ---
@@ -124,23 +124,36 @@ worse. That arm existed to test the objection and refuted it.
 Caveats: n ≈ 17 per arm, one model, six requests. Two runs of the same arm on the same request once
 gave 0.16 and 1.68 — that variance is why a 3-run comparison told us nothing.
 
-### 4.3 A confound in that ablation, found this session — **write this up before submitting**
+### 4.3 The regime that ablation ran in — **state this, but it is not a confound**
 
-`deviation_max` is measured against a trajectory the solver **failed to produce half the time**.
-Across the 54 runs, 199 measured iterations have a **median 50% failed-solve fraction**, and only
-**9 of 199** were fully clean. When solves fail, little moves, so deviation reads *low* — which
-scores *well*.
+The whole ablation ran with the solver failing most of the time. Across the 54 runs, 199 measured
+iterations have a **median 50% failed-solve fraction**, and only **9 of 199** were fully clean. The
+cause is in §5: the model was never told the drones have kinematic limits, so it authored
+trajectories demanding up to 37 m/s.
 
-The arm ranking survives and is arguably reinforced: absolute also has the lowest failure rate
-(**0.39** vs 0.57 categorical, 0.47 relative) and the best safety (**8/18** runs collision-safe vs
-3/17 and 5/17). But two things need fixing in the write-up:
+I first assumed this inverted the primary outcome — that failed solves would hold the swarm still
+and make `deviation_max` read flatteringly low. **Checked against the data, it is the opposite:**
 
-- the deviation magnitudes need this caveat stated plainly, and
-- any claim that the filter **"repairs"** trajectories should be softened. Only **16 of 52** runs
-  produced a collision-safe trajectory at all, and **2 of the 9** the model said "keep" on were
-  unsafe.
+| | median `deviation_max` |
+|---|---|
+| mostly-clean solves (<25% failed, n=64) | **0.16 m** |
+| mostly-failed solves (>75% failed, n=47) | **0.98 m** |
 
-The cause is in §5: the model was never told the drones have kinematic limits.
+Pearson r(failed-solve fraction, `deviation_max`) = **+0.176**. Failing to solve makes the score
+*worse*, which is the direction you want: an infeasible authored trajectory should score badly. So
+the pre-registered outcome is measuring something real and the arm comparison is sound. Absolute
+having both the lowest failure rate (**0.39** vs 0.57 categorical, 0.47 relative) and the lowest
+deviation is one coherent story — it authors more feasible trajectories, which both solve better
+and track better — not two confounded ones. The convergence result (8/18 vs 0/17) does not touch
+deviation at all.
+
+Two things still belong in the write-up:
+
+- **The operating regime.** Every arm was handicapped by a prompt that omitted the kinematic
+  limits. Report it as a limitation and note the fix; a reviewer who reads the run logs will see
+  the failure rate.
+- **Soften "repairs".** Only **16 of 52** runs produced a collision-safe trajectory at all, and
+  **2 of the 9** the model said "keep" on were unsafe. The filter did not reliably repair anything.
 
 ---
 
@@ -263,8 +276,8 @@ Each cost real time or API credit. Do not re-investigate.
    the identified blocker: the model interpolates each drone straight from dock to target, which
    crosses paths. The hand-written primitives do not have this bug because they already call
    Hungarian assignment.
-2. **Write the §4.3 confound into `results/README.md`** before the RAL draft is built on the
-   current wording.
+2. **Write §4.3 into `results/README.md`** — the operating regime and the softened "repairs"
+   claim — before the RAL draft is built on the current wording.
 3. **Guard `paired_heights` against flat formations** (`shapes.py`). All drones at one height gives
    "ratio inf" and passes spuriously. `strands_climb` catches it, so nothing was mis-promoted, but
    the check is unreliable on flat formations.
