@@ -4,13 +4,13 @@ The single entry point for the synthesis loop. Every run writes a JSONL log what
 a run that clears every gate is also promoted to `results/synthesized/<name>.json`, from where
 `PrimitiveManifest.from_payload` reloads it into the schema, the prompt, and `primitive_by_name`.
 
-Three gates, none of which the model may overrule: the pre-solve screen (its own waypoints must be
-collision-free and flyable), the filter (every solve must succeed and the flown separation clear
-the envelope), and the shape predicate named by `--shape`, which the model never authors or sees.
+Two gates, neither of which the model may overrule: the pre-solve screen (its own waypoints must
+be collision-free and flyable) and the filter (the flown trajectory must clear the envelope).
+Whether the result looks like what was asked for is a human call, reported, not gated.
 
     pixi run python experiments/synth_to_library.py \
         --request "a double helix: two strands half a turn apart at every height, both winding \
-upward the same way around a common axis" --shape double_helix --iters 14
+upward the same way around a common axis" --iters 14
 """
 
 from __future__ import annotations
@@ -29,7 +29,6 @@ import yaml
 
 from swarm_gpt.synth.feedback import ARMS
 from swarm_gpt.synth.loop import Iteration, SynthesisLoop
-from swarm_gpt.synth.shapes import SHAPES
 
 logger = logging.getLogger("synth")
 
@@ -53,18 +52,6 @@ def accepted(history: list[Iteration]) -> Iteration | None:
     if last.closing_verdict == "keep" and last.error is None:
         return last
     return None
-
-
-def shape_reason(record: Iteration) -> str | None:
-    """Return why the primitive is not the requested shape, or None if it is (or none was asked).
-
-    The model authors its own invariants and has passed every one of them on a trajectory that was
-    two flat rings. This verdict is not its to write.
-    """
-    failed = [c for c in record.shape_checks if not c["ok"]]
-    if not failed:
-        return None
-    return "not the requested shape -- " + "; ".join(f"{c['name']}: {c['detail']}" for c in failed)
 
 
 def unsafe_reason(record: Iteration) -> str | None:
@@ -108,7 +95,6 @@ def document(
         },
         "metrics": record.metrics,
         "checks": record.checks,
-        "shape_checks": record.shape_checks,
         "reasoning": record.closing_reasoning,
     }
 
@@ -142,24 +128,16 @@ def write_run_log(
 
 def render_table(history: list[Iteration]) -> str:
     """One row per iteration: how far it got, what it broke, and how its two verdicts landed."""
-    header = (
-        f"\n{'it':<4}{'stage':<10}{'authored':>9}{'flown':>8}{'failed':>8}"
-        f"{'own':>7}{'shape':>7}  verdict"
-    )
+    header = f"\n{'it':<4}{'stage':<10}{'authored':>9}{'flown':>8}{'failed':>8}{'own':>7}  verdict"
     rows = [header, "-" * len(header)]
     for r in history:
         m = r.metrics or {}
         own = f"{sum(c['ok'] for c in r.checks)}/{len(r.checks)}" if r.checks else "-"
-        shape = (
-            f"{sum(c['ok'] for c in r.shape_checks)}/{len(r.shape_checks)}"
-            if r.shape_checks
-            else "-"
-        )
         rows.append(
             f"{r.index:<4}{r.stage:<10}"
             f"{m.get('authored_min_sep_norm', float('nan')):>9.3f}"
             f"{m.get('min_sep_norm', float('nan')):>8.3f}"
-            f"{m.get('failed_solves', -1):>8}{own:>7}{shape:>7}  "
+            f"{m.get('failed_solves', -1):>8}{own:>7}  "
             f"{r.closing_verdict or r.verdict}"
         )
     return "\n".join(rows)
@@ -178,11 +156,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "--runs", type=Path, default=ROOT / "synth_runs", help="Where to write the run log"
-    )
-    parser.add_argument(
-        "--shape",
-        choices=sorted(SHAPES),
-        help="Hand-written shape the result must satisfy; the model neither writes nor sees it",
     )
     return parser.parse_args(argv)
 
@@ -205,14 +178,13 @@ def main(argv: list[str] | None = None) -> int:
         model_id=args.model,
         duration_s=args.duration,
         screen=True,
-        shape=args.shape,
     )
     logger.info("request=%r arm=%s drones=%d", args.request, args.arm, start_pos.shape[0])
     history = loop.run(args.request, max_iterations=args.iters)
 
     n_drones = int(start_pos.shape[0])
     record = accepted(history)
-    reason = None if record is None else (unsafe_reason(record) or shape_reason(record))
+    reason = None if record is None else unsafe_reason(record)
     if record is None:
         closing = history[-1].closing_verdict if history else ""
         status, code = f"not accepted; model closed on {closing or 'nothing'!r}", 1

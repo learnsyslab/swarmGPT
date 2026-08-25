@@ -1,0 +1,106 @@
+{
+  "manifest": {
+    "name": "upright_heart_outline",
+    "intent": "Form a broad upright heart outline facing the audience, using separated staging lanes and conservative motion timing.",
+    "params": [
+      {
+        "name": "width_m",
+        "type": "float",
+        "minimum": 3.6,
+        "maximum": 3.8
+      },
+      {
+        "name": "height_m",
+        "type": "float",
+        "minimum": 1.1,
+        "maximum": 1.2
+      },
+      {
+        "name": "center_z_m",
+        "type": "float",
+        "minimum": 0.95,
+        "maximum": 1.05
+      }
+    ],
+    "source": "def upright_heart_outline(params, swarm_pos, tstart, tend, limits):\n    width_m,height_m,center_z_m=params\n    n=swarm_pos.shape[0]\n    shape=[(-1.80,0.10),(-1.35,0.78),(-0.55,0.90),(0.00,0.28),(0.55,0.90),(1.35,0.78),(1.80,0.10),(0.98,-0.42),(0.00,-0.88),(-0.98,-0.42)]\n    target=np.zeros((n,3))\n    for j in range(n):\n        target[j,0]=100.0*width_m*shape[j%10][0]/3.8\n        target[j,1]=0.0\n        target[j,2]=100.0*center_z_m+100.0*height_m*shape[j%10][1]/1.2\n    lo=np.array(limits[\"lower\"])*100.0\n    hi=np.array(limits[\"upper\"])*100.0\n    target=np.maximum(np.minimum(target,hi),lo)\n    slots=assign(swarm_pos,target)\n    goal=target[slots]\n    lane=np.zeros((n,3))\n    for i in range(n):\n        lane[i]=goal[i]\n        lane[i,1]=-150.0+33.0*slots[i]\n    d1=0.0\n    d2=0.0\n    for i in range(n):\n        a=np.sqrt(np.sum((lane[i]-swarm_pos[i])**2))/100.0\n        b=np.sqrt(np.sum((goal[i]-lane[i])**2))/100.0\n        if a>d1:d1=a\n        if b>d2:d2=b\n    ta=arrival_time(lane,swarm_pos,tstart,tend)\n    t1=max(ta-tstart,1.875*d1/(1.73*0.48),np.sqrt(5.774*d1/(0.99*0.48*0.48)),1.0)\n    t2=max(1.875*d2/(1.73*0.52),np.sqrt(5.774*d2/(0.99*0.52*0.52)),1.0)\n    total=t1+t2\n    available=tend-tstart\n    if total>available:\n        total=available\n        t1=total*t1/(t1+t2)\n        t2=total-t1\n    waypoints={}\n    steps=32\n    for k in range(1,steps+1):\n        u=k/steps\n        s=10.0*u*u*u-15.0*u*u*u*u+6.0*u*u*u*u*u\n        tm=tstart+t1*u\n        pose=swarm_pos+s*(lane-swarm_pos)\n        waypoints[tm]={}\n        for i in range(n):waypoints[tm][i]=pose[i]\n    for k in range(1,steps+1):\n        u=k/steps\n        s=10.0*u*u*u-15.0*u*u*u*u+6.0*u*u*u*u*u\n        tm=tstart+t1+t2*u\n        pose=lane+s*(goal-lane)\n        waypoints[tm]={}\n        for i in range(n):waypoints[tm][i]=pose[i]\n    return goal.copy(),waypoints",
+    "invariants": "def check(pos,time,params):\n    width_m,height_m,center_z_m=params\n    final=pos[:,-1,:]\n    shape=[(-1.80,0.10),(-1.35,0.78),(-0.55,0.90),(0.00,0.28),(0.55,0.90),(1.35,0.78),(1.80,0.10),(0.98,-0.42),(0.00,-0.88),(-0.98,-0.42)]\n    expected=np.zeros((10,3))\n    for j in range(10):\n        expected[j,0]=100.0*width_m*shape[j][0]/3.8\n        expected[j,2]=100.0*center_z_m+100.0*height_m*shape[j][1]/1.2\n    errors=[]\n    for j in range(10):\n        d=np.sqrt(np.sum((final-expected[j])**2,axis=1))\n        errors.append(np.min(d))\n    shape_ok=np.max(np.array(errors))<25.0\n    sep=100000.0\n    for i in range(final.shape[0]):\n        for j in range(i+1,final.shape[0]):\n            d=np.sqrt(np.sum((final[i]-final[j])**2))\n            if d<sep:sep=d\n    spacing_ok=sep>=50.0\n    plane_ok=np.max(np.abs(final[:,1]))<25.0\n    extent_ok=np.max(final[:,2])-np.min(final[:,2])>70.0\n    two_lobes=np.sum(final[:,0]<-35.0)>=3 and np.sum(final[:,0]>35.0)>=3\n    return [(\"heart_outline\",shape_ok,\"final positions match ten sampled upright-heart vertices\"),(\"final_spacing\",spacing_ok,\"all final samples remain at least 0.50 m apart\"),(\"audience_plane\",plane_ok,\"the finished outline lies in the audience-facing x-z plane\"),(\"vertical_readability\",extent_ok,\"the outline has substantial upright height\"),(\"two_lobes\",two_lobes,\"drones occupy both left and right lobes\")]"
+  },
+  "args": [
+    3.8,
+    1.2,
+    1.0
+  ],
+  "provenance": {
+    "request": "a heart outline standing upright, readable from the audience",
+    "arm": "absolute",
+    "model": "gpt-5.6-luna",
+    "iterations": 7,
+    "duration_s": 12.0,
+    "n_drones": 10,
+    "synthesized_at": "2026-08-25T16:15:32"
+  },
+  "metrics": {
+    "n_drones": 10,
+    "duration_s": 12.0,
+    "n_steps": 121,
+    "min_sep_m": 0.5168160200119019,
+    "min_sep_norm": 1.6450757236246825,
+    "required_sep_m": 0.3141594107736109,
+    "worst_pair": [
+      6,
+      7
+    ],
+    "worst_time_s": 4.0,
+    "next_worst_norm": 1.7793289850391387,
+    "steps_inside_envelope": 0,
+    "authored_min_sep_norm": 1.7166666666666666,
+    "deviation_mean_m": 0.03548190126842517,
+    "deviation_max_m": 0.11462454013740271,
+    "deviation_per_drone_max_m": [
+      0.07396761866986926,
+      0.08175079480003465,
+      0.055452083525694855,
+      0.07794890311394218,
+      0.11462454013740271,
+      0.0699341783384762,
+      0.07667930615965719,
+      0.08385785837182287,
+      0.06041583615725569,
+      0.06957731149577512
+    ],
+    "deviation_worst_drone": 5,
+    "failed_solves": 42,
+    "max_speed_mps": 0.7096142172813416,
+    "max_accel_mps2": 0.6965041756629944,
+    "min_z_m": 0.249639093875885,
+    "vel_max_mps": 1.73
+  },
+  "checks": [
+    {
+      "name": "heart_outline",
+      "ok": true,
+      "detail": "final positions match ten sampled upright-heart vertices"
+    },
+    {
+      "name": "final_spacing",
+      "ok": true,
+      "detail": "all final samples remain at least 0.50 m apart"
+    },
+    {
+      "name": "audience_plane",
+      "ok": true,
+      "detail": "the finished outline lies in the audience-facing x-z plane"
+    },
+    {
+      "name": "vertical_readability",
+      "ok": true,
+      "detail": "the outline has substantial upright height"
+    },
+    {
+      "name": "two_lobes",
+      "ok": true,
+      "detail": "drones occupy both left and right lobes"
+    }
+  ],
+  "reasoning": "The filtered trajectory is safe: peak speed is 0.71 m/s, well below 1.73 m/s, and the solver made only small repairs while reporting no collision-envelope violations. All five meaningful shape checks pass, including heart correspondence, spacing, audience-facing plane, vertical extent, and two-lobe readability. The failed solver-step count does not alter the flown result or invalidate the authored shape, so this version is suitable to keep."
+}

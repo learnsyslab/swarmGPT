@@ -102,27 +102,5 @@
       "detail": "the strand axis advances positively modulo pi with height"
     }
   ],
-  "shape_checks": [
-    {
-      "name": "paired_heights",
-      "ok": true,
-      "detail": "heights sit 0.0 cm apart within a pair and 12.4 cm between levels, a ratio of 561.0 (needs 3)"
-    },
-    {
-      "name": "strands_opposed",
-      "ok": true,
-      "detail": "the least opposed pair sits 180 deg apart, needs 140-180 deg"
-    },
-    {
-      "name": "strands_climb",
-      "ok": true,
-      "detail": "the strands span 112.7 cm of height, needs 20 cm"
-    },
-    {
-      "name": "twists_with_height",
-      "ok": true,
-      "detail": "the pair axis turns 180 deg from bottom to top, advancing steadily for 100% of the climb; needs 90 deg at 80%"
-    }
-  ],
   "reasoning": "The primitive is safe and its authored trajectory is close enough to the flown result: the worst repair displacement was 0.14 m, peak flown speed was only 0.36 m/s, and the filtered trajectory stayed outside the collision envelope. All three of my checks passed, and the independent checks confirm paired equal heights, 180-degree opposition, a substantial climb, and a steadily advancing 180-degree twist. The earlier invariant failure was corrected by measuring the pair axis modulo pi rather than alternating between the two opposed strands."
 }

@@ -1,0 +1,6 @@
+[
+  {
+    "role": "assistant",
+    "content": "song_mood: \"Bright and building, with a heart at the drop.\"\nchoreography_plan: \"The solved show, with the synthesized heart inserted at the drop between spiral_speed and helix. The heart is left in the plane the primitive authored it in.\"\nchoreography:\n  s1b1t1: form_circle([1, 2, 3, 4, 5, 6, 7, 8, 9, 10], 120, 90, 1.5)\n  s1b5t1: spiral_speed(3, 110, 270, 2)\n  s2b1t1: upright_heart_outline(3.8, 1.2, 1.0)\n  s2b5t1: helix(3, 55, 95)\n  s3b1t1: form_circle([1, 2, 3, 4, 5, 6, 7, 8, 9, 10], 130, 100, 1.4)\n  END\nlighting:\n  s1b1t1: light_color(['all', []], 'cyan', 'both')\n  s2b1t1: light_color(['all', []], 'red', 'both')\n  s2b5t1: light_color(['all', []], 'gold', 'both')\n  END\n"
+  }
+]

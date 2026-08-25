@@ -17,7 +17,6 @@ from axswarm import SolverData, SolverSettings, solve
 
 from swarm_gpt.core.choreographer import dicts2arrays
 from swarm_gpt.synth.sandbox import SynthError, call_guarded, validate_waypoints
-from swarm_gpt.synth.shapes import check_shape
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -143,19 +142,6 @@ def _interpolate(authored: dict[str, NDArray], time: NDArray) -> NDArray:
         for axis in range(3):
             out[:, d, axis] = np.interp(time, src_t, src_pos[d, :, axis])
     return out
-
-
-def check_shape_of(
-    shape: str, repaired: dict[str, NDArray], window: tuple[float, float]
-) -> list[dict[str, Any]]:
-    """Run a hand-written shape predicate over the flown trajectory, in the author's own units.
-
-    Returns:
-        One ``{"name", "ok", "detail"}`` entry per property of the requested shape.
-    """
-    inside = (repaired["time"] >= window[0]) & (repaired["time"] <= window[1])
-    pos_cm = np.transpose(repaired["pos"][inside], (1, 0, 2)) * 100
-    return check_shape(shape, pos_cm, repaired["time"][inside])
 
 
 def screen_authored(

@@ -17,11 +17,9 @@ import numpy as np
 from swarm_gpt.synth import feedback as feedback_arms
 from swarm_gpt.synth.manifest import PrimitiveManifest
 from swarm_gpt.synth.sandbox import SynthError
-from swarm_gpt.synth.shapes import describe_shape
 from swarm_gpt.synth.verifier import (
     authored_trajectory,
     check_invariants,
-    check_shape_of,
     measure,
     screen_authored,
     solve_only,
@@ -143,7 +141,7 @@ Repeat the manifest you want to stand on with every verdict, including "keep".""
 
 _USER = """\
 Write a motion primitive for: {request}
-{requirement}
+
 Return the manifest, a concrete `args` list to test it with (one value per declared parameter, in
 order), verdict "author", and your reasoning."""
 
@@ -161,8 +159,6 @@ class Iteration:
     error: str | None = None
     metrics: dict[str, Any] | None = None
     checks: list[dict[str, Any]] = field(default_factory=list)
-    # Hand-written, selected by the requester, never authored or seen by the model.
-    shape_checks: list[dict[str, Any]] = field(default_factory=list)
     feedback: str = ""
     # `verdict` judges the *previous* iteration, since the model proposes and judges in one turn.
     # These carry the judgement of this iteration's own result, filled in on the last one.
@@ -183,13 +179,12 @@ class SynthesisLoop:
         duration_s: float = 12.0,
         llm_provider: str = "openai",
         screen: bool = False,
-        shape: str | None = None,
     ):
         """Configure the loop against a swarm, a solver config, and a feedback arm.
 
-        ``screen`` skips the solve when the authored geometry is already infeasible. ``shape``
-        names a hand-written predicate the result must satisfy. Both are off by default because
-        they change what the model is told, and the feedback ablation was measured without them.
+        ``screen`` skips the solve when the authored geometry is already infeasible. It is off by
+        default because it changes what the model is told, and the feedback ablation was measured
+        without it.
         """
         if arm not in feedback_arms.ARMS:
             raise ValueError(f"Unknown feedback arm {arm!r}; expected one of {feedback_arms.ARMS}")
@@ -199,7 +194,6 @@ class SynthesisLoop:
         self.model_id = model_id
         self.duration_s = duration_s
         self.screen = screen
-        self.shape = shape
         self.limits = {
             "lower": np.asarray(settings["axswarm"]["pos_min"], dtype=float),
             "upper": np.asarray(settings["axswarm"]["pos_max"], dtype=float),
@@ -264,17 +258,12 @@ class SynthesisLoop:
             record.checks = check_invariants(check_fn, repaired, bound, window)
         except SynthError as e:
             record.checks = [{"name": "check", "ok": False, "detail": f"check failed to run: {e}"}]
-        if self.shape is not None:
-            record.shape_checks = check_shape_of(self.shape, repaired, window)
         record.feedback = feedback_arms.render(self.arm, record.metrics, record.checks)
-        if record.shape_checks:
-            record.feedback += _shape_report(record.shape_checks)
         record.stage = "measured"
         return record
 
     def run(self, request: str, max_iterations: int = 4) -> list[Iteration]:
         """Author and refine a primitive for ``request``, stopping when the model says "keep"."""
-        requirement = "" if self.shape is None else _shape_requirement(self.shape)
         self.messages = [
             {
                 "role": "system",
@@ -287,7 +276,7 @@ class SynthesisLoop:
                     crossing_s=2.0 / self.settings["axswarm"]["vel_max"],
                 ),
             },
-            {"role": "user", "content": _USER.format(request=request, requirement=requirement)},
+            {"role": "user", "content": _USER.format(request=request)},
         ]
         history: list[Iteration] = []
         for index in range(1, max_iterations + 1):
@@ -332,31 +321,6 @@ class SynthesisLoop:
                 record.closing_reasoning = closing["reasoning"]
                 break
         return history
-
-
-def _shape_requirement(shape: str) -> str:
-    """State the requester's shape requirement, so the model is not failing a hidden criterion."""
-    return (
-        f"\nThis must be a {shape}, judged by a check you do not write and cannot edit:\n"
-        f"{describe_shape(shape)}\n"
-        "Your own invariants are still yours to write, but they do not decide this.\n"
-    )
-
-
-def _shape_report(shape_checks: list[dict[str, Any]]) -> str:
-    """Append the independent verdict, kept visibly separate from the model's own checks."""
-    lines = [f"  {'PASS' if c['ok'] else 'FAIL'}  {c['name']}: {c['detail']}" for c in shape_checks]
-    failed = [c for c in shape_checks if not c["ok"]]
-    verdict = (
-        "This is not yet the shape that was asked for."
-        if failed
-        else "The shape requirement is satisfied."
-    )
-    return (
-        "\n\nIndependent shape check (not yours, not editable):\n"
-        + "\n".join(lines)
-        + f"\n{verdict}"
-    )
 
 
 def _screen_report(violations: list[str]) -> str:

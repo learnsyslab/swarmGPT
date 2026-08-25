@@ -1,0 +1,6 @@
+[
+  {
+    "role": "assistant",
+    "content": "song_mood: \"Bright and building: a circle opens the verse, a spiral drives into the chorus, then a star at the drop.\"\nchoreography_plan: \"Existing library only. Circle to establish, spiral_speed into the chorus, star at the drop, helix to carry it out, circle to close.\"\nchoreography:\n  s1b1t1: form_circle([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20], 120, 90, 1.5)\n  s1b5t1: spiral_speed(3, 110, 270, 2)\n  s2b1t1: form_star(110, 60, 90, 1.6)\n  s2b5t1: helix(3, 55, 95)\n  s3b1t1: form_circle([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20], 130, 100, 1.4)\n  END\nlighting:\n  s1b1t1: light_color(['all', []], 'cyan', 'both')\n  s2b1t1: light_color(['all', []], 'gold', 'both')\n  END\n"
+  }
+]

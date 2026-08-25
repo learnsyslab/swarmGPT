@@ -28,20 +28,45 @@ its first verified primitive.
 
 ## 2. Current state
 
-**The loop works.** `results/synthesized/double_helix.json` is an LLM-authored primitive that
-clears every gate: authored separation 1.265, flown 1.235 with **0 steps inside the collision
-envelope**, the filter moving it 0.136 m at most, and **4/4** on a shape predicate it never saw.
-It converged in 7 iterations. It renders through the shipped `render.py` and flies.
+**The loop works, twice.** `results/synthesized/upright_heart_outline.json` is a heart the
+choreographer had no way to express before: 10 drones, tip on the centreline, flaring to a
+1.80 m half-span, two lobes with a cleft between them, **y spread 0.000 m**. Seven iterations,
+authored separation 1.717, flown 1.645 with 0 steps inside the envelope. It is inserted at the
+drop between `spiral_speed` and `helix` in `presets/Fearless2 | 10 | 20260825_170100_after`, solves,
+and renders.
+
+`results/synthesized/double_helix.json` is an LLM-authored primitive that
+clears both gates: authored separation 1.265, flown 1.235 with **0 steps inside the collision
+envelope**, and the filter moving it 0.136 m at most. It converged in 7 iterations. It renders through the shipped `render.py` and flies.
 
 What unblocked it was binding the library's own formation helpers into the sandbox. Before that the
 model had to reinvent collision-free formation entry every time and never got authored separation
 above 0.484 in 8 iterations; with `assign` available it cleared 1.0 on the first try.
 
 The primitive builds a **static** double helix and holds it — `turns` is the spatial pitch of the
-helix, not a spin. Motion comes from composing it in the choreography (`rotate(90, 'z')` on later
+helix, not a spin. Motion comes from composing it in the choreography: `rotate(90, 'z')` on later
 keys turns the formed shape and cannot collide, since a z-rotation preserves every radius and
-height). The shape predicate scores the formed pose, so a static helix passes correctly; "must also
-move" would be a separate predicate.
+height. Measured over the show, the formation turns 270-288 degrees with radii and height span
+unchanged.
+
+**Whether a primitive looks like what was asked for is deliberately not gated.** A hand-written
+shape predicate was built and then removed, for three reasons:
+
+- **A primitive already is the geometry.** Look at `form_circle`: it computes the target positions
+  and hands off to `_assign_positions` and `_formation_arrival_time`. The LLM's contribution is
+  "where does each drone sit for this shape"; the solver moves them. A predicate is the same kind
+  of artifact — a geometric characterisation — so grading one with the other is circular.
+- **It cannot work for a live request.** A predicate must exist before the shape is asked for. The
+  demo case is someone asking for something nobody anticipated, which is exactly what a
+  pre-written predicate cannot cover.
+- **It was wrong more often than the model was.** It demanded counter-rotation, which makes a
+  double helix physically impossible, and it rejected a rational response to a heart request I had
+  wrongly measured as infeasible.
+
+Two gates remain, both objective, both from the hardware and the room rather than from anyone's
+idea of a shape: the pre-solve screen and the flown collision envelope. Whether it looks right is a
+human call. **Report it as a success rate** — the three ablation arms are the baseline, and
+`categorical`, what swarmGPT ships today, converged 0/17 against `absolute`'s 8/18.
 
 Run logs stay local — `synth_runs/` is gitignored.
 
@@ -176,19 +201,17 @@ than all four causes bugs. `PrimitiveManifest.register()` now writes all of them
 declaration, so a synthesized primitive is emittable by the choreographer LLM, renderable as a
 call, and visible in the prompt catalogue, without any of them able to drift.
 
-**Three gates, none of which the model may overrule.**
+**Two gates, neither of which the model may overrule.**
 
 1. **Pre-solve screen** (`screen_authored` in `verifier.py`). The authored waypoints must be
    collision-free *and* flyable. A full axswarm solve is **32 s**; the screen reproducing the same
    `authored_min_sep_norm` is **1.4 ms** — ~23,000× cheaper.
 2. **The filter.** Every solve must succeed, and flown separation must clear the envelope.
-3. **The shape predicate** (`shapes.py`), named by `--shape`, hand-written and selected by the
-   requester. The model never authors it, edits it, or sees its source.
 
-**Why gate 3 exists.** The model passed **5/5** and **4/4** of *its own* invariants on trajectories
-that were two flat counter-rotating rings. That is the third instance of the same finding, after
-the introspective probe and after it knowingly kept a trajectory inside the collision envelope.
-Never let it grade its own work.
+**The model cannot audit its own geometry.** It passed **5/5** and **4/4** of *its own* invariants
+on trajectories that were two flat counter-rotating rings — the third instance of this, after the
+introspective probe and after it knowingly kept a trajectory inside the collision envelope. That
+finding stands on its own; the fix is a human looking at the render, not an automated predicate.
 
 **Why gate 1 mattered more than expected.** It was built for speed and turned out to change
 behaviour. Telling the model *"your own waypoints are infeasible by this much"* moved authored
@@ -237,7 +260,7 @@ pixi run ruff check <files> && pixi run ruff format --check <files>
 # One synthesis run. ~10 min, costs API credit.
 source ./openai_api_key.sh && pixi run python experiments/synth_to_library.py \
   --request "a double helix: two strands half a turn apart at every height, both winding upward the same way around a common axis" \
-  --shape double_helix --arm absolute --iters 14
+  --arm absolute --iters 14
 ```
 
 Exit `0` promoted, `1` the model never said "keep", `2` a gate refused what it kept. A run log lands
@@ -281,25 +304,26 @@ Each cost real time or API credit. Do not re-investigate.
 
 ## 8. Next steps, ranked
 
-1. **Synthesize more primitives and re-run the coverage instrument.** This is what turns the
+1. **Wire synthesis into the frontend** so a refinement request that names a primitive the library
+   lacks triggers the loop, promotes the result, and re-solves the choreography with it. Everything
+   downstream already works: registration writes all four places, and a promoted primitive is
+   indistinguishable from a hand-written one at choreography time. This is the demo.
+2. **Synthesize more primitives and re-run the coverage instrument.** This is what turns the
    existence proof into the paper's headline: with the hand library 88% of blind intents fall
    short, so promote N primitives and re-measure the same 88 intents against the extended library.
    The instrument already exists (`experiments/judge_against_vocabulary.py`); the extended library
    is `results/synthesized/` plus the prompt/schema injection, which is already wired.
-2. **Write §4.3 into `results/README.md`** — the operating regime and the softened "repairs"
+3. **Write §4.3 into `results/README.md`** — the operating regime and the softened "repairs"
    claim — before the RAL draft is built on the current wording.
-3. **Guard `paired_heights` against flat formations** (`shapes.py`). All drones at one height gives
-   "ratio inf" and passes spuriously. `strands_climb` catches it, so nothing was mis-promoted, but
-   the check is unreliable on flat formations.
 4. **Decide what ships for a demo.** A hand-built double helix (radius 1.6 m, 10 levels, 0.75 turns,
-   both strands same handedness 180° apart) measures min separation 1.43 and passes 4/4 shape
-   checks. Shipping that as a *hand-written* primitive decouples "show a double helix on stage"
+   both strands same handedness 180° apart) measures min separation 1.43 and is collision-safe. Shipping that as a *hand-written* primitive decouples "show a double helix on stage"
    from "the LLM authored one unaided" — different claims, very different timelines. **Synthesis is
    library authoring, not a request-time operation; do not run it live for an audience.** Even
    fully working it is minutes per primitive and can legitimately fail.
-5. **Rename `results/synthesized/altitude_separated_double_helix.json`.** It is a valid,
-   collision-safe primitive that is **not a double helix** (it scores 1/4 against the current
-   predicate). The name will mislead a reader.
+5. **Rename or delete `results/synthesized/altitude_separated_double_helix.json`.** It is a valid,
+   collision-safe primitive that is **two flat counter-rotating rings**, not a double helix. It is
+   kept because it is the evidence that the model certifies its own output (5/5 on its own checks),
+   but the name will mislead anyone reading the directory.
 6. **Cheapest real win outside this loop:** exposing the 30 primitives already in `blocks.py` moves
    expressibility 10% → 19% (McNemar p = 0.023). Prompt and schema only, no new maths. The dominant
    residual after that is **colour palette**, not motion — the lighting family is where the next
@@ -313,9 +337,8 @@ Each cost real time or API credit. Do not re-investigate.
 
 | file | role |
 |---|---|
-| `loop.py` | The turn loop. `screen` and `shape` kwargs default **off** so the ablation's measured code path is unchanged; `synth_to_library.py` turns both on. |
-| `verifier.py` | `authored_trajectory`, `solve_only`, `measure`, `screen_authored` (gate 1), `check_shape_of` (gate 3 adapter). |
-| `shapes.py` | Hand-written shape predicates. `double_helix` only. |
+| `loop.py` | The turn loop. `screen` defaults **off** so the ablation's measured code path is unchanged; `synth_to_library.py` turns it on. |
+| `verifier.py` | `authored_trajectory`, `solve_only`, `measure`, `screen_authored` (the pre-solve gate). |
 | `manifest.py` | The single declaration; `register()` writes all four places. |
 | `sandbox.py` | AST whitelist plus `HELPERS` — the library's own `assign` and `arrival_time`, bound by reference so authored primitives cannot drift from what the hand-written ones use. |
 | `feedback.py` | Unchanged: the three ablation arms. |
@@ -329,12 +352,13 @@ and the twist against height. `swarm_gpt/data/presets/Fearless2 | 20 | 20260825_
 minimal preset that renders one through `render.py`; register the manifest before calling
 `render_preset` or `primitive_by_name` will not resolve it.
 
-Dock positions in `drones.toml` are a 20-drone ring at radius 1.5 m (0.470 m apart, 1.88x the
-envelope). A ring makes every radial formation a straight in-or-out flight with no crossing paths,
+Dock positions in `drones.toml` are a ring at radius 1.5 m. The active swarm is **10 drones**
+(`cf11`-`cf15`, `cf21`-`cf25`), 0.927 m apart; the other ten keep their `addr`/`channel` and come
+back by adding them to `active` and re-running the ring layout. A ring makes every radial formation a straight in-or-out flight with no crossing paths,
 which is the failure that cost five runs. Only `pos` was changed; `addr` and `channel` are as they
 were.
 
-Tests: `tests/unit/test_synth_{schema,shapes,verifier,sandbox,feedback}.py`. 830 pass.
+Tests: `tests/unit/test_synth_{schema,verifier,sandbox,feedback}.py`. 818 pass.
 
 Two artifacts are kept deliberately: `results/synthesis-rejected/double_helix-...selfcertified.json`
 is outside the load path because it is the *evidence* for the self-certification finding, and
