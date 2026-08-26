@@ -8,6 +8,7 @@ import pytest
 
 from swarm_gpt.core import motion_primitives as mp
 from swarm_gpt.core.structured_output_schema import primitive_exists
+from swarm_gpt.synth import loop as loopmod
 from swarm_gpt.synth.loop import Iteration, SynthesisLoop
 from swarm_gpt.synth.promote import gate, load_promoted, promote, register_entry, reset_synthesized
 from swarm_gpt.synth.refine import NO_GAP, SynthesisOutcome, synthesize_for_refine
@@ -182,7 +183,13 @@ class _StubClient:
         return self
 
 
-def test_an_unparseable_turn_becomes_feedback_instead_of_ending_the_run() -> None:
+def test_an_unparseable_turn_becomes_feedback_instead_of_ending_the_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Stubbed before construction, not after: `__init__` builds the client, so assigning
+    # `_client` afterwards still needs a real API key and the test passes only where one is set.
+    stub = _StubClient(['{"verdict": "author", ', "{ still broken"])
+    monkeypatch.setattr(loopmod, "openai_client_for_provider", lambda *a, **k: stub)
     loop = SynthesisLoop(
         settings={
             "axswarm": {
@@ -197,7 +204,6 @@ def test_an_unparseable_turn_becomes_feedback_instead_of_ending_the_run() -> Non
         arm="absolute",
         model_id="stub",
     )
-    loop._client = _StubClient(['{"verdict": "author", ', "{ still broken"])
     history = loop.run("a shape", max_iterations=2)
     assert len(history) == 2
     assert all("not valid JSON" in (record.error or "") for record in history)
