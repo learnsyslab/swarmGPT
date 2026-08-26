@@ -101,7 +101,10 @@ def rotate(
         axis = np.array([1, 0, 0])
     else:
         raise LLMFormatError("Invalid axis for rotation")
-    max_radius = np.max(np.linalg.norm(swarm_pos[..., :2], axis=-1))
+    pivot = swarm_pos.mean(axis=0)
+    rel_pos = swarm_pos - pivot
+    perp_axes = np.where(axis == 0)[0]
+    max_radius = np.max(np.linalg.norm(rel_pos[..., perp_axes], axis=-1))
     vmax = 1.0  # m/s
     max_angle = (vmax * 100) / max_radius * (tend - tstart)
     angle = np.clip(angle, -max_angle, max_angle)
@@ -109,7 +112,8 @@ def rotate(
 
     waypoints = {}
     for t in np.linspace(tstart, tend, steps + 1)[1:]:
-        swarm_pos = r.apply(swarm_pos)
+        rel_pos = r.apply(rel_pos)
+        swarm_pos = rel_pos + pivot
         waypoints[t] = {i: p.copy() for i, p in enumerate(swarm_pos)}
     return swarm_pos, waypoints
 
