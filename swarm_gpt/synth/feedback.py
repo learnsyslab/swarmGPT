@@ -12,10 +12,7 @@ reviewer cannot object that a weaker arm was handed weaker information. The arms
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
-
-if TYPE_CHECKING:
-    from collections.abc import Sequence
+from typing import Any
 
 ARMS = ("categorical", "absolute", "relative")
 
@@ -60,23 +57,7 @@ def _fraction_words(part: int, whole: int) -> str:
     return "most"
 
 
-def _invariant_lines(checks: Sequence[dict[str, Any]]) -> list[str]:
-    """Render the author's own shape checks; identical across arms, since they carry no magnitude."""
-    if not checks:
-        return []
-    lines = ["Your own shape checks on the flown result:"]
-    for check in checks:
-        lines.append(f"  [{'pass' if check['ok'] else 'FAIL'}] {check['name']}: {check['detail']}")
-    if all(check["ok"] for check in checks):
-        lines.append("All of your checks passed, so by your own definition the shape survived.")
-    else:
-        lines.append(
-            "At least one check you wrote failed: the flown shape is not what you claimed."
-        )
-    return lines
-
-
-def categorical(m: dict[str, Any], checks: Sequence[dict[str, Any]]) -> str:
+def categorical(m: dict[str, Any]) -> str:
     """Located-category feedback: which drones, roughly when, and generic separation advice."""
     i, j = m["worst_pair"]
     lines = []
@@ -92,10 +73,10 @@ def categorical(m: dict[str, Any], checks: Sequence[dict[str, Any]]) -> str:
     if m["failed_solves"]:
         lines.append("The safety filter failed to find a solution at some points.")
     lines.append("The filter had to move the swarm away from the trajectory you authored.")
-    return "\n".join([*lines, *_invariant_lines(checks)])
+    return "\n".join(lines)
 
 
-def absolute(m: dict[str, Any], checks: Sequence[dict[str, Any]]) -> str:
+def absolute(m: dict[str, Any]) -> str:
     """Certified-magnitude feedback: the same events, reported in metres."""
     i, j = m["worst_pair"]
     lines = [
@@ -112,10 +93,10 @@ def absolute(m: dict[str, Any], checks: Sequence[dict[str, Any]]) -> str:
         f"Peak flown speed {m['max_speed_mps']:.2f} m/s against a {m['vel_max_mps']:.2f} m/s "
         f"limit; lowest altitude {m['min_z_m']:.2f} m.",
     ]
-    return "\n".join([*lines, *_invariant_lines(checks)])
+    return "\n".join(lines)
 
 
-def relative(m: dict[str, Any], checks: Sequence[dict[str, Any]]) -> str:
+def relative(m: dict[str, Any]) -> str:
     """Comparative feedback: the same magnitudes as ratios, with no units and no raw figures."""
     i, j = m["worst_pair"]
     approach = _ratio_words(m["min_sep_norm"])
@@ -142,10 +123,10 @@ def relative(m: dict[str, Any], checks: Sequence[dict[str, Any]]) -> str:
         f"The fastest the swarm flew was {_ratio_words(m['max_speed_mps'] / m['vel_max_mps'])} "
         f"the speed limit.",
     ]
-    return "\n".join([*lines, *_invariant_lines(checks)])
+    return "\n".join(lines)
 
 
-def render(arm: str, m: dict[str, Any], checks: Sequence[dict[str, Any]]) -> str:
+def render(arm: str, m: dict[str, Any]) -> str:
     """Render measurements under the named feedback arm.
 
     Raises:
@@ -153,4 +134,4 @@ def render(arm: str, m: dict[str, Any], checks: Sequence[dict[str, Any]]) -> str
     """
     if arm not in ARMS:
         raise ValueError(f"Unknown feedback arm {arm!r}; expected one of {ARMS}")
-    return {"categorical": categorical, "absolute": absolute, "relative": relative}[arm](m, checks)
+    return {"categorical": categorical, "absolute": absolute, "relative": relative}[arm](m)

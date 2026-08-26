@@ -80,6 +80,9 @@ function iterationStory(iteration: SynthesisIteration): string {
   if (iteration.error) {
     return `did not run — ${iteration.error}`;
   }
+  if (iteration.stage === "shaped") {
+    return `the shape itself is too crowded: ${iteration.violations.join("; ")}`;
+  }
   if (iteration.stage === "screened") {
     return iteration.violations.length > 0
       ? `rejected before flying: ${iteration.violations.join("; ")}`

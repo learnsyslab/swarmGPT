@@ -144,7 +144,6 @@ def synthesize_for_refine(
             error=record.error,
             verdict=record.verdict,
             reasoning=record.reasoning,
-            checks=record.checks,
         ),
     )
 

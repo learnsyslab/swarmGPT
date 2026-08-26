@@ -1,8 +1,13 @@
-"""The synthesis loop: the LLM authors a primitive, the filter measures it, the LLM decides.
+"""The synthesis loop: the LLM authors a shape, the filter measures it, the LLM decides.
 
-One turn is author-or-revise, compile, run, filter, measure, feed back. The LLM owns the verdict:
-it may keep what it wrote, tweak it, or throw it away and write something else. Whether the
-feedback it sees carries magnitudes, comparatives, or neither is the experimental variable.
+One turn is author-or-revise, compile, screen the geometry, fly it, measure, feed back. The LLM
+owns the verdict: it may keep what it wrote, tweak it, or throw it away and write something else.
+Whether the feedback it sees carries magnitudes, comparatives, or neither is the experimental
+variable.
+
+The model writes the equation of a shape and nothing else. Which drone flies to which point and
+how long the arrival takes belong to the library's own formation helpers, which is where every
+hand-written primitive already leaves them.
 """
 
 from __future__ import annotations
@@ -17,13 +22,8 @@ import numpy as np
 from swarm_gpt.synth import feedback as feedback_arms
 from swarm_gpt.synth.manifest import PrimitiveManifest
 from swarm_gpt.synth.sandbox import SynthError
-from swarm_gpt.synth.verifier import (
-    authored_trajectory,
-    check_invariants,
-    measure,
-    screen_authored,
-    solve_only,
-)
+from swarm_gpt.synth.shape import screen_shape, targets
+from swarm_gpt.synth.verifier import authored_trajectory, measure, screen_authored, solve_only
 from swarm_gpt.utils.llm_providers import (
     openai_client_for_provider,
     prepare_responses_messages,
@@ -50,12 +50,11 @@ _RESPONSE_SCHEMA: dict[str, Any] = {
         "manifest": {
             "type": "object",
             "additionalProperties": False,
-            "required": ["name", "intent", "params", "source", "invariants"],
+            "required": ["name", "intent", "params", "source"],
             "properties": {
                 "name": {"type": "string"},
                 "intent": {"type": "string"},
                 "source": {"type": "string"},
-                "invariants": {"type": "string"},
                 "params": {
                     "type": "array",
                     "items": {
@@ -75,79 +74,63 @@ _RESPONSE_SCHEMA: dict[str, Any] = {
     },
 }
 
+
 _SYSTEM = """\
-You write new motion primitives for a Crazyflie drone show, in Python, and you judge your own work.
+You write new formation primitives for a Crazyflie drone show. A formation primitive says **where
+the drones stand**, and nothing else:
 
-A primitive is one function with exactly this signature:
-
-    def NAME(params, swarm_pos, tstart, tend, limits):
+    def NAME(params, n_drones):
         ...
-        return final_pos, waypoints
+        return positions
 
 - `params` is the tuple of your declared parameters, in the order you declare them.
-- `swarm_pos` is an (n_drones, 3) array of current positions **in centimetres**.
-- `tstart`, `tend` are show times in seconds. Every waypoint time must satisfy tstart < t <= tend.
-- `limits` is {{"lower": (3,), "upper": (3,)}} **in metres** -- multiply by 100 to compare against
-  positions. The arena is x,y in [{lim_lower[0]:.1f}, {lim_upper[0]:.1f}] m and z in
-  [{lim_lower[2]:.2f}, {lim_upper[2]:.2f}] m.
-- These are real drones with real limits: **speed must stay under {vel_max} m/s and acceleration
-  under {acc_max} m/s^2**. Consecutive waypoints must be reachable in the time between them, so a
-  drone that has to cross 2 m needs at least {crossing_s:.0f} s of waypoints to do it in. Snapping
-  the swarm between poses demands speeds no drone can fly; the trajectory is rejected before the
-  filter ever sees it, and you are told by how much you exceeded the limit.
-- `final_pos` is the (n_drones, 3) position array in cm after the primitive finishes.
-- `waypoints` is {{time_s: {{drone_index: (3,) cm position}}}}, drone indices 0-indexed. A primitive
-  may move only some drones; the rest hold.
+- `n_drones` is how many drones the show has. It is {n_drones} today, but write the equation for
+  any number: sample `n_drones` points along the shape.
+- `positions` is an (n_drones, 3) array of x, y, z **in centimetres**, one point per drone.
 
-There are {n_drones} drones. Emit enough waypoints to describe the motion -- a formation that only
-snaps to its end pose needs one, a continuous figure needs several per second of travel.
+That is the whole job, and it is meant to be short. The library's own `form_circle` is
 
-Execution is sandboxed: no imports (numpy is already bound as `np`), no file or system access, no
-dunder attributes. Builtins are limited to arithmetic and sequence helpers. A call must finish in
-a few seconds.
+    angles = np.linspace(0, 2 * np.pi, n_drones, endpoint=False)
+    return np.stack([r * np.cos(angles), r * np.sin(angles), np.full(n_drones, z)], axis=-1)
 
-Two helpers are bound for you. They are the ones every hand-written primitive in this library
-already uses, and you are expected to use them rather than rewrite them:
+Yours should be about that long. Write the equation of the shape you are asked for and sample it.
 
-    slots = assign(current_pos, target_pos)
+**You do not fly the drones anywhere.** Which drone takes which point, how long the flight takes,
+and holding the shape for the rest of the interval are handled for you, by the same helpers every
+hand-written primitive in this library uses. Do not think about time, waypoints, speed, or
+acceleration -- there is no time in your function at all, and no duration parameter.
 
-  Hungarian assignment. Both arrays are (n_drones, 3) in cm; `slots[i]` is the index of the target
-  that drone `i` should fly to. Sending drone `i` to `target_pos[i]` instead, and interpolating
-  straight there, is what makes twenty drones cross through each other.
+Two things about the room, and they are the only geometry constraints you have:
 
-    t_arrive = arrival_time(target_pos, current_pos, tstart, tend)
+- **The arena.** x and y run [{lim_lower[0]:.0f}, {lim_upper[0]:.0f}] cm about a centre at the
+  origin, and z runs [{lim_lower[2]:.0f}, {lim_upper[2]:.0f}] cm. Anything outside is clipped,
+  which deforms your shape -- keep every point inside.
+- **Two drones may not stand too close.** The forbidden zone is an ellipsoid, and it is much
+  deeper vertically than horizontally: two drones side by side need **{sep_xy:.0f} cm** between
+  them, but two drones one above the other need **{sep_z:.0f} cm**. Precisely, every pair must
+  satisfy `(dx/{sep_xy:.0f})^2 + (dy/{sep_xy:.0f})^2 + (dz/{sep_z:.0f})^2 >= 1`. This is why a
+  shape drawn flat, in a horizontal plane, fits many more drones than the same shape stood
+  upright: upright, the z limit costs you {sep_z:.0f} cm per level, and there are only
+  {z_span:.0f} cm of height to spend. If your shape must stand upright, tilt it, spread it wider,
+  or use fewer levels.
 
-  The earliest time the whole swarm can reach `target_pos` without exceeding the speed limit,
-  sized by the drone with furthest to travel. Emit your formation waypoint at or after this.
+Your shape is measured before anything flies, and you are told in centimetres which two of your
+points are too close. Then it is flown through the safety filter and you are told what the filter
+had to move.
 
-Both `source` and `invariants` are Python source text, never prose. `source` defines only the
-primitive; `invariants` defines only:
+`source` is Python source text, never prose, and defines only the shape function.
 
-    def check(pos, time, params):
-        return [(name, ok, detail), ...]
-
-`pos` is (n_drones, n_steps, 3) **in centimetres**, the trajectory that actually flew after the
-safety filter, and `time` is (n_steps,) in seconds. Each entry names one geometric property your
-primitive is supposed to have, whether it held, and a short human-readable detail. Write checks
-that could actually fail -- a check that is true of any trajectory tells you nothing. If you
-claim a double helix, check that there are two strands, that each drone stays on one of them, and
-that they stay opposed. This is how anyone can tell automatically that your double helix is not
-one.
-
-After the primitive runs, a safety filter (an MPC that enforces an ellipsoidal collision envelope)
-repairs the trajectory, and you are told what it had to do. You then return a verdict:
-  - "keep"    -- this primitive is safe and still looks like what was asked for. Stop.
-  - "tweak"   -- same idea, adjusted parameters or code.
-  - "rewrite" -- the idea does not work; write a different primitive.
+You then return a verdict:
+  - "keep"    -- this shape is safe and still looks like what was asked for. Stop.
+  - "tweak"   -- same shape, adjusted parameters or code.
+  - "rewrite" -- the shape does not work; write a different one.
 Repeat the manifest you want to stand on with every verdict, including "keep"."""
 
 _USER = """\
-Write a motion primitive for: {request}
+Write a formation primitive for: {request}
 
-You have exactly **{duration_s:.1f} seconds**: the primitive is called with
-`tend - tstart = {duration_s:.1f}`, both here and in the show it will be used in. Everything it
-does must fit in that interval at the speed and acceleration limits above. Do not declare a
-duration parameter -- the interval is fixed and is not yours to choose.
+Declare the parameters the shape genuinely has -- its size, its height off the floor, how far it
+leans -- with ranges, and nothing else. No duration, no speed, no number of drones.
 
 Return the manifest, a concrete `args` list to test it with (one value per declared parameter, in
 order), verdict "author", and your reasoning."""
@@ -168,7 +151,6 @@ class Iteration:
     # One sentence per limit the pre-solve screen found broken -- separation, speed, or
     # acceleration. Kept verbatim so a reader is never left inferring which one it was.
     violations: list[str] = field(default_factory=list)
-    checks: list[dict[str, Any]] = field(default_factory=list)
     feedback: str = ""
     # `verdict` judges the *previous* iteration, since the model proposes and judges in one turn.
     # These carry the judgement of this iteration's own result, filled in on the last one.
@@ -214,6 +196,18 @@ class SynthesisLoop:
         # minutes, so the read timeout stays generous and only the retries are cut.
         self._client = openai_client_for_provider(llm_provider).with_options(max_retries=1)
 
+    def _system_prompt(self) -> str:
+        """Render the authoring contract against this room's arena and collision envelope."""
+        envelope = np.asarray(self.settings["axswarm"]["collision_envelope"], dtype=float) * 100
+        return _SYSTEM.format(
+            n_drones=self.start_pos_m.shape[0],
+            lim_lower=self.limits["lower"] * 100,
+            lim_upper=self.limits["upper"] * 100,
+            sep_xy=envelope[0],
+            sep_z=envelope[2],
+            z_span=(self.limits["upper"][2] - self.limits["lower"][2]) * 100,
+        )
+
     def _call(self) -> dict[str, Any]:
         """Send the accumulated history and parse one structured turn out of the model."""
         input_messages, instructions = prepare_responses_messages(self.messages)
@@ -256,9 +250,17 @@ class SynthesisLoop:
             index=0, verdict="", reasoning="", manifest=asdict(manifest), args=list(args)
         )
         try:
-            fn, check_fn = manifest.compile()
+            fn, shape_fn = manifest.compile()
             bound = manifest.bind(args)
             record.stage = "compiled"
+            # The geometry is judged on its own first: a close pair here is the shape being too
+            # dense, which is a different fix from the fly-in crossing.
+            des_pos = targets(shape_fn, bound, self.start_pos_m.shape[0])
+            record.metrics, record.violations = screen_shape(des_pos, self.settings)
+            if record.violations:
+                record.stage = "shaped"
+                record.feedback = _shape_report(record.violations)
+                return record
             authored = authored_trajectory(
                 fn, bound, self.start_pos_m, 0.0, self.duration_s, self.limits
             )
@@ -280,11 +282,7 @@ class SynthesisLoop:
         repaired = solve_only(authored, self.settings)
         record.stage = "filtered"
         record.metrics = measure(authored, repaired, self.settings, window)
-        try:
-            record.checks = check_invariants(check_fn, repaired, bound, window)
-        except SynthError as e:
-            record.checks = [{"name": "check", "ok": False, "detail": f"check failed to run: {e}"}]
-        record.feedback = feedback_arms.render(self.arm, record.metrics, record.checks)
+        record.feedback = feedback_arms.render(self.arm, record.metrics)
         record.stage = "measured"
         return record
 
@@ -302,18 +300,8 @@ class SynthesisLoop:
         so without the second one a caller has nothing to show between iterations.
         """
         self.messages = [
-            {
-                "role": "system",
-                "content": _SYSTEM.format(
-                    n_drones=self.start_pos_m.shape[0],
-                    lim_lower=self.limits["lower"],
-                    lim_upper=self.limits["upper"],
-                    vel_max=self.settings["axswarm"]["vel_max"],
-                    acc_max=self.settings["axswarm"]["acc_max"],
-                    crossing_s=2.0 / self.settings["axswarm"]["vel_max"],
-                ),
-            },
-            {"role": "user", "content": _USER.format(request=request, duration_s=self.duration_s)},
+            {"role": "system", "content": self._system_prompt()},
+            {"role": "user", "content": _USER.format(request=request)},
         ]
         history: list[Iteration] = []
         for index in range(1, max_iterations + 1):
@@ -374,6 +362,18 @@ class SynthesisLoop:
                 record.closing_reasoning = closing["reasoning"]
                 break
         return history
+
+
+def _shape_report(violations: list[str]) -> str:
+    """Render a geometry rejection. Nothing was flown, so this is about the equation only."""
+    listed = "\n".join(f"  - {v}" for v in violations)
+    return (
+        "Your shape was NOT flown. Two of the points it puts drones on are too close together for "
+        "them to occupy at the same time:\n\n"
+        f"{listed}\n\n"
+        "Nothing else about the primitive is wrong -- change the geometry so every pair clears "
+        "the ellipsoid, and remember it is much deeper in z than in x or y."
+    )
 
 
 def _screen_report(violations: list[str]) -> str:

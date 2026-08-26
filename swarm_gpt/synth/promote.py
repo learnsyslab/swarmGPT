@@ -92,7 +92,6 @@ def document(
             "synthesized_at": datetime.now().isoformat(timespec="seconds"),
         },
         "metrics": record.metrics,
-        "checks": record.checks,
         "reasoning": record.closing_reasoning,
     }
 

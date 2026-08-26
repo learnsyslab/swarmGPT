@@ -1,4 +1,4 @@
-"""Compile and run LLM-authored primitive source under a restricted namespace.
+"""Compile and run LLM-authored shape source under a restricted namespace.
 
 The threat model is buggy generated code on the author's own machine -- a stray file write, an
 infinite loop, a NaN -- not an adversary. This is NOT a security boundary: an AST whitelist plus a
@@ -16,17 +16,14 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from swarm_gpt.core.motion_primitives import _assign_positions, _formation_arrival_time
-
 if TYPE_CHECKING:
     from collections.abc import Callable
 
     from numpy.typing import NDArray
 
-# The 5-parameter contract every primitive in `motion_primitives.py` obeys.
-PRIMITIVE_ARGS = ("params", "swarm_pos", "tstart", "tend", "limits")
-INVARIANT_ARGS = ("pos", "time", "params")
-INVARIANT_FN_NAME = "check"
+# A shape authors geometry only; `synth/shape.py` wraps it into the five-parameter contract every
+# primitive in `motion_primitives.py` obeys.
+SHAPE_ARGS = ("params", "n_drones")
 
 _BANNED_NAMES = frozenset(
     {
@@ -112,24 +109,16 @@ def _reject_unsafe(tree: ast.AST) -> None:
                 raise SynthError(f"{node.id!r} is not available inside a primitive.")
 
 
-# The formation helpers every hand-written primitive already calls. Bound by reference rather
-# than reimplemented, so an authored primitive gets the library's own assignment and time budget.
-HELPERS = {"assign": _assign_positions, "arrival_time": _formation_arrival_time}
-
-
 def _sandbox_namespace() -> dict[str, Any]:
-    """A fresh execution namespace holding numpy, the formation helpers, and safe builtins."""
+    """A fresh execution namespace holding numpy and safe builtins."""
     allowed = {name: getattr(builtins, name) for name in _ALLOWED_BUILTINS}
-    return {"np": np, "__builtins__": allowed, **HELPERS}
+    return {"np": np, "__builtins__": allowed}
 
 
 def _compile_function(
     source: str, name: str, arg_names: tuple[str, ...], field: str
 ) -> Callable[..., Any]:
     """Parse, vet, and exec ``source``, returning its single top-level function ``name``.
-
-    ``field`` names the manifest field the source came from. Both fields carry Python, so an error
-    that does not say which one it came from sends the author looking in the wrong place.
 
     Raises:
         SynthError: On a syntax error, a rejected construct, a missing or misnamed function, or a
@@ -165,14 +154,9 @@ def _compile_function(
     return namespace[name]
 
 
-def compile_primitive(source: str, name: str) -> Callable[..., Any]:
-    """Compile LLM-authored primitive source into a callable honouring the primitive contract."""
-    return _compile_function(source, name, PRIMITIVE_ARGS, "source")
-
-
-def compile_invariants(source: str) -> Callable[..., Any]:
-    """Compile the LLM's own shape check, a ``check(pos, time, params)`` predicate set."""
-    return _compile_function(source, INVARIANT_FN_NAME, INVARIANT_ARGS, "invariants")
+def compile_shape(source: str, name: str) -> Callable[..., Any]:
+    """Compile LLM-authored shape source into a ``(params, n_drones)`` position function."""
+    return _compile_function(source, name, SHAPE_ARGS, "source")
 
 
 def call_guarded(fn: Callable[..., Any], *args: Any) -> Any:
@@ -229,6 +213,26 @@ def _call_guarded_offthread(fn: Callable[..., Any], *args: Any) -> Any:
     if error is not None:
         raise SynthError(f"Call raised {error.__class__.__name__}: {error}") from error
     return outcome["value"]
+
+
+def validate_shape(result: Any, n_drones: int) -> NDArray:
+    """Check a shape function's return value against the geometry contract.
+
+    Returns:
+        The validated ``(n_drones, 3)`` position array, in cm.
+
+    Raises:
+        SynthError: On a wrong shape or a non-finite value, phrased as feedback.
+    """
+    positions = np.asarray(result, dtype=float)
+    if positions.shape != (n_drones, 3):
+        raise SynthError(
+            f"A shape must return one (x, y, z) position per drone -- an array of shape "
+            f"({n_drones}, 3) in cm -- got {tuple(positions.shape)}."
+        )
+    if not np.all(np.isfinite(positions)):
+        raise SynthError("The returned positions contain NaN or inf.")
+    return positions
 
 
 def validate_waypoints(

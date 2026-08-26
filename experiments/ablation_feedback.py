@@ -7,7 +7,6 @@ sweeps the grid so the comparison has enough runs behind it to mean something.
 
 - Primary outcome: ``deviation_max`` on the final iteration -- how far the filter had to move the
   swarm from what the model authored. This is the faithfulness cost the claim rests on. Lower wins.
-- Secondary: the fraction of the model's own shape checks that pass on the final iteration.
 - Tertiary: ``min_sep_norm`` on the final iteration, i.e. how much room the filter ended up with.
 - The claim survives only if `absolute` and/or `relative` beat `categorical` on the primary
   outcome by more than the within-arm spread. If they do not, the claim is dead -- that is the
@@ -67,7 +66,6 @@ def outcome(history: list) -> dict[str, Any]:
     if not scored:
         return {"ok": False}
     final = scored[-1]
-    checks = final.checks
     return {
         "ok": True,
         "n_iterations": len(history),
@@ -76,10 +74,6 @@ def outcome(history: list) -> dict[str, Any]:
         "deviation_mean_m": final.metrics["deviation_mean_m"],
         "min_sep_norm": final.metrics["min_sep_norm"],
         "authored_min_sep_norm": final.metrics["authored_min_sep_norm"],
-        "check_pass_fraction": (
-            sum(c["ok"] for c in checks) / len(checks) if checks else float("nan")
-        ),
-        "n_checks": len(checks),
         "converged": final.closing_verdict == "keep",
         "compile_failures": sum(1 for r in history if r.error is not None),
     }
@@ -147,13 +141,12 @@ def main(argv: list[str] | None = None) -> Path:
                     f.write(json.dumps(row) + "\n")
                     f.flush()
                     logger.info(
-                        "[%d/%d] %-11s r%d dev_max=%s checks=%s  %s",
+                        "[%d/%d] %-11s r%d dev_max=%s  %s",
                         done,
                         total,
                         arm,
                         repeat,
                         f"{result['deviation_max_m']:.2f}" if result.get("ok") else "-",
-                        f"{result['check_pass_fraction']:.0%}" if result.get("ok") else "-",
                         request[:40],
                     )
 
@@ -176,17 +169,12 @@ def report(rows: list[dict[str, Any]]) -> None:
     """Print the per-arm distributions the pre-registered comparison reads."""
     ok = [r for r in rows if r.get("ok")]
     print(f"\n{len(ok)}/{len(rows)} runs completed\n")
-    print(f"{'arm':<12}{'deviation_max (m), lower better':<44}{'checks pass':<26}converged")
+    print(f"{'arm':<12}{'deviation_max (m), lower better':<44}converged")
     for arm in dict.fromkeys(r["arm"] for r in rows):
         cell = [r for r in ok if r["arm"] == arm]
         dev = [r["deviation_max_m"] for r in cell]
-        chk = [
-            r["check_pass_fraction"]
-            for r in cell
-            if r["check_pass_fraction"] == r["check_pass_fraction"]
-        ]
         conv = sum(r["converged"] for r in cell)
-        print(f"{arm:<12}{_spread(dev):<44}{_spread(chk):<26}{conv}/{len(cell)}")
+        print(f"{arm:<12}{_spread(dev):<44}{conv}/{len(cell)}")
 
     print(
         f"\nper request (deviation_max median):\n{'request':<44}"

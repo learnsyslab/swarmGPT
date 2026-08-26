@@ -20,19 +20,11 @@ from swarm_gpt.synth.manifest import ParamSpec, PrimitiveManifest
 from swarm_gpt.utils.music_analyzer import SCHEMA_VERSION, Bar, Beat, Segment, SongStructure
 
 HELIX_SOURCE = """
-def double_helix(params, swarm_pos, tstart, tend, limits):
+def double_helix(params, n_drones):
     turns, height_cm = params
-    pos = swarm_pos.copy()
-    waypoints = {}
-    for t in np.linspace(tstart, tend, 3)[1:]:
-        pos = pos + np.array([0.0, 0.0, height_cm / 200])
-        waypoints[float(t)] = {i: p.copy() for i, p in enumerate(pos)}
-    return pos, waypoints
-"""
-
-HELIX_CHECK = """
-def check(pos, time, params):
-    return [("rises", bool(np.all(pos[:, -1, 2] >= pos[:, 0, 2])), "never descends")]
+    a = np.linspace(0, turns * 2 * np.pi, n_drones, endpoint=False)
+    z = np.linspace(40.0, 40.0 + height_cm, n_drones)
+    return np.stack([120.0 * np.cos(a), 120.0 * np.sin(a), z], axis=-1)
 """
 
 HELIX_PARAMS = (("turns", "int", 1, 4), ("height_cm", "float", 20.0, 150.0))
@@ -55,7 +47,6 @@ def _manifest() -> PrimitiveManifest:
             ParamSpec(name=n, type=t, minimum=lo, maximum=hi) for n, t, lo, hi in HELIX_PARAMS
         ),
         source=HELIX_SOURCE,
-        invariants=HELIX_CHECK,
     )
 
 
@@ -164,7 +155,7 @@ def test_catalogue_renders_signature_and_intent():
 
 def test_manifest_register_wires_both_resolution_and_schema():
     manifest = _manifest()
-    fn, _check = manifest.compile()
+    fn, _shape_fn = manifest.compile()
     manifest.register(fn)
     assert mp.primitive_by_name("double_helix") is fn
     assert mp.motion_primitives["double_helix"]["n_args"] == 2
@@ -174,14 +165,14 @@ def test_manifest_register_wires_both_resolution_and_schema():
 
 def test_registered_primitive_runs_through_the_resolved_callable():
     manifest = _manifest()
-    fn, _check = manifest.compile()
+    fn, _shape_fn = manifest.compile()
     manifest.register(fn)
     limits = {"lower": np.array([-2.0, -2.0, 0.0]), "upper": np.array([2.0, 2.0, 2.0])}
     final_pos, waypoints = mp.primitive_by_name("double_helix")(
         manifest.bind([2, 80.0]), np.zeros((4, 3)), 0.0, 4.0, limits
     )
     assert final_pos.shape == (4, 3)
-    assert len(waypoints) == 2
+    assert waypoints
 
 
 def test_persisted_manifest_round_trips_into_the_library(tmp_path: Path):

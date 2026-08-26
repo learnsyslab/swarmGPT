@@ -33,16 +33,17 @@ ROOT = Path(__file__).resolve().parents[1]
 
 def render_table(history: list[Iteration]) -> str:
     """One row per iteration: how far it got, what it broke, and how its two verdicts landed."""
-    header = f"\n{'it':<4}{'stage':<10}{'authored':>9}{'flown':>8}{'failed':>8}{'own':>7}  verdict"
+    header = f"\n{'it':<4}{'stage':<10}{'authored':>9}{'flown':>8}{'failed':>8}  verdict"
     rows = [header, "-" * len(header)]
     for r in history:
         m = r.metrics or {}
-        own = f"{sum(c['ok'] for c in r.checks)}/{len(r.checks)}" if r.checks else "-"
+        # A run rejected on its geometry never built a trajectory, so its separation is the
+        # shape's own -- the same quantity, measured a stage earlier.
+        authored = m.get("authored_min_sep_norm", m.get("shape_min_sep_norm", float("nan")))
         rows.append(
-            f"{r.index:<4}{r.stage:<10}"
-            f"{m.get('authored_min_sep_norm', float('nan')):>9.3f}"
+            f"{r.index:<4}{r.stage:<10}{authored:>9.3f}"
             f"{m.get('min_sep_norm', float('nan')):>8.3f}"
-            f"{m.get('failed_solves', -1):>8}{own:>7}  "
+            f"{m.get('failed_solves', -1):>8}  "
             f"{r.closing_verdict or r.verdict}"
         )
     return "\n".join(rows)

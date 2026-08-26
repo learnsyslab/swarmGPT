@@ -39,8 +39,8 @@ export type JobEvent = {
 };
 
 // One turn of the synthesis loop as the server streams it. `stage` is how far the candidate got:
-// "screened" means its own waypoints were already infeasible and it never reached the filter,
-// "measured" means it flew. Separations are multiples of the collision envelope, so 1.0 is the
+// "shaped" means the geometry put two drones on top of each other and nothing was flown,
+// "screened" means the trajectory built from it was not flyable, "measured" means it flew. Separations are multiples of the collision envelope, so 1.0 is the
 // boundary and anything below it is a collision.
 export type SynthesisIteration = {
   index: number;

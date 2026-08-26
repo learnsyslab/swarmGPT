@@ -17,23 +17,17 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 RISER_SOURCE = """
-def riser(params, swarm_pos, tstart, tend, limits):
-    delta_cm, = params
-    pos = swarm_pos + np.array([0.0, 0.0, delta_cm])
-    return pos, {float(tend): {i: p.copy() for i, p in enumerate(pos)}}
-"""
-
-RISER_CHECK = """
-def check(pos, time, params):
-    return [("rises", bool(np.all(pos[:, -1, 2] >= pos[:, 0, 2])), "never descends")]
+def riser(params, n_drones):
+    height_cm, = params
+    x = np.linspace(-150.0, 150.0, n_drones)
+    return np.stack([x, np.zeros(n_drones), np.full(n_drones, height_cm)], axis=-1)
 """
 
 MANIFEST = {
     "name": "riser",
     "intent": "lift the whole swarm",
-    "params": [{"name": "delta_cm", "type": "float", "minimum": 1.0, "maximum": 50.0}],
+    "params": [{"name": "height_cm", "type": "float", "minimum": 30.0, "maximum": 160.0}],
     "source": RISER_SOURCE,
-    "invariants": RISER_CHECK,
 }
 
 
@@ -45,7 +39,7 @@ def _clean_registries():
 
 def _record(**overrides: object) -> Iteration:
     record = Iteration(
-        index=3, verdict="keep", reasoning="looks right", manifest=dict(MANIFEST), args=[10.0]
+        index=3, verdict="keep", reasoning="looks right", manifest=dict(MANIFEST), args=[100.0]
     )
     record.stage = "measured"
     record.closing_verdict = "keep"
@@ -130,7 +124,7 @@ def test_load_promoted_is_empty_when_the_directory_does_not_exist(tmp_path: Path
 def test_catalogue_lists_hand_written_and_synthesized_primitives() -> None:
     assert "form_circle(drone_ids, radius_cm, z_coord_cm, time_to_finish_s)" in catalogue()
     register_entry({"manifest": MANIFEST})
-    assert "riser(delta_cm: float [1.0, 50.0])" in catalogue()
+    assert "riser(height_cm: float [30.0, 160.0])" in catalogue()
 
 
 def test_synthesis_is_skipped_entirely_when_the_mode_is_off() -> None:
@@ -152,11 +146,11 @@ def test_a_promoted_primitive_is_announced_with_the_interval_it_needs() -> None:
         "promoted",
         gap=Gap("riser", "lift", "why"),
         name="riser",
-        signature="riser(delta_cm: float [1.0, 50.0])",
+        signature="riser(height_cm: float [30.0, 160.0])",
         window_s=8.2,
     )
     prefixed = outcome.prefix("put a heart at the drop")
-    assert "riser(delta_cm: float [1.0, 50.0])" in prefixed
+    assert "riser(height_cm: float [30.0, 160.0])" in prefixed
     # Placing it on a tighter key is what makes the filter smear the shape, so the interval it was
     # verified over has to travel with it.
     assert "8.2 s" in prefixed
@@ -196,6 +190,7 @@ def test_an_unparseable_turn_becomes_feedback_instead_of_ending_the_run() -> Non
                 "pos_max": [2, 2, 2],
                 "vel_max": 1.73,
                 "acc_max": 1.0,
+                "collision_envelope": [0.25, 0.25, 0.6],
             }
         },
         start_pos_m=np.zeros((10, 3)),
@@ -249,7 +244,7 @@ def test_a_manifest_registers_straight_off_a_loop_record() -> None:
 
     authored = PrimitiveManifest.from_payload(MANIFEST)
     record = Iteration(
-        index=1, verdict="keep", reasoning="", manifest=asdict(authored), args=[10.0]
+        index=1, verdict="keep", reasoning="", manifest=asdict(authored), args=[100.0]
     )
     assert isinstance(record.manifest["params"], tuple)
 

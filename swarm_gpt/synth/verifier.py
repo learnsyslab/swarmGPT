@@ -16,7 +16,7 @@ import numpy as np
 from axswarm import SolverData, SolverSettings, solve
 
 from swarm_gpt.core.choreographer import dicts2arrays
-from swarm_gpt.synth.sandbox import SynthError, call_guarded, validate_waypoints
+from swarm_gpt.synth.sandbox import call_guarded, validate_waypoints
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -153,6 +153,10 @@ def screen_authored(
     drone can fly. Reuses the grid and metric `measure` uses, so ``authored_min_sep_norm`` here is
     the figure it would report.
 
+    Acceleration is measured and reported but never gated on: waypoints are a piecewise-linear
+    reference, so the arrival is a corner that reads as 5.8 m/s^2 for a heart topping out at
+    0.77 m/s. The library schedules that arrival, and the MPC is what smooths it.
+
     Returns:
         The measured dict, and one sentence per broken limit (empty if worth solving).
     """
@@ -186,11 +190,6 @@ def screen_authored(
         violations.append(
             f"peak speed {measured['authored_max_speed_mps']:.2f} m/s exceeds the drones' "
             f"{axswarm['vel_max']} m/s limit"
-        )
-    if measured["authored_max_accel_mps2"] > axswarm["acc_max"]:
-        violations.append(
-            f"peak acceleration {measured['authored_max_accel_mps2']:.2f} m/s^2 exceeds the "
-            f"drones' {axswarm['acc_max']} m/s^2 limit"
         )
     return measured, violations
 
@@ -260,37 +259,3 @@ def measure(
         "min_z_m": float(pos[:, :, 2].min()),
         "vel_max_mps": float(settings["axswarm"]["vel_max"]),
     }
-
-
-def check_invariants(
-    check_fn: Callable[..., Any],
-    repaired: dict[str, NDArray],
-    args: tuple,
-    window: tuple[float, float],
-) -> list[dict[str, Any]]:
-    """Run the primitive author's own shape check over the flown trajectory inside ``window``.
-
-    Positions are handed over in **cm** and shaped (D, T, 3), so the check works in the same units
-    the primitive was written in.
-
-    Returns:
-        One ``{"name", "ok", "detail"}`` entry per declared invariant.
-
-    Raises:
-        SynthError: If the check raises or returns something other than (name, ok, detail) triples.
-    """
-    inside = (repaired["time"] >= window[0]) & (repaired["time"] <= window[1])
-    pos_cm = np.transpose(repaired["pos"][inside], (1, 0, 2)) * 100
-    result = call_guarded(check_fn, pos_cm, repaired["time"][inside], args)
-    if not isinstance(result, (list, tuple)) or not result:
-        raise SynthError(
-            "check must return a non-empty list of (name, ok, detail) triples, got "
-            f"{type(result).__name__}."
-        )
-    checks = []
-    for entry in result:
-        if not isinstance(entry, (list, tuple)) or len(entry) != 3:
-            raise SynthError(f"Each check entry must be a (name, ok, detail) triple, got {entry!r}")
-        name, ok, detail = entry
-        checks.append({"name": str(name), "ok": bool(ok), "detail": str(detail)})
-    return checks

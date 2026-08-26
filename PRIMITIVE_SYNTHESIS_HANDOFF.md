@@ -7,6 +7,11 @@ Written by **Yiyi Xu** (yiyi.xu@mail.utoronto.ca), LSY Lab TUM, 19 May – 27 Au
 Supervisor: **Marcel**. Collaborators: **Martin**, **Alex**.
 Last updated **2026-08-26**. Tracked on this branch, so a clone carries it.
 
+> **2026-08-26, late:** the loop was rebuilt. The model now authors **only the equation of a
+> shape**; the whole trajectory-authoring path is deleted. Section 2 is the new state, §5 is why,
+> and every section below it has been brought in line. If you read an earlier copy of this file,
+> the thing that changed is that a primitive is no longer a function of time.
+
 ---
 
 ## 1. What this thread is
@@ -22,63 +27,90 @@ The claim has two halves, and both now have data:
    that clear the filter — a loop where the solver teaches rather than merely rejects.
 
 Both halves now have results. Half 1 is settled and written up; half 2 has a working pipeline and
-its first verified primitive.
+its first verified primitives.
+
+**One thing the write-up must say plainly.** For most of this thread the LLM was asked to author a
+whole trajectory, and it was bad at it. It is not bad at authoring *geometry*. Separating the two
+is the finding, and it is the difference between a loop that converges in four iterations and one
+that spends fourteen failing a screen. The claim in half 2 survives the change — the solver still
+teaches, and magnitudes still win (§4.2) — but the thing being taught is now the right size.
 
 ---
 
 ## 2. Current state
 
-**It works from the browser.** A refinement that asks for a shape the library cannot express now
-authors the primitive, verifies it, registers it, and regenerates the choreography with it — §11
-is the whole path and the decisions behind it. The 2026-08-26 run promoted `heart_drop` in six
-attempts (authored separation 1.618, flown 1.599, 0 steps inside the envelope) from *"put a heart
-shape primitive at the beat drop"*. What has **not** been watched end to end on the current code
-is the part after promotion: whether the drones visibly make the shape in playback. That is step 2
-of §8 and it is one run.
+**A primitive is a shape, and nothing else.** The model writes
 
-**The loop works, twice.** `results/synthesized/upright_heart_outline.json` is a heart the
-choreographer had no way to express before: 10 drones, tip on the centreline, flaring to a
-1.80 m half-span, two lobes with a cleft between them, **y spread 0.000 m**. Seven iterations,
-authored separation 1.717, flown 1.645 with 0 steps inside the envelope. It is inserted at the
-drop between `spiral_speed` and `helix` in `presets/Fearless2 | 10 | 20260825_170100_after`, solves,
-and renders.
+```python
+def NAME(params, n_drones):
+    ...
+    return positions      # (n_drones, 3), centimetres
+```
 
-`results/synthesized/double_helix.json` is an LLM-authored primitive that
-clears both gates: authored separation 1.265, flown 1.235 with **0 steps inside the collision
-envelope**, and the filter moving it 0.136 m at most. It converged in 7 iterations. It renders through the shipped `render.py` and flies.
+and `synth/shape.py` wraps it in exactly the body `form_circle` already has: Hungarian assignment
+onto the target points, then `_formation_waypoints` to schedule the arrival at the library's own
+speed budget and hold the pose for the rest of the interval. The model never writes a waypoint,
+never picks a time, and never chooses which drone flies where.
 
-What unblocked it was binding the library's own formation helpers into the sandbox. Before that the
-model had to reinvent collision-free formation entry every time and never got authored separation
-above 0.484 in 8 iterations; with `assign` available it cleared 1.0 on the first try.
+**Why this replaced the old design.** The model used to author the whole five-argument primitive,
+timing and all. Across the 13 runs in `synth_runs/`, **95 of 141 iterations died at the pre-solve
+screen**, and every cause was in the trajectory layer rather than the geometry: acceleration from
+hand-rolled interpolation (14), separation *during the fly-in* at t = 2.9, 4.6, 5.9 s (12),
+waypoint-contract errors (4), speed (2). The shape was rarely the problem. `form_circle` cannot
+fail any of those ways because it does not write a trajectory, and neither can a synthesized
+shape now.
 
-The primitive builds a **static** double helix and holds it — `turns` is the spatial pitch of the
-helix, not a spin. Motion comes from composing it in the choreography: `rotate(90, 'z')` on later
-keys turns the formed shape and cannot collide, since a z-rotation preserves every radius and
-height. Measured over the show, the formation turns 270-288 degrees with radii and height span
-unchanged.
+**It works from the browser**, on the same path as before: a refine that asks for a shape the
+library cannot express authors it, verifies it, registers it, and regenerates the choreography
+with it. §11 is that path.
+
+**Measured on the new loop.** `"a heart shape at the beat drop"`, `gpt-5.6-luna`, 8.18 s window,
+10 drones: promoted in **4 iterations** — one geometry rejection, then three flights, closing on
+flown separation **1.219**, **0 steps inside the envelope**, 3 failed solves. The old path on the
+same request took 6–14 iterations, most of them never reaching the solver, and one 14-iteration
+run never promoted at all. What it wrote is seven lines:
+
+```python
+def form_heart(params, n_drones):
+    size_cm, z_cm, lean_deg = params
+    t = np.linspace(0, 2 * np.pi, n_drones, endpoint=False)
+    x = size_cm * np.sin(t) ** 3
+    v = size_cm * (13 * np.cos(t) - 5 * np.cos(2 * t) - 2 * np.cos(3 * t) - np.cos(4 * t)) / 29
+    lean = np.deg2rad(lean_deg)
+    return np.stack([x, v * np.sin(lean), z_cm + v * np.cos(lean)], axis=-1)
+```
+
+It generalises over swarm size — unmistakable at 20 and 40 drones — which is the property the
+whole design is for. It also invented `lean` and converged to **80 degrees**, i.e. a nearly
+*horizontal* heart. That is the correct read of the room, not a failure: the collision envelope is
+0.6 m deep in z against 0.25 m in x/y, and there are only 1.45 m of usable height, so an upright
+shape buys about two levels. **If a demo needs the heart standing up for an audience, that is a
+constraint of the arena to design around, not something more iterations will fix.**
 
 **Whether a primitive looks like what was asked for is deliberately not gated.** A hand-written
 shape predicate was built and then removed, for three reasons:
 
-- **A primitive already is the geometry.** Look at `form_circle`: it computes the target positions
-  and hands off to `_assign_positions` and `_formation_arrival_time`. The LLM's contribution is
-  "where does each drone sit for this shape"; the solver moves them. A predicate is the same kind
-  of artifact — a geometric characterisation — so grading one with the other is circular.
+- **A primitive already is the geometry.** The LLM's contribution is "where does each drone sit
+  for this shape"; the solver moves them. A predicate is the same kind of artifact — a geometric
+  characterisation — so grading one with the other is circular.
 - **It cannot work for a live request.** A predicate must exist before the shape is asked for. The
-  demo case is someone asking for something nobody anticipated, which is exactly what a
-  pre-written predicate cannot cover.
+  demo case is someone asking for something nobody anticipated.
 - **It was wrong more often than the model was.** It demanded counter-rotation, which makes a
-  double helix physically impossible, and it rejected a rational response to a heart request I had
-  wrongly measured as infeasible.
+  double helix physically impossible, and it rejected a rational response to a heart request.
+
+The model's *own* invariant checks are gone too, for the reason in §7: it passed 5/5 and 4/4 of
+them on two flat counter-rotating rings. Nothing is lost by deleting them.
 
 Two gates remain, both objective, both from the hardware and the room rather than from anyone's
-idea of a shape: the pre-solve screen and the flown collision envelope. Whether it looks right is a
-human call. **Report it as a success rate** — the three ablation arms are the baseline, and
-`categorical`, what swarmGPT ships today, converged 0/17 against `absolute`'s 8/18.
+idea of a shape, and a third that is cheaper than either:
 
-Run logs stay local — `synth_runs/` is gitignored.
+1. **The shape screen** (`screen_shape`, ~µs). Every pair of target points must clear the
+   collision ellipsoid. Feedback names the two points and the gap in centimetres.
+2. **The pre-solve screen** (`screen_authored`, 1.4 ms). The assembled trajectory must be flyable
+   — in practice this now only fires when the shape is out of reach in the window it gets.
+3. **The filter.** Every solve must run, and flown separation must clear the envelope.
 
----
+Whether it looks right is a human call. Run logs stay local — `synth_runs/` is gitignored.
 
 ## 3. Where things live
 
@@ -198,49 +230,43 @@ Two things still belong in the write-up:
 
 ---
 
-## 5. What this session built
-
-The loop existed before (`swarm_gpt/synth/`: loop, verifier, feedback, sandbox, manifest). What is
-new is that nothing the model asserts is taken on trust, and that a promoted primitive is
-indistinguishable from a hand-written one at choreography time.
+## 5. How the loop is built
 
 **One manifest, four places.** A primitive's signature lives in the prompt, the structured-output
-schema, the backend function, and the offline check — the standing invariant is that changing fewer
-than all four causes bugs. `PrimitiveManifest.register()` now writes all of them from one
+schema, the backend function, and the offline check — the standing invariant is that changing
+fewer than all four causes bugs. `PrimitiveManifest.register()` writes all of them from one
 declaration, so a synthesized primitive is emittable by the choreographer LLM, renderable as a
 call, and visible in the prompt catalogue, without any of them able to drift.
 
-**Two gates, neither of which the model may overrule.**
+**The model authors geometry; the library does the flying.** This is §2's headline and it is the
+load-bearing decision. `shape.py:as_primitive` is the whole wrapper, and it is `form_circle`'s
+body. Three classes of failure become structurally impossible rather than merely discouraged:
 
-1. **Pre-solve screen** (`screen_authored` in `verifier.py`). The authored waypoints must be
-   collision-free *and* flyable. A full axswarm solve is **32 s**; the screen reproducing the same
-   `authored_min_sep_norm` is **1.4 ms** — ~23,000× cheaper.
-2. **The filter.** Every solve must succeed, and flown separation must clear the envelope.
+- **Speed.** `_formation_arrival_time` sizes the arrival to the bottleneck drone at 1.0 m/s with
+  headroom. The only way to break the limit now is a shape too far from the docks to reach in the
+  window, which is a real fact worth being told.
+- **Fly-in collisions.** `_assign_positions` is the library's own Hungarian assignment. Not a
+  guarantee, but it is exactly what every hand-written formation relies on.
+- **The waypoint contract.** There is no waypoint to get wrong.
 
-**The model cannot audit its own geometry.** It passed **5/5** and **4/4** of *its own* invariants
-on trajectories that were two flat counter-rotating rings — the third instance of this, after the
-introspective probe and after it knowingly kept a trajectory inside the collision envelope. That
-finding stands on its own; the fix is a human looking at the render, not an automated predicate.
+**The prompt states the collision envelope, which it never used to.** The old prompt gave arena
+bounds and the speed/acceleration limits but never mentioned how far apart two drones must stay.
+The shape prompt gives the ellipsoid in centimetres — **25 cm side by side, 60 cm one above the
+other** — and says why that makes an upright shape expensive against 145 cm of usable height.
+That fact is the one a shape author most needs, and stating it is why `form_heart` reached for a
+`lean` parameter unprompted.
 
-**Why gate 1 mattered more than expected.** It was built for speed and turned out to change
-behaviour. Telling the model *"your own waypoints are infeasible by this much"* moved authored
-separation from a 0.484 ceiling to 1.346; post-filter feedback describing a solve that had failed
-121/121 times had not. The magnitude finding from §4.2 applies to the model's own geometry, not
-just the filter's report.
+**Acceleration is measured but never gated on.** This was a false positive that cost real
+iterations. Waypoints are a piecewise-linear reference, so the arrival is a velocity corner: a
+heart topping out at 0.77 m/s reads **5.79 m/s²** at exactly the arrival waypoint. The MPC exists
+to smooth that corner, the library schedules it rather than the model, and gating on it rejected
+good geometry. The figure is still reported.
 
-**The kinematic gap.** The system prompt stated position bounds only — it never mentioned that
-drones have a speed or acceleration limit. Authored trajectories demanded up to **37 m/s** against
-`vel_max` 1.73 and **370 m/s²** against `acc_max` 1.0. That is the cause of the failed solves in
-§4.3. After stating the limits and screening for them, one iteration came back at **5/121** failed
-solves.
-
-> This is the same class of bug as the open transitions issue on `feat/swarmgpt2-splines`, where
-> the `TRANSITION` keyword lets the LLM schedule a four-metre formation change across half a beat
-> and the assembled trajectory bounds at 18.63 m/s against the same 1.73 limit. In both cases a
-> layer that picks *timing* was never told what the swarm can physically do. Worth treating as one
-> problem.
-
----
+**The magnitude finding applies to the model's own geometry, not just the filter's report.**
+Telling the model *"your own points are this far inside the envelope"* is what moved authored
+separation off its old 0.484 ceiling; post-filter feedback describing a solve that had failed
+121/121 times had not. This is §4.2 one layer earlier, and it is why the shape screen reports the
+gap in centimetres rather than saying "too close".
 
 ## 6. Environment and commands
 
@@ -269,10 +295,14 @@ pixi run ruff check <files> && pixi run ruff format --check <files>
 ```
 
 ```bash
-# One synthesis run. ~10 min, costs API credit.
+# One synthesis run. A few minutes, costs API credit. Set --duration to the window the target
+# song will actually give the primitive (Fearless2 is 8.18 s) -- the default 12 s certifies
+# nothing about a show that hands it 4 s.
 source ./openai_api_key.sh && pixi run python experiments/synth_to_library.py \
-  --request "a double helix: two strands half a turn apart at every height, both winding upward the same way around a common axis" \
-  --arm absolute --iters 14
+  --request "a heart shape at the beat drop" --arm absolute --iters 6 --duration 8.18
+
+# Look at what it promoted: the flown pose, and the equation at 10, 20 and 40 drones.
+pixi run -e tests python experiments/plot_primitive.py results/synthesized/form_heart.json
 ```
 
 Exit `0` promoted, `1` the model never said "keep", `2` a gate refused what it kept. A run log lands
@@ -285,8 +315,16 @@ prints at the end — read those rather than re-running.
 
 Each cost real time or API credit. Do not re-investigate.
 
-- **"More iterations will fix it."** 8 unscreened iterations never got authored separation above
-  0.484 (needs ≥ 1.0). Not close, and more turns did not help.
+- **"The model is bad at authoring primitives."** It is bad at authoring *trajectories*. Given the
+  same requests as geometry alone it converges in a handful of turns. This was the expensive one:
+  most of this thread was spent tuning feedback for a task that was the wrong shape.
+- **"More iterations will fix it."** Under trajectory authoring, 8 unscreened iterations never got
+  authored separation above 0.484 (needs ≥ 1.0). Not close, and more turns did not help. This is
+  what "the task is the wrong shape" looked like before it was diagnosed.
+- **"Gating the authored acceleration catches bad primitives."** It catches the arrival corner of
+  every piecewise-linear reference, `form_circle`'s included once the swarm has any real distance
+  to travel. Measured: 5.79 m/s² against a 1.0 limit for a heart that never exceeds 0.77 m/s, with
+  the peak at exactly the arrival waypoint. Report it; do not gate on it.
 - **"The feedback wording is the problem."** Settled by the ablation: absolute beats categorical
   (p = 0.017) and relative (p = 0.015). Wording is not the blocker.
 - **"A counter-rotating double helix is buildable."** **Geometrically impossible.** Two strands
@@ -299,62 +337,49 @@ Each cost real time or API credit. Do not re-investigate.
 - **"`min_sep_norm` alone is a safe promotion gate."** Two iterations reported healthy separation
   (1.062, 1.017) off runs where **95% of solves failed**. Those figures read *better* the more the
   solver gives up.
-- **"The assignment helper is unnecessary once the screen exists."** Believed briefly after the
-  screen fixed separation on one run. Wrong — assignment is now the sole remaining blocker.
-- **Correlation between angle and height as a helix test.** Fails twice over: angle wraps at 2π,
-  and in a counter-rotating pair one strand climbs against increasing angle. Replaced by
-  monotonicity read around the loop from the extreme, accepting either direction.
+- **"The assignment helper is unnecessary once the screen exists."** Wrong, and now moot: the
+  wrapper always assigns, so the model cannot skip it.
 - **Gating promotion on zero failed solves.** Rejected a genuine success. axswarm's
   `success=False` means it hit `max_iters` with its **K-step prediction horizon** unsatisfied, but
   only the first step of each horizon is executed and the next tick re-solves. The promoted
   primitive carries 43/121 failures and flies with 0 steps inside the envelope. Gate on
   `steps_inside_envelope`, report `failed_solves`.
-- **Pairing tolerance of "half the level spacing".** Drones evenly spaced in a *single* file sit
-  exactly on that bound. Replaced by a ratio test: between-level gap ≥ 3× within-pair gap.
 
 ---
 
 ## 8. Next steps, ranked
 
-1. ~~**Wire synthesis into the frontend.**~~ **Done** — see §11. A refine can now author the
-   primitive it needs, and the browser shows the loop failing and fixing itself while it happens.
-2. **Verify the demo end to end with `gpt-5.6-terra` authoring.** Everything in §11 was measured on
-   `gpt-5.6-luna`, and the last full browser run promoted a primitive but was never watched all the
-   way through to playback with the current code. Pick Fearless2, refine with mode `force`, and
-   check three things: the panel streams attempts and lands on "flew clear", the choreographer
-   emits a call to the new primitive, and the drones visibly make the shape now that the window
-   matches. That last one is the open question — the window fix is verified by screening, not by
-   eye. **Start here; it is one run and it decides whether anything below matters.**
-3. **Close the two name-collision holes in §11** — an in-session clash silently replaces a live
-   primitive, and the CLI overwrites tracked evidence files without warning. Both are small, and
-   the second risks real result data.
-4. **Stop the choreographer crowding a synthesized primitive.** `primitive_window_s()` verifies
+1. **Watch a browser refine all the way to playback.** Everything in §2 was measured through the
+   CLI. Pick Fearless2, refine with mode `force`, and check three things: the panel streams
+   attempts and lands on "flew clear", the choreographer emits a call to the new primitive, and
+   the drones visibly make the shape. **Start here; it is one run and it decides whether anything
+   below matters.**
+2. **Decide what an upright shape is worth.** `form_heart` chose to lie nearly flat, which is
+   right for the envelope and possibly wrong for an audience. Either accept horizontal shapes
+   (seen from a raised camera or a balcony), or state uprightness in the request and accept that
+   ten drones give you about two levels. This is a staging decision, not a code one.
+3. **Stop the choreographer crowding a synthesized primitive.** `primitive_window_s()` verifies
    against the narrowest *required*-key gap, but the choreographer may also place actions on
-   optional accent beats — which is how a 4.4 s window arose and smeared the shape. The
-   announcement asks it to leave room; nothing enforces it. Needs a minimum-interval constraint in
-   the schema, or a screen over the composed show.
+   optional accent beats — which is how a 4.4 s window arose and smeared a shape. The announcement
+   asks it to leave room; nothing enforces this. Needs a minimum-interval constraint in the schema,
+   or a screen over the composed show.
+4. **Close the two name-collision holes in §11** — an in-session clash silently replaces a live
+   primitive, and the CLI overwrites files in `results/synthesized/` without warning.
 5. **Synthesize more primitives and re-run the coverage instrument.** This is what turns the
    existence proof into the paper's headline: with the hand library 88% of blind intents fall
    short, so promote N primitives and re-measure the same 88 intents against the extended library.
-   The instrument already exists (`experiments/judge_against_vocabulary.py`); the extended library
-   is `results/synthesized/` plus the prompt/schema injection, which is already wired.
+   The instrument already exists (`experiments/judge_against_vocabulary.py`). **This is much more
+   tractable now than it was** — four iterations a primitive rather than fourteen — so N in the
+   dozens is a realistic afternoon rather than a week.
 6. **Write §4.3 into `results/README.md`** — the operating regime and the softened "repairs"
-   claim — before the RAL draft is built on the current wording.
-7. **Decide what ships for a demo.** A hand-built double helix (radius 1.6 m, 10 levels, 0.75 turns,
-   both strands same handedness 180° apart) measures min separation 1.43 and is collision-safe. Shipping that as a *hand-written* primitive decouples "show a double helix on stage"
-   from "the LLM authored one unaided" — different claims, very different timelines. **Synthesis is
-   library authoring, not a request-time operation; do not run it live for an audience.** Even
-   fully working it is minutes per primitive and can legitimately fail.
-8. **Rename or delete `results/synthesized/altitude_separated_double_helix.json`.** It is a valid,
-   collision-safe primitive that is **two flat counter-rotating rings**, not a double helix. It is
-   kept because it is the evidence that the model certifies its own output (5/5 on its own checks),
-   but the name will mislead anyone reading the directory.
-9. **Cheapest real win outside this loop:** exposing the 30 primitives already in `blocks.py` moves
-   expressibility 10% → 19% (McNemar p = 0.023). Prompt and schema only, no new maths. The dominant
-   residual after that is **colour palette**, not motion — the lighting family is where the next
-   coverage gain is.
-
----
+   claim — before the RAL draft is built on the current wording. Add the §5 diagnosis to it too:
+   the ablation ran against trajectory authoring, and that is now part of how its numbers read.
+7. **Decide what ships for a demo.** **Synthesis is library authoring, not a request-time
+   operation; do not run it live for an audience.** Even at four iterations it is minutes and it
+   can legitimately fail. Author ahead of time, ship the JSON.
+8. **Cheapest real win outside this loop:** exposing the 30 primitives already in `blocks.py`
+   moves expressibility 10% → 19% (McNemar p = 0.023). Prompt and schema only, no new maths. The
+   dominant residual after that is **colour palette**, not motion.
 
 ## 9. Files
 
@@ -362,44 +387,47 @@ Each cost real time or API credit. Do not re-investigate.
 
 | file | role |
 |---|---|
-| `loop.py` | The turn loop. `screen` defaults **off** so the ablation's measured code path is unchanged; `synth_to_library.py` turns it on. |
-| `verifier.py` | `authored_trajectory`, `solve_only`, `measure`, `screen_authored` (the pre-solve gate). |
+| `shape.py` | `as_primitive` (the `form_circle` wrapper), `targets`, and `screen_shape`. The heart of the current design. |
+| `loop.py` | The turn loop and the authoring prompt. `screen` defaults **off** so the ablation's measured code path is unchanged; `synth_to_library.py` and the refine path turn it on. |
+| `verifier.py` | `authored_trajectory`, `solve_only`, `measure`, `screen_authored`. |
 | `manifest.py` | The single declaration; `register()` writes all four places. |
-| `sandbox.py` | AST whitelist plus `HELPERS` — the library's own `assign` and `arrival_time`, bound by reference so authored primitives cannot drift from what the hand-written ones use. |
-| `feedback.py` | Unchanged: the three ablation arms. |
+| `sandbox.py` | AST whitelist and `compile_shape`. Nothing but numpy and safe builtins is reachable from authored code. |
+| `feedback.py` | The three ablation arms. |
 | `promote.py` | `gate()` (trust) vs `promote()` (trust + persist), `reset_synthesized()`, `load_promoted` for offline tools. |
 | `trigger.py` | The per-request gap classifier that decides whether a refine needs synthesis. |
 | `refine.py` | Orchestrates classify -> synthesize -> gate -> register for one browser refine. |
 | `run_log.py` | The JSONL capture both paths write to the gitignored `synth_runs/`. |
 
-The frontend touches `web/src/{App,api,types}.tsx|ts` and `styles.css`: the synthesis panel,
-the mode and authoring-model selects, and the `synthesis_*` / `refine_abandoned` events.
+The frontend touches `web/src/{App,api,types}.tsx|ts` and `styles.css`: the synthesis panel, the
+mode and authoring-model selects, and the `synthesis_*` / `refine_abandoned` events. A rejected
+geometry arrives as stage `shaped`, a rejected trajectory as `screened`, a flown one as `measured`.
 
-`experiments/synth_to_library.py` is the single entry point (it replaced `synth_single_run.py`,
-which logged a run and threw the primitive away). `ablation_feedback.py` and the four coverage
-scripts are the experiments behind §4 — `experiments/README.md` indexes them.
+`experiments/synth_to_library.py` is the single entry point. `experiments/plot_primitive.py` draws
+a promoted entry: the pose it flew into over its flight paths, and the equation sampled at 10, 20
+and 40 drones. `ablation_feedback.py` and the four coverage scripts are the experiments behind §4;
+`experiments/README.md` indexes them.
 
-`experiments/plot_primitive.py` draws a promoted entry — flown trajectory, the pairing from above,
-and the twist against height. `swarm_gpt/data/presets/Fearless2 | 20 | 20260825_160000` is a
-minimal preset that renders one through `render.py`; register the manifest before calling
-`render_preset` or `primitive_by_name` will not resolve it.
+**`results/synthesized/trajectory-era/` holds four entries the removed path authored** — the first
+double helix, the upright heart, the self-certified two-rings case, and one render. They no longer
+load, deliberately: `PrimitiveManifest` parses shapes only, and that directory sits outside
+`load_promoted`'s glob. They are evidence for §4 and §7, not library entries. Its README says which
+is which. `results/synthesis-rejected/double_helix-...selfcertified.json` is kept for the same
+reason.
+
+**One casualty worth knowing about.** `ablation_feedback.py` still runs, but it now drives shape
+authoring, so it no longer reproduces `results/feedback-ablation/ablation-54run.jsonl` verbatim.
+That data stands as recorded; re-running the script measures the current loop, which is a
+different (and probably more interesting) experiment. Its self-check secondary outcome is gone
+along with the invariants.
 
 Dock positions in `drones.toml` are a ring at radius 1.5 m. The active swarm is **10 drones**
 (`cf11`-`cf15`, `cf21`-`cf25`), 0.927 m apart; the other ten keep their `addr`/`channel` and come
-back by adding them to `active` and re-running the ring layout. A ring makes every radial formation a straight in-or-out flight with no crossing paths,
-which is the failure that cost five runs. Only `pos` was changed; `addr` and `channel` are as they
-were.
+back by adding them to `active` and re-running the ring layout. A ring makes every radial formation
+a straight in-or-out flight with no crossing paths, which is the failure that cost five runs.
 
-Tests: `tests/unit/test_synth_{schema,verifier,sandbox,feedback,promote}.py`, plus the
+Tests: `tests/unit/test_synth_{shape,schema,verifier,sandbox,feedback,promote}.py`, plus the
 refine and model-list cases in `test_api.py` and `primitive_window_s` in `test_backend.py`.
-843 pass.
-
-Two artifacts are kept deliberately: `results/synthesis-rejected/double_helix-...selfcertified.json`
-is outside the load path because it is the *evidence* for the self-certification finding, and
-`results/synthesized/altitude_separated_double_helix.json` is the promoted-before-gate-3 case in
-step 5 above.
-
----
+840 pass.
 
 ## 10. People
 
@@ -482,7 +510,7 @@ the library genuinely covers (`NO_GAP`) is not a failure and proceeds normally.
 
 **Five bugs the browser path surfaced.** None are frontend bugs; the loop had simply only ever run
 on the main thread of a short-lived CLI process, and only ever registered a primitive by reloading
-it from JSON.
+it from JSON. All five still apply — they are about the loop's plumbing, not about what it authors.
 
 - **`signal.SIGALRM` cannot be installed off the main thread.** Refine jobs run in a worker, so the
   first browser run died with `ValueError: signal only works in main thread`. `call_guarded` now
@@ -502,8 +530,8 @@ it from JSON.
   `dataclasses.asdict(manifest)`, which keeps `params` a **tuple**, and `from_payload` required a
   `list` — so registering straight off a loop record failed with "Manifest field 'params' must be a
   non-empty array", which reads like the params were missing. The CLI never hit it because
-  `promote()` writes with `json.dumps` first, turning the tuple into an array; that is also why
-  everything already in `results/synthesized/` reloads fine. `from_payload` now takes either.
+  `promote()` writes with `json.dumps` first, turning the tuple into an array. `from_payload` now
+  takes either.
 
 **Open, and not to be trusted yet.** The classifier call carries a 90 s timeout so a slow API cannot
 hold a refine open. `APITimeoutError` fires correctly in isolation (verified at a 1 ms timeout), but
@@ -525,9 +553,10 @@ passes.
 
 Two supporting changes, because measuring the right window is not enough on its own:
 
-- The synthesis prompt now states the interval and forbids a duration parameter. Not knowing the
-  window, the model had been inventing one -- `heart_drop` declared `duration_s: float [30, 60]`
-  over a body that does `total = min(duration_s, tend - tstart)`, so it was always clamped away.
+- The prompt states the interval and forbids a duration parameter. Not knowing the window, the
+  model had been inventing one. Under shape authoring this is close to moot -- there is no time in
+  a shape function at all -- but the interval still decides whether the swarm can *reach* the
+  shape, so it is still stated and still verified against.
 - The announcement handed to the choreographer carries the interval the primitive was verified
   over and tells it to leave that much room. The choreographer may place actions on optional
   accent beats between required keys, which is how the 4.4 s window arose in the first place;
@@ -539,8 +568,8 @@ the choreographer can still crowd a synthesized primitive onto a tighter key; ma
 impossible means either a minimum-interval constraint in the schema or a screen over the composed
 show, neither of which exists.
 
-**The authoring model is chosen separately from the choreography model.** Writing a primitive is a
-harder job than picking calls out of a catalogue, and the working hypothesis is that a model good
+**The authoring model is chosen separately from the choreography model.** Writing the equation of
+a shape is a different job from picking calls out of a catalogue, and the working hypothesis is that a model good
 enough for one is not automatically good enough for the other. The refine box carries its own
 model select beside the synthesis mode; `/api/llm` serves `synthesisModels` alongside the
 choreography list, and the refine payload carries `synthesisModelId`. **`gpt-5.6-terra` is offered

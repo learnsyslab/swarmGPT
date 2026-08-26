@@ -12,7 +12,8 @@ from typing import TYPE_CHECKING, Any
 
 from swarm_gpt.core.motion_primitives import register_synthesized
 from swarm_gpt.core.structured_output_schema import register_synthesized_action
-from swarm_gpt.synth.sandbox import SynthError, compile_invariants, compile_primitive
+from swarm_gpt.synth.sandbox import SynthError, compile_shape
+from swarm_gpt.synth.shape import as_primitive
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -49,13 +50,16 @@ class ParamSpec:
 
 @dataclass(frozen=True)
 class PrimitiveManifest:
-    """A runtime-authored primitive: its intent, signature, source, and self-check."""
+    """A runtime-authored primitive: its intent, signature, and the geometry it stands on.
+
+    ``source`` is a shape -- ``(params, n_drones)`` returning one position per drone -- which
+    ``synth/shape.py`` wraps into the contract the rest of the library speaks.
+    """
 
     name: str
     intent: str
     params: tuple[ParamSpec, ...]
     source: str
-    invariants: str
 
     @property
     def n_args(self) -> int:
@@ -69,7 +73,7 @@ class PrimitiveManifest:
         Raises:
             SynthError: If a field is missing, mistyped, or names an unknown parameter type.
         """
-        fields = ("name", "intent", "params", "source", "invariants")
+        fields = ("name", "intent", "params", "source")
         missing = [k for k in fields if k not in payload]
         if missing:
             raise SynthError(f"Manifest is missing required fields: {sorted(missing)}")
@@ -102,7 +106,6 @@ class PrimitiveManifest:
             intent=str(payload["intent"]),
             params=tuple(params),
             source=str(payload["source"]),
-            invariants=str(payload["invariants"]),
         )
 
     def signature(self) -> str:
@@ -127,14 +130,15 @@ class PrimitiveManifest:
         self,
     ) -> tuple[
         Callable[[tuple, NDArray, float, float, dict[str, NDArray]], tuple],
-        Callable[[NDArray, NDArray, tuple], Any],
+        Callable[[tuple, int], NDArray],
     ]:
-        """Compile the primitive and its invariant check in the sandbox.
+        """Compile the shape in the sandbox and wrap it as a primitive.
 
         Returns:
-            The primitive callable and the invariant callable.
+            The primitive callable, and the bare shape function behind it.
         """
-        return compile_primitive(self.source, self.name), compile_invariants(self.invariants)
+        shape_fn = compile_shape(self.source, self.name)
+        return as_primitive(shape_fn), shape_fn
 
     def register(self, fn: Callable[..., tuple]) -> None:
         """Make the compiled primitive resolvable, emittable, and visible in the prompt."""
