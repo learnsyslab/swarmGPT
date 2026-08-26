@@ -572,3 +572,55 @@ def test_initial_prompt_hands_back_the_prompt_before_the_model_answers(
     assert order == ["prompt", "llm"]
     assert any(message["role"] == "user" for message in seen[0])
     assert any("Fearless2" in message["content"] for message in seen[0])
+
+
+def test_primitive_window_is_the_narrowest_gap_between_required_keys(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """Synthesis verifies over this, so it must be the interval an action really gets.
+
+    A primitive verified over a longer window than the show gives it demands proportionally more
+    speed when composed, which the safety filter then has to smear away.
+    """
+    config_path = virtual_crazyswarm_config(n_drones=4)
+    app = AppBackend(config_file=config_path)
+
+    def bar(bar_id: int, start_s: float, spacing_s: float) -> Bar:
+        return Bar(
+            id=bar_id,
+            start_s=start_s,
+            beats=[
+                Beat(id=i + 1, time_s=start_s + i * spacing_s, position_in_bar=i + 1)
+                for i in range(4)
+            ],
+        )
+
+    # Bars every 2 s, so at bars_per_required=4 the required keys sit 8 s apart -- except the
+    # segment boundary, which is always required and lands 4 s after the previous one.
+    structure = SongStructure(
+        schema_version=2,
+        source_path="t.mp3",
+        song_sha256="a",
+        analyzer="t",
+        bpm=120,
+        segments=[
+            Segment(
+                id=1,
+                label="a",
+                start_s=0.0,
+                end_s=12.0,
+                bars=[bar(i + 1, i * 2.0, 0.5) for i in range(6)],
+            ),
+            Segment(
+                id=2,
+                label="b",
+                start_s=12.0,
+                end_s=20.0,
+                bars=[bar(i + 1, 12.0 + i * 2.0, 0.5) for i in range(4)],
+            ),
+        ],
+    )
+    monkeypatch.setattr(app, "_load_structure", lambda song: structure)
+    app.settings["choreography"]["bars_per_required"] = 4
+
+    assert app.primitive_window_s() == pytest.approx(4.0)

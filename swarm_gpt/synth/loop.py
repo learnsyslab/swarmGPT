@@ -144,6 +144,11 @@ Repeat the manifest you want to stand on with every verdict, including "keep".""
 _USER = """\
 Write a motion primitive for: {request}
 
+You have exactly **{duration_s:.1f} seconds**: the primitive is called with
+`tend - tstart = {duration_s:.1f}`, both here and in the show it will be used in. Everything it
+does must fit in that interval at the speed and acceleration limits above. Do not declare a
+duration parameter -- the interval is fixed and is not yours to choose.
+
 Return the manifest, a concrete `args` list to test it with (one value per declared parameter, in
 order), verdict "author", and your reasoning."""
 
@@ -308,7 +313,7 @@ class SynthesisLoop:
                     crossing_s=2.0 / self.settings["axswarm"]["vel_max"],
                 ),
             },
-            {"role": "user", "content": _USER.format(request=request)},
+            {"role": "user", "content": _USER.format(request=request, duration_s=self.duration_s)},
         ]
         history: list[Iteration] = []
         for index in range(1, max_iterations + 1):

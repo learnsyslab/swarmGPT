@@ -466,6 +466,35 @@ hold a refine open. `APITimeoutError` fires correctly in isolation (verified at 
 during a degraded-API window a live classifier call was observed running well past 90 s without
 raising, and I could not explain it before the window closed. Check this before relying on it.
 
+**The verification window is the show's window, not an arbitrary 12 s.** This was the bug behind
+"the drones do not really make the shape". A primitive plays from its own key until the next
+action's, but synthesis verified every one over a fixed `duration_s = 12.0`. Composed into
+Fearless2 the same primitive got 4.4 s and demanded 2.06 m/s against the 1.73 limit; at one bar,
+4.12 m/s and 11.09 m/s^2 against 1.0. Separation was never the problem -- it stayed at 1.62 -- so
+both gates passed and the filter still had to smear the shape away.
+
+`AppBackend.primitive_window_s()` now returns the narrowest gap between required keys for the
+selected song (8.18 s for Fearless2), the API passes it, and `synthesize_for_refine` takes
+`duration_s` with **no default**: verifying against a window the primitive will not get certifies
+nothing. Re-screened at 8.18 s, the `heart_drop` from the 2026-08-26 run needs 1.11 m/s and
+passes.
+
+Two supporting changes, because measuring the right window is not enough on its own:
+
+- The synthesis prompt now states the interval and forbids a duration parameter. Not knowing the
+  window, the model had been inventing one -- `heart_drop` declared `duration_s: float [30, 60]`
+  over a body that does `total = min(duration_s, tend - tstart)`, so it was always clamped away.
+- The announcement handed to the choreographer carries the interval the primitive was verified
+  over and tells it to leave that much room. The choreographer may place actions on optional
+  accent beats between required keys, which is how the 4.4 s window arose in the first place;
+  nothing enforces this yet, so it is instruction rather than guarantee.
+
+**Two things this leaves open.** The CLI still takes `--duration`, default 12 s, so a primitive
+authored there carries the same mismatch unless the flag is set to the target song's window. And
+the choreographer can still crowd a synthesized primitive onto a tighter key; making that
+impossible means either a minimum-interval constraint in the schema or a screen over the composed
+show, neither of which exists.
+
 **Timing, measured, and worse than §6 implies.** The synthesis runs in §2 were roughly a minute an
 iteration. In the browser runs on 2026-08-25 the API was degraded and iterations took several
 minutes each, making a 14-iteration `force` run a 45-60 minute bet rather than ten. A crescent-moon

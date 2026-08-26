@@ -37,8 +37,11 @@ NO_GAP = -1
 
 _ANNOUNCEMENT = """\
 A new motion primitive has just been added to your library and you may now call it: {signature}.
-It was authored for exactly this request and has been verified against the safety filter. Use it
-where the request asks for it, and keep the rest of the choreography as it is.
+It was authored for exactly this request and verified against the safety filter over an interval
+of {window:.1f} s, which is how long it needs to fly. Put it on a key with no other action for the
+next {window:.1f} s -- crowded any tighter it demands speeds no drone can reach, and the filter
+will smear the shape. Use it where the request asks for it and keep the rest of the choreography
+as it is.
 
 """
 
@@ -52,6 +55,7 @@ class SynthesisOutcome:
     gap: Gap | None = None
     name: str = ""
     signature: str = ""
+    window_s: float = 0.0
 
     @property
     def promoted(self) -> bool:
@@ -72,7 +76,7 @@ class SynthesisOutcome:
         """Prepend the announcement of a new primitive to the user's refinement message."""
         if not self.promoted:
             return message
-        return _ANNOUNCEMENT.format(signature=self.signature) + message
+        return _ANNOUNCEMENT.format(signature=self.signature, window=self.window_s) + message
 
 
 def _emit(
@@ -89,13 +93,16 @@ def synthesize_for_refine(
     settings: dict,
     start_pos_m: NDArray,
     model_id: str,
+    duration_s: float,
     llm_provider: str = "openai",
     arm: str = "absolute",
     max_iterations: int = 14,
-    duration_s: float = 12.0,
     on_event: Callable[[str, dict[str, Any]], None] | None = None,
 ) -> SynthesisOutcome:
     """Author, verify, and register the primitive one refinement needs, if it needs one.
+
+    ``duration_s`` is the interval the choreographer will give the primitive in the show. It has
+    no default: verifying against a window the primitive will not get certifies nothing.
 
     Returns:
         The outcome. ``code`` is 0 promoted, 1 the model never accepted, 2 a gate refused what it
@@ -165,4 +172,6 @@ def synthesize_for_refine(
         signature=signature,
         metrics=record.metrics,
     )
-    return SynthesisOutcome(0, status, gap=gap, name=manifest.name, signature=signature)
+    return SynthesisOutcome(
+        0, status, gap=gap, name=manifest.name, signature=signature, window_s=duration_s
+    )

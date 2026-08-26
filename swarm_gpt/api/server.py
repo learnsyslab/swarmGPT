@@ -317,6 +317,7 @@ def _run_synthesis(
             start_pos_m=starting_positions(),
             model_id=job.backend.choreographer.model_id,
             llm_provider=job.backend.choreographer.llm_provider,
+            duration_s=job.backend.primitive_window_s(),
             on_event=lambda kind, payload: store.emit(job, kind, payload),
         )
     except Exception as exc:

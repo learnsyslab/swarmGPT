@@ -140,21 +140,26 @@ def test_synthesis_is_skipped_entirely_when_the_mode_is_off() -> None:
         settings={},
         start_pos_m=np.zeros((10, 3)),
         model_id="unused",
+        duration_s=8.2,
     )
     assert outcome.code == NO_GAP
     assert not outcome.promoted
 
 
-def test_a_promoted_primitive_is_announced_to_the_choreographer() -> None:
+def test_a_promoted_primitive_is_announced_with_the_interval_it_needs() -> None:
     outcome = SynthesisOutcome(
         0,
         "promoted",
         gap=Gap("riser", "lift", "why"),
         name="riser",
         signature="riser(delta_cm: float [1.0, 50.0])",
+        window_s=8.2,
     )
     prefixed = outcome.prefix("put a heart at the drop")
     assert "riser(delta_cm: float [1.0, 50.0])" in prefixed
+    # Placing it on a tighter key is what makes the filter smear the shape, so the interval it was
+    # verified over has to travel with it.
+    assert "8.2 s" in prefixed
     assert prefixed.endswith("put a heart at the drop")
 
 

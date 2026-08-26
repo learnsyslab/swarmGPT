@@ -542,6 +542,19 @@ class AppBackend:
         window = crops.get(song_name, crops["default"])
         return float(window[0]), float(window[1])
 
+    def primitive_window_s(self) -> float:
+        """Seconds one action gets before the next required key, at its narrowest for this song.
+
+        A primitive plays from its own key until the next action's, so this is the interval it
+        must be flyable within. Synthesis verifies against it rather than an arbitrary duration.
+        """
+        structure = self._load_structure(self.music_manager.song)
+        keys = structure.required_keys(self.settings["choreography"]["bars_per_required"])
+        times = [structure.time_of(*key) for key in keys]
+        if len(times) < 2:
+            raise ValueError(f"Song {self.music_manager.song!r} has fewer than two required keys")
+        return float(min(b - a for a, b in zip(times, times[1:])))
+
     def _load_structure(self, song_name: str) -> SongStructure:
         """Load the cached SongStructure JSON for an MP3 stem, cropped to its window.
 
