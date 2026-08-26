@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 
 import swarm_gpt.api.server as server
 from swarm_gpt.api.server import ApiConfig, _backend_from_config, create_app, normalize_playback
+from swarm_gpt.synth.refine import NO_GAP
 from swarm_gpt.utils.llm_providers import DEFAULT_OPENAI_MODEL_CHOICES
 
 
@@ -326,3 +327,92 @@ def test_a_failed_synthesis_abandons_the_refine_instead_of_reprompting(
     assert snapshot["error"] is None
     # The choreography that was already solved is still playable.
     client.get(f"/api/jobs/{job_id}/playback").raise_for_status()
+
+
+def test_the_authoring_model_list_is_separate_from_the_choreography_one(tmp_path: Path) -> None:
+    """Authoring a primitive is a harder job, so its model is chosen separately.
+
+    `gpt-5.6-terra` is offered for authoring only -- putting it in the choreography list would
+    make it selectable for a job it is not meant for.
+    """
+    client = TestClient(create_app(ApiConfig(music_dir=tmp_path)))
+    payload = client.get("/api/llm").json()
+    openai = next(entry for entry in payload["providers"] if entry["id"] == "openai")
+
+    assert "gpt-5.6-terra" in payload["synthesisModels"]
+    assert "gpt-5.6-terra" not in openai["models"]
+    assert payload["defaultSynthesisModel"] == "gpt-5.6-terra"
+    # Every choreography model stays available for authoring too.
+    assert set(openai["models"]).issubset(set(payload["synthesisModels"]))
+
+
+def test_the_refine_endpoint_authors_with_the_requested_model(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class Backend:
+        def __init__(self) -> None:
+            self.settings = {"axswarm": {"pos_min": [-1, -1, 0], "pos_max": [1, 1, 2]}}
+            self.music_manager = SimpleNamespace(song="Test Song")
+            self.songs = ["Test Song"]
+            self.presets: list[str] = []
+            self.browser_cues = lambda: _lighting_stub(1)
+            self.choreographer = SimpleNamespace(
+                last_reasoning_summary=None,
+                model_id="gpt-5.6-luna",
+                llm_provider="openai",
+                configure_llm=lambda *a, **k: None,
+            )
+            self.splines: dict[int, object] = {}
+
+        def initial_prompt(self, selection: str, **_kwargs: object) -> list[dict[str, str]]:
+            return []
+
+        def reprompt(self, message: str, **_kwargs: object) -> list[dict[str, str]]:
+            return []
+
+        def primitive_window_s(self) -> float:
+            return 8.0
+
+        def simulate(self) -> Generator[None, None, dict[str, object]]:
+            self.splines[0] = object()
+            states = np.zeros((1, 1, 13))
+            states[:, :, 3:7] = [0, 0, 0, 1]
+            if False:
+                yield None
+            return {"timestamps": np.array([0.0]), "states": states, "num_drones": 1}
+
+        def crop_window(self, song: str) -> tuple[float, float]:
+            return (0.0, 60.0)
+
+    seen: dict[str, object] = {}
+
+    def capture(message: str, **kwargs: object) -> server.SynthesisOutcome:
+        seen.update(kwargs)
+        return server.SynthesisOutcome(NO_GAP, "covered")
+
+    (tmp_path / "Test Song.mp3").write_bytes(b"")
+    monkeypatch.setattr(server, "_backend_from_config", lambda *a: Backend())
+    monkeypatch.setattr(server, "starting_positions", lambda: np.zeros((1, 3)))
+    monkeypatch.setattr(server, "synthesize_for_refine", capture)
+    client = TestClient(create_app(ApiConfig(music_dir=tmp_path)))
+
+    job_id = client.post(
+        "/api/jobs", json={"selection": "Test Song", "provider": "openai", "modelId": "gpt"}
+    ).json()["jobId"]
+    for _ in range(100):
+        if client.get(f"/api/jobs/{job_id}").json()["status"] == "ready":
+            break
+        time.sleep(0.01)
+
+    client.post(
+        f"/api/jobs/{job_id}/refine",
+        json={"message": "a heart", "synthesis": "force", "synthesisModelId": "gpt-5.6-terra"},
+    ).raise_for_status()
+    for _ in range(100):
+        if client.get(f"/api/jobs/{job_id}").json()["status"] == "ready":
+            break
+        time.sleep(0.01)
+
+    # The authoring model is the one asked for, not the choreographer's.
+    assert seen["model_id"] == "gpt-5.6-terra"
+    assert seen["duration_s"] == 8.0

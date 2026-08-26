@@ -25,6 +25,10 @@ export type LlmResponse = {
   providers: LlmProvider[];
   defaultProvider: "openai" | "ollama";
   defaultModel: string;
+  // Authoring a primitive is a harder job than choreographing, so it gets its own list. It holds
+  // models that are deliberately not offered for choreography.
+  synthesisModels: string[];
+  defaultSynthesisModel: string;
 };
 
 export type JobEvent = {

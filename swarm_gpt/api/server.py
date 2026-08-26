@@ -25,10 +25,12 @@ from swarm_gpt.synth.promote import reset_synthesized, starting_positions
 from swarm_gpt.synth.refine import SynthesisMode, SynthesisOutcome, synthesize_for_refine
 from swarm_gpt.utils.llm_providers import (
     DEFAULT_OPENAI_MODEL_CHOICES,
+    DEFAULT_SYNTHESIS_MODEL_CHOICES,
     PROVIDER_LABEL_OLLAMA,
     PROVIDER_LABEL_OPENAI,
     LLMProvider,
     default_openai_model,
+    default_synthesis_model,
     ollama_installed_model_names,
     shutdown_ollama_generation,
 )
@@ -74,6 +76,10 @@ class RefineRequest(BaseModel):
     provider: LLMProvider | None = None
     model_id: str | None = Field(default=None, alias="modelId")
     synthesis: SynthesisMode = "auto"
+    # Authoring a primitive is a harder job than choreographing, so it may use a stronger model.
+    synthesis_model_id: str = Field(
+        default_factory=default_synthesis_model, min_length=1, alias="synthesisModelId"
+    )
 
 
 class Job:
@@ -302,20 +308,22 @@ def _run_initial_job(store: JobStore, job: Job, selection: str) -> None:
 
 
 def _run_synthesis(
-    store: JobStore, job: Job, message: str, mode: SynthesisMode
+    store: JobStore, job: Job, message: str, mode: SynthesisMode, model_id: str
 ) -> SynthesisOutcome:
     """Author the primitive this refinement needs, if it needs one.
 
     Synthesis is minutes long and may legitimately fail; a failure is reported rather than raised.
     """
-    store.emit(job, "synthesis_considering", {"mode": mode}, status="synthesizing")
+    store.emit(
+        job, "synthesis_considering", {"mode": mode, "modelId": model_id}, status="synthesizing"
+    )
     try:
         return synthesize_for_refine(
             message,
             mode=mode,
             settings=job.backend.settings,
             start_pos_m=starting_positions(),
-            model_id=job.backend.choreographer.model_id,
+            model_id=model_id,
             llm_provider=job.backend.choreographer.llm_provider,
             duration_s=job.backend.primitive_window_s(),
             on_event=lambda kind, payload: store.emit(job, kind, payload),
@@ -334,12 +342,13 @@ def _run_refine_job(
     provider: LLMProvider | None,
     model_id: str | None,
     synthesis: SynthesisMode,
+    synthesis_model_id: str,
 ) -> None:
     try:
         if provider is not None and model_id:
             job.backend.choreographer.configure_llm(provider, model_id)
             store.emit(job, "llm_configured", {"provider": provider, "modelId": model_id})
-        outcome = _run_synthesis(store, job, message, synthesis)
+        outcome = _run_synthesis(store, job, message, synthesis, synthesis_model_id)
         if outcome.failed:
             # The request needed a primitive that could not be built. Reprompting anyway makes the
             # choreographer approximate the shape one drone at a time with `move`, which is worse
@@ -427,6 +436,8 @@ def create_app(config: ApiConfig | None = None) -> FastAPI:
             ],
             "defaultProvider": config.llm_provider,
             "defaultModel": config.model_id,
+            "synthesisModels": list(DEFAULT_SYNTHESIS_MODEL_CHOICES),
+            "defaultSynthesisModel": default_synthesis_model(),
         }
 
     @app.get("/api/assets/swarm.png")
@@ -513,7 +524,13 @@ def create_app(config: ApiConfig | None = None) -> FastAPI:
         _start_thread(
             job,
             lambda: _run_refine_job(
-                store, job, request.message, request.provider, request.model_id, request.synthesis
+                store,
+                job,
+                request.message,
+                request.provider,
+                request.model_id,
+                request.synthesis,
+                request.synthesis_model_id,
             ),
         )
         return {"jobId": job.id}

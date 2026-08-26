@@ -602,3 +602,16 @@ button:disabled {
   color: #8ea099;
   font-size: 0.88rem;
 }
+
+.synthesis-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+  gap: 12px;
+  align-items: end;
+}
+
+@media (max-width: 640px) {
+  .synthesis-controls {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

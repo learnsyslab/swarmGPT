@@ -138,6 +138,7 @@ export function App() {
   const [deletingPreset, setDeletingPreset] = useState<string | null>(null);
   const [emergencyStopping, setEmergencyStopping] = useState(false);
   const [synthesisMode, setSynthesisMode] = useState<SynthesisMode>("auto");
+  const [synthesisModelId, setSynthesisModelId] = useState("");
   const [synthesis, setSynthesis] = useState<SynthesisState>(NO_SYNTHESIS);
   const socketRef = useRef<WebSocket | null>(null);
 
@@ -167,6 +168,7 @@ export function App() {
         setLlm(llmResponse);
         setProvider(llmResponse.defaultProvider);
         setModelId(llmResponse.defaultModel);
+        setSynthesisModelId(llmResponse.defaultSynthesisModel);
       })
       .catch((err: Error) => setError(err.message));
   }, []);
@@ -324,7 +326,7 @@ export function App() {
     setStage("thinking");
     setDetailsOpen(false);
     setSynthesis(NO_SYNTHESIS);
-    await refineJob(jobId, refineText.trim(), provider, modelId, synthesisMode);
+    await refineJob(jobId, refineText.trim(), provider, modelId, synthesisMode, synthesisModelId);
     setRefineText("");
     setRefineOpen(false);
   };
@@ -702,17 +704,33 @@ export function App() {
                   onChange={(event) => setRefineText(event.target.value)}
                   placeholder="Describe the choreography change"
                 />
-                <label className="synthesis-mode">
-                  New primitives
-                  <select
-                    value={synthesisMode}
-                    onChange={(event) => setSynthesisMode(event.target.value as SynthesisMode)}
-                  >
-                    <option value="auto">Author one if the library cannot express this</option>
-                    <option value="force">Always author one (minutes)</option>
-                    <option value="off">Never — use the existing library</option>
-                  </select>
-                </label>
+                <div className="synthesis-controls">
+                  <label className="synthesis-mode">
+                    New primitives
+                    <select
+                      value={synthesisMode}
+                      onChange={(event) => setSynthesisMode(event.target.value as SynthesisMode)}
+                    >
+                      <option value="auto">Author one if the library cannot express this</option>
+                      <option value="force">Always author one (minutes)</option>
+                      <option value="off">Never — use the existing library</option>
+                    </select>
+                  </label>
+                  <label className="synthesis-mode">
+                    Authored by
+                    <select
+                      value={synthesisModelId}
+                      disabled={synthesisMode === "off"}
+                      onChange={(event) => setSynthesisModelId(event.target.value)}
+                    >
+                      {(llm?.synthesisModels ?? []).map((model) => (
+                        <option key={model} value={model}>
+                          {model}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
                 <button
                   className="primary-action"
                   disabled={!refineText.trim()}

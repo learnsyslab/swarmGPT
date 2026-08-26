@@ -45,6 +45,14 @@ DEFAULT_OPENAI_MODEL_CHOICES: tuple[str, ...] = (
     "o3-mini",
 )
 
+# Authoring a primitive is a harder job than picking calls out of a catalogue, so it is chosen
+# separately. `gpt-5.6-terra` is offered only here -- it is not a choreography model.
+SYNTHESIS_ONLY_MODELS: tuple[str, ...] = ("gpt-5.6-terra",)
+DEFAULT_SYNTHESIS_MODEL_CHOICES: tuple[str, ...] = (
+    *SYNTHESIS_ONLY_MODELS,
+    *DEFAULT_OPENAI_MODEL_CHOICES,
+)
+
 _lock = threading.Lock()
 _active_ollama_clients: list[Any] = []
 _active_ollama_models: set[str] = set()
@@ -57,6 +65,11 @@ def _ollama_api_base() -> str:
 def default_openai_model() -> str:
     """Default OpenAI model id for ``responses.create``."""
     return DEFAULT_OPENAI_MODEL_CHOICES[0]
+
+
+def default_synthesis_model() -> str:
+    """Default OpenAI model id for authoring a primitive."""
+    return DEFAULT_SYNTHESIS_MODEL_CHOICES[0]
 
 
 def responses_model_kwargs(model_id: str) -> dict[str, Any]:

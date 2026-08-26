@@ -62,11 +62,12 @@ export function refineJob(
   message: string,
   provider: string,
   modelId: string,
-  synthesis: SynthesisMode
+  synthesis: SynthesisMode,
+  synthesisModelId: string
 ) {
   return request<{ jobId: string }>(`/api/jobs/${jobId}/refine`, {
     method: "POST",
-    body: JSON.stringify({ message, provider, modelId, synthesis })
+    body: JSON.stringify({ message, provider, modelId, synthesis, synthesisModelId })
   });
 }
 
