@@ -73,7 +73,9 @@ class PrimitiveManifest:
         missing = [k for k in fields if k not in payload]
         if missing:
             raise SynthError(f"Manifest is missing required fields: {sorted(missing)}")
-        if not isinstance(payload["params"], list) or not payload["params"]:
+        # A tuple as well as a list: an LLM payload arrives as JSON, but a manifest round-tripped
+        # through `dataclasses.asdict` keeps `params` a tuple, and both must reload.
+        if not isinstance(payload["params"], (list, tuple)) or not payload["params"]:
             raise SynthError("Manifest field 'params' must be a non-empty array")
         params = []
         for entry in payload["params"]:

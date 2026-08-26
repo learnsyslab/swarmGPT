@@ -230,3 +230,25 @@ def test_gate_does_not_write_anything_to_the_library(tmp_path: Path) -> None:
     assert (code, status) == (0, "promoted")
     assert record is not None
     assert list(tmp_path.iterdir()) == []
+
+
+def test_a_manifest_registers_straight_off_a_loop_record() -> None:
+    """The browser path registers from `Iteration.manifest`, with no JSON round-trip.
+
+    `dataclasses.asdict` keeps `params` a tuple, so a manifest that reloads from disk can still be
+    refused in memory. That gap threw away a run that had already cleared both gates.
+    """
+    from dataclasses import asdict
+
+    from swarm_gpt.synth.manifest import PrimitiveManifest
+
+    authored = PrimitiveManifest.from_payload(MANIFEST)
+    record = Iteration(
+        index=1, verdict="keep", reasoning="", manifest=asdict(authored), args=[10.0]
+    )
+    assert isinstance(record.manifest["params"], tuple)
+
+    manifest = register_entry({"manifest": record.manifest})
+
+    assert manifest.name == "riser"
+    assert primitive_exists("riser")
