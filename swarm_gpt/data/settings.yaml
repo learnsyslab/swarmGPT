@@ -61,7 +61,9 @@ axswarm:
   pos_max: [2.0, 2.0, 1.7]  # Maximum position of the AMSwarm drones
   vel_max: 1.73  # Maximum velocity of the AMSwarm drones
   acc_max: 1.0  # Maximum force of the AMSwarm drones (0.75 gs)
-  collision_envelope: [0.25, 0.25, 0.6]  # Collision envelope width in x, y, z
+  # Isotropic: downwash is deliberately not modelled, so drones may sit directly above each other.
+  # Restore z to 0.6 before flying hardware.
+  collision_envelope: [0.25, 0.25, 0.25]  # Collision envelope width in x, y, z
 
   # MPC
   K: 50  # Number of timesteps in the optimization horizon

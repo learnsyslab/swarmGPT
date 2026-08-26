@@ -100,8 +100,8 @@ def categorical_screen(m: dict[str, Any]) -> str:
     lines = [f"Your {f['stage']} was rejected before the safety filter ever saw it."]
     if norm is not None:
         lines.append(
-            f"Points {i} and {j} are too close together for two drones to occupy. Spread them "
-            "apart -- remember the forbidden zone is much deeper vertically than horizontally."
+            f"Points {i} and {j} are too close together for two drones to occupy. Scale the "
+            "shape up, or sample fewer points along the crowded part of it."
         )
     if over is not None:
         lines.append("The swarm cannot reach this shape in the time it gets. Bring it closer in.")

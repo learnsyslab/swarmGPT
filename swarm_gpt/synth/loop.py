@@ -100,19 +100,20 @@ and holding the shape for the rest of the interval are handled for you, by the s
 hand-written primitive in this library uses. Do not think about time, waypoints, speed, or
 acceleration -- there is no time in your function at all, and no duration parameter.
 
-Two things about the room, and they are the only geometry constraints you have:
+Three things about the room, and they are the only geometry constraints you have:
 
 - **The arena.** x and y run [{lim_lower[0]:.0f}, {lim_upper[0]:.0f}] cm about a centre at the
-  origin, and z runs [{lim_lower[2]:.0f}, {lim_upper[2]:.0f}] cm. Anything outside is clipped,
-  which deforms your shape -- keep every point inside.
-- **Two drones may not stand too close.** The forbidden zone is an ellipsoid, and it is much
-  deeper vertically than horizontally: two drones side by side need **{sep_xy:.0f} cm** between
-  them, but two drones one above the other need **{sep_z:.0f} cm**. Precisely, every pair must
-  satisfy `(dx/{sep_xy:.0f})^2 + (dy/{sep_xy:.0f})^2 + (dz/{sep_z:.0f})^2 >= 1`. This is why a
-  shape drawn flat, in a horizontal plane, fits many more drones than the same shape stood
-  upright: upright, the z limit costs you {sep_z:.0f} cm per level, and there are only
-  {z_span:.0f} cm of height to spend. If your shape must stand upright, tilt it, spread it wider,
-  or use fewer levels.
+  origin, and z runs [{lim_lower[2]:.0f}, {lim_upper[2]:.0f}] cm, giving you {z_span:.0f} cm of
+  height. Anything outside is clipped, which deforms your shape -- keep every point inside.
+- **Draw the shape standing upright, in the x-z plane.** x runs left to right and z is height, so
+  that is the plane an audience standing in front of the swarm sees the shape in. Put every point
+  at y = 0 unless the request specifically asks for depth. **Do not tilt, lean, or lay the shape
+  flat to make room** -- there is no need, and a leaning shape is not what was asked for.
+- **Two drones may not stand too close.** Every pair of points must satisfy
+  `(dx/{sep_xy:.0f})^2 + (dy/{sep_xy:.0f})^2 + (dz/{sep_z:.0f})^2 >= 1`, distances in cm. Drones
+  may sit directly above one another: {sep_z:.0f} cm of clearance is enough in any direction, and
+  downwash is not something you need to think about. If two points do come out too close, scale
+  the shape up or sample fewer points along the crowded part of it.
 
 Your shape is measured before anything flies, and you are told in centimetres which two of your
 points are too close. Then it is flown through the safety filter and you are told what the filter
@@ -129,8 +130,8 @@ Repeat the manifest you want to stand on with every verdict, including "keep".""
 _USER = """\
 Write a formation primitive for: {request}
 
-Declare the parameters the shape genuinely has -- its size, its height off the floor, how far it
-leans -- with ranges, and nothing else. No duration, no speed, no number of drones.
+Declare the parameters the shape genuinely has -- its size, its height off the floor -- with
+ranges, and nothing else. No duration, no speed, no number of drones, and no tilt or lean.
 
 Return the manifest, a concrete `args` list to test it with (one value per declared parameter, in
 order), verdict "author", and your reasoning."""
