@@ -192,7 +192,7 @@ def test_a_screened_candidate_never_reaches_the_solver(monkeypatch: pytest.Monke
     assert record.stage == "screened"
     assert record.error is None
     assert record.metrics["authored_max_speed_mps"] > loop.settings["axswarm"]["vel_max"]
-    assert "speed" in record.feedback
+    assert "m/s" in record.feedback
 
 
 def test_a_reachable_shape_still_reaches_the_solver(monkeypatch: pytest.MonkeyPatch):
@@ -216,12 +216,15 @@ def test_screen_is_off_by_default_so_the_measured_path_is_unchanged(
         loop._evaluate(_manifest("far", FAR_SOURCE, 10.0, 195.0), [195.0])
 
 
-def test_a_screened_record_carries_each_broken_limit_verbatim(monkeypatch: pytest.MonkeyPatch):
+def test_a_screened_record_keeps_the_objective_violations_beside_the_arm_text(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """The UI reads `violations`; only the model-facing text goes through the feedback arm."""
     monkeypatch.setattr(
         loopmod, "solve_only", lambda *a, **k: (_ for _ in ()).throw(SolverReached())
     )
     loop = _loop(monkeypatch, screen=True)
     loop.duration_s = 0.4
     record = loop._evaluate(_manifest("far", FAR_SOURCE, 10.0, 195.0), [195.0])
-    assert record.violations
-    assert all(v in record.feedback for v in record.violations)
+    assert any("speed" in v for v in record.violations)
+    assert record.feedback

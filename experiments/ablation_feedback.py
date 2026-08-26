@@ -3,23 +3,40 @@
 A single run per arm told us nothing: within-arm spread swamped between-arm differences. This
 sweeps the grid so the comparison has enough runs behind it to mean something.
 
-**Pre-registered before looking at the data**, so the verdict is not chosen to fit it:
+**Pre-registered before looking at the data**, so the verdict is not chosen to fit it. The 54-run
+sweep of 2026-08 measured trajectory authoring, which no longer exists; this is the same question
+asked of shape authoring, and the outcomes are restated because the failure mode changed. It used
+to be "the filter has to drag the swarm a long way"; it is now "it takes N tries to write a shape
+that fits the room".
 
-- Primary outcome: ``deviation_max`` on the final iteration -- how far the filter had to move the
-  swarm from what the model authored. This is the faithfulness cost the claim rests on. Lower wins.
-- Tertiary: ``min_sep_norm`` on the final iteration, i.e. how much room the filter ended up with.
+- **Primary: ``iterations_to_clear``** -- how many turns until the first candidate that flies with
+  no step inside the collision envelope, censored at ``--iters`` when none does. Lower wins. This
+  is the outcome that decides whether the loop is usable live, and it is the one the arms should
+  move if magnitudes help at all.
+- **Secondary: ``cleared``** -- whether any candidate cleared both gates. A run that never gets
+  there is a failure however good its last deviation looked.
+- **Tertiary: ``deviation_max_m``** on the best clearing candidate, kept because it was the 2026-08
+  primary and keeps the two sweeps commensurable.
+- ``converged`` -- whether the model itself closed on "keep" -- is reported but is **not** an
+  outcome. It measures the model's willingness to stop, and `gate()` no longer defers to it.
 - The claim survives only if `absolute` and/or `relative` beat `categorical` on the primary
   outcome by more than the within-arm spread. If they do not, the claim is dead -- that is the
   point of running it.
 
+Every iteration's feedback goes through the arm, whichever stage it reached: under shape authoring
+most candidates are rejected by a screen rather than by the filter, so rendering screen rejections
+arm-independently would leave the manipulation applying to a minority of turns. `screen` is on, so
+the measured path is the one the app ships.
+
 Results append to JSONL as each run finishes, so an interrupted sweep keeps what it had.
 
-    pixi run python experiments/ablation_feedback.py --repeats 3
+    pixi run python experiments/ablation_feedback.py --repeats 3 --duration 8.18
 """
 
 from __future__ import annotations
 
 import argparse
+import collections
 import json
 import logging
 import statistics
@@ -39,15 +56,18 @@ logger = logging.getLogger("ablation")
 
 ROOT = Path(__file__).resolve().parents[1]
 
-# Chosen to span the gap classes the decoy probe offers, not just the double helix, so no single
-# geometry drives the result.
+# Static formations, because a shape primitive is a pose and motion comes from composing it. Each
+# is known to be buildable in this arena, so a failure is the loop's and not the geometry's -- the
+# 2026-08 sweep spent three runs on a counter-rotating double helix that is impossible at any
+# separation. They span open and closed curves, nested and single outlines, and both the easy
+# horizontal plane and the expensive vertical one.
 REQUESTS = [
-    "a double helix: two counter-rotating strands winding upward around a common axis",
-    "a heart outline standing upright, readable from the audience",
-    "a firework: the swarm collapses to a point then bursts outward",
-    "half the swarm orbits the other half, which holds still",
-    "a travelling ripple spreading outward from one drone through the rest",
-    "a flat wall of drones that sweeps across the arena",
+    "a heart outline",
+    "a five-pointed star outline",
+    "a crescent moon",
+    "two concentric rings, the inner one half the radius of the outer",
+    "a spiral winding outward from the centre",
+    "the outline of a cube",
 ]
 
 
@@ -60,21 +80,32 @@ def starting_positions() -> np.ndarray:
     return positions
 
 
-def outcome(history: list) -> dict[str, Any]:
-    """Reduce one run's iterations to the pre-registered outcome measures."""
-    scored = [r for r in history if r.metrics is not None]
-    if not scored:
+def outcome(history: list, max_iterations: int) -> dict[str, Any]:
+    """Reduce one run's iterations to the pre-registered outcome measures.
+
+    ``iterations_to_clear`` is censored at ``max_iterations`` when no candidate ever cleared, so
+    the arms stay comparable whether or not they got there.
+    """
+    if not history:
         return {"ok": False}
-    final = scored[-1]
+    flown = [r for r in history if r.stage == "measured"]
+    clear = [r for r in flown if r.metrics["steps_inside_envelope"] == 0]
+    best = min(clear, key=lambda r: r.metrics["deviation_max_m"]) if clear else None
+    stages = collections.Counter(r.stage for r in history)
     return {
         "ok": True,
         "n_iterations": len(history),
-        "n_scored": len(scored),
-        "deviation_max_m": final.metrics["deviation_max_m"],
-        "deviation_mean_m": final.metrics["deviation_mean_m"],
-        "min_sep_norm": final.metrics["min_sep_norm"],
-        "authored_min_sep_norm": final.metrics["authored_min_sep_norm"],
-        "converged": final.closing_verdict == "keep",
+        "n_flown": len(flown),
+        "cleared": bool(clear),
+        "iterations_to_clear": clear[0].index if clear else max_iterations,
+        "censored": not clear,
+        "deviation_max_m": best.metrics["deviation_max_m"] if best else None,
+        "deviation_mean_m": best.metrics["deviation_mean_m"] if best else None,
+        "min_sep_norm": best.metrics["min_sep_norm"] if best else None,
+        "authored_min_sep_norm": best.metrics["authored_min_sep_norm"] if best else None,
+        # Where the arms bit: a run rejected on geometry every turn never reached the filter.
+        "stage_counts": dict(stages),
+        "converged": history[-1].closing_verdict == "keep",
         "compile_failures": sum(1 for r in history if r.error is not None),
     }
 
@@ -83,7 +114,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     """Parse the command line."""
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repeats", type=int, default=3, help="Runs per (request, arm) cell")
-    parser.add_argument("--iters", type=int, default=4, help="Iterations per run")
+    parser.add_argument("--iters", type=int, default=6, help="Iterations per run")
+    parser.add_argument(
+        "--duration",
+        type=float,
+        default=8.18,
+        help="Window the primitive gets, seconds. Default is Fearless2's narrowest required-key "
+        "gap: verifying against a window no show will give it certifies nothing.",
+    )
     parser.add_argument("--model", default="gpt-5.6-luna", help="LLM model id")
     parser.add_argument("--arms", nargs="*", default=list(ARMS), help="Feedback arms to sweep")
     parser.add_argument("--requests", nargs="*", default=REQUESTS, help="Motion requests")
@@ -121,11 +159,12 @@ def main(argv: list[str] | None = None) -> Path:
                         start_pos_m=start_pos,
                         arm=arm,
                         model_id=args.model,
-                        duration_s=12.0,
+                        duration_s=args.duration,
+                        screen=True,
                     )
                     try:
                         history = loop.run(request, max_iterations=args.iters)
-                        result = outcome(history)
+                        result = outcome(history, args.iters)
                         iterations = [asdict(r) for r in history]
                     except Exception as e:  # a run that dies must not take the sweep with it
                         logger.warning("run failed (%s, repeat %d): %s", arm, repeat, e)
@@ -141,12 +180,13 @@ def main(argv: list[str] | None = None) -> Path:
                     f.write(json.dumps(row) + "\n")
                     f.flush()
                     logger.info(
-                        "[%d/%d] %-11s r%d dev_max=%s  %s",
+                        "[%d/%d] %-11s r%d cleared=%s in %s  %s",
                         done,
                         total,
                         arm,
                         repeat,
-                        f"{result['deviation_max_m']:.2f}" if result.get("ok") else "-",
+                        "y" if result.get("cleared") else "n",
+                        result.get("iterations_to_clear", "-"),
                         request[:40],
                     )
 
@@ -169,22 +209,48 @@ def report(rows: list[dict[str, Any]]) -> None:
     """Print the per-arm distributions the pre-registered comparison reads."""
     ok = [r for r in rows if r.get("ok")]
     print(f"\n{len(ok)}/{len(rows)} runs completed\n")
-    print(f"{'arm':<12}{'deviation_max (m), lower better':<44}converged")
+    header = (
+        f"{'arm':<12}{'iterations to clear (primary, lower better)':<48}"
+        f"{'cleared':<10}{'deviation_max (m)':<32}model kept"
+    )
+    print(header)
+    print("-" * len(header))
     for arm in dict.fromkeys(r["arm"] for r in rows):
         cell = [r for r in ok if r["arm"] == arm]
-        dev = [r["deviation_max_m"] for r in cell]
-        conv = sum(r["converged"] for r in cell)
-        print(f"{arm:<12}{_spread(dev):<44}{conv}/{len(cell)}")
+        iters = [r["iterations_to_clear"] for r in cell]
+        dev = [r["deviation_max_m"] for r in cell if r["deviation_max_m"] is not None]
+        cleared = sum(r["cleared"] for r in cell)
+        kept = sum(r["converged"] for r in cell)
+        print(
+            f"{arm:<12}{_spread(iters):<48}{f'{cleared}/{len(cell)}':<10}"
+            f"{_spread(dev):<32}{kept}/{len(cell)}"
+        )
+    censored = sum(r["censored"] for r in ok)
+    if censored:
+        print(f"\n{censored} run(s) never cleared, counted at the iteration cap.")
+
+    # Where each arm's feedback was doing its work. A run rejected on geometry every turn never
+    # reached the filter, so an arm that shifts this distribution is shifting what it teaches.
+    stages = sorted({s for r in ok for s in r["stage_counts"]})
+    print(f"\niterations by stage:\n{'arm':<12}" + "".join(f"{s:<12}" for s in stages))
+    for arm in dict.fromkeys(r["arm"] for r in rows):
+        cell = [r for r in ok if r["arm"] == arm]
+        line = f"{arm:<12}"
+        for stage in stages:
+            line += f"{sum(r['stage_counts'].get(stage, 0) for r in cell):<12}"
+        print(line)
 
     print(
-        f"\nper request (deviation_max median):\n{'request':<44}"
+        f"\nper request (iterations to clear, median):\n{'request':<44}"
         + "".join(f"{a:<14}" for a in ARMS)
     )
     for request in dict.fromkeys(r["request"] for r in rows):
         line = f"{request[:42]:<44}"
         for arm in ARMS:
-            dev = [r["deviation_max_m"] for r in ok if r["request"] == request and r["arm"] == arm]
-            line += f"{statistics.median(dev):<14.2f}" if dev else f"{'-':<14}"
+            cell = [
+                r["iterations_to_clear"] for r in ok if r["request"] == request and r["arm"] == arm
+            ]
+            line += f"{statistics.median(cell):<14.1f}" if cell else f"{'-':<14}"
         print(line)
 
 

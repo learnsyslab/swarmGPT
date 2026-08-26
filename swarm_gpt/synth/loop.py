@@ -259,7 +259,7 @@ class SynthesisLoop:
             record.metrics, record.violations = screen_shape(des_pos, self.settings)
             if record.violations:
                 record.stage = "shaped"
-                record.feedback = _shape_report(record.violations)
+                record.feedback = feedback_arms.render_screen(self.arm, record.metrics)
                 return record
             authored = authored_trajectory(
                 fn, bound, self.start_pos_m, 0.0, self.duration_s, self.limits
@@ -276,7 +276,7 @@ class SynthesisLoop:
                 record.stage = "screened"
                 record.metrics = screened
                 record.violations = violations
-                record.feedback = _screen_report(violations)
+                record.feedback = feedback_arms.render_screen(self.arm, screened)
                 return record
 
         repaired = solve_only(authored, self.settings)
@@ -362,33 +362,6 @@ class SynthesisLoop:
                 record.closing_reasoning = closing["reasoning"]
                 break
         return history
-
-
-def _shape_report(violations: list[str]) -> str:
-    """Render a geometry rejection. Nothing was flown, so this is about the equation only."""
-    listed = "\n".join(f"  - {v}" for v in violations)
-    return (
-        "Your shape was NOT flown. Two of the points it puts drones on are too close together for "
-        "them to occupy at the same time:\n\n"
-        f"{listed}\n\n"
-        "Nothing else about the primitive is wrong -- change the geometry so every pair clears "
-        "the ellipsoid, and remember it is much deeper in z than in x or y."
-    )
-
-
-def _screen_report(violations: list[str]) -> str:
-    """Render a pre-solve rejection. Deliberately not a feedback arm: arms are the experiment."""
-    listed = "\n".join(f"  - {v}" for v in violations)
-    return (
-        "Your primitive was NOT run through the safety filter. What it authored is already "
-        "impossible, so there is nothing for the filter to repair:\n\n"
-        f"{listed}\n\n"
-        "Two drones cannot occupy the same place at once, and a drone cannot exceed its speed or "
-        "acceleration limit. Interpolating each drone straight from where it is to where you want "
-        "it crosses paths and demands whatever speed the gap requires. Choose which drone goes to "
-        "which target so the paths do not cross, and spread every movement over enough time that "
-        "the swarm can actually fly it."
-    )
 
 
 def _next_prompt(body: str) -> str:

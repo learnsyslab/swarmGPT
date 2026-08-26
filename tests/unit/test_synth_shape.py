@@ -139,7 +139,8 @@ def test_a_crowded_shape_never_reaches_the_solver(monkeypatch: pytest.MonkeyPatc
     assert record.stage == "shaped"
     assert record.error is None
     assert record.metrics["shape_min_sep_norm"] < 1.0
-    assert "too close together" in record.feedback
+    # Rendered by the feedback arm, so a screen rejection is part of the experiment too.
+    assert "0.333" in record.feedback
 
 
 def test_a_spread_shape_still_reaches_the_solver(monkeypatch: pytest.MonkeyPatch):

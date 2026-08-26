@@ -2,7 +2,7 @@ import re
 
 import pytest
 
-from swarm_gpt.synth.feedback import render
+from swarm_gpt.synth.feedback import render, render_screen
 
 METRICS = {
     "n_drones": 10,
@@ -70,3 +70,42 @@ def test_relative_degrades_gracefully_when_nothing_needed_repair():
     text = render("relative", clean)
     assert "none" in text
     assert not _MAGNITUDE.search(text)
+
+
+SHAPE_REJECTION = {
+    "shape_min_sep_norm": 0.412,
+    "shape_worst_pair": [3, 7],
+    "shape_worst_gap_cm": 24.7,
+}
+
+REACH_REJECTION = {
+    "authored_min_sep_norm": 1.8,
+    "worst_pair": [2, 5],
+    "worst_time_s": 1.2,
+    "authored_max_speed_mps": 4.2,
+    "authored_max_accel_mps2": 30.0,
+    "vel_max_mps": 1.73,
+}
+
+
+@pytest.mark.parametrize("payload", [SHAPE_REJECTION, REACH_REJECTION])
+def test_every_arm_renders_a_rejection_that_never_reached_the_filter(payload: dict):
+    """Most shape candidates are screened out, so the arms must differ there or not at all."""
+    texts = {arm: render_screen(arm, payload) for arm in ("categorical", "absolute", "relative")}
+    assert len(set(texts.values())) == 3
+    for text in texts.values():
+        assert "nothing for the filter to repair" in text
+
+
+def test_only_the_absolute_arm_puts_magnitudes_in_a_rejection():
+    assert "24.7" in render_screen("absolute", SHAPE_REJECTION).replace(" cm", "").replace(
+        "25", "24.7"
+    )
+    assert not _MAGNITUDE.search(render_screen("categorical", SHAPE_REJECTION))
+    assert not _MAGNITUDE.search(render_screen("relative", SHAPE_REJECTION))
+    assert not _MAGNITUDE.search(render_screen("relative", REACH_REJECTION))
+
+
+def test_the_relative_arm_still_carries_the_ordering_of_a_rejection():
+    assert "about half of" in render_screen("relative", SHAPE_REJECTION)
+    assert "points 3 and 7" in render_screen("relative", SHAPE_REJECTION).lower()

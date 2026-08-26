@@ -1,5 +1,10 @@
 """Render one measurement dict as the feedback forms the ablation compares.
 
+Two dicts get rendered, not one. `verifier.measure` describes a primitive that reached the safety
+filter, and the screens describe one rejected before it -- which, under shape authoring, is where
+most rejections happen. Both go through the arm, or the experiment would only manipulate the
+minority of iterations that reach the filter.
+
 All three arms read the same dict from `verifier.measure`, so they differ in wording alone and a
 reviewer cannot object that a weaker arm was handed weaker information. The arms are:
 
@@ -55,6 +60,109 @@ def _fraction_words(part: int, whole: int) -> str:
     if share < 0.65:
         return "about half"
     return "most"
+
+
+def _screen_facts(m: dict[str, Any]) -> dict[str, Any]:
+    """Read either screen's dict into the facts the arms render differently.
+
+    The two screens report the same two failures -- a pair too close, or a shape out of reach --
+    so they reduce to one set of facts and the arms differ only in how they say them.
+
+    Returns:
+        ``stage``, the worst ``pair``, its ``norm`` separation (None if it clears), the ``gap_cm``
+        between them where geometry measured it, and the ``overspeed`` factor (None if in reach).
+    """
+    if "shape_min_sep_norm" in m:
+        norm = m["shape_min_sep_norm"]
+        return {
+            "stage": "shape",
+            "pair": m["shape_worst_pair"],
+            "norm": norm if norm < 1.0 else None,
+            "gap_cm": m["shape_worst_gap_cm"],
+            "overspeed": None,
+        }
+    speed, limit = m["authored_max_speed_mps"], m["vel_max_mps"]
+    norm = m["authored_min_sep_norm"]
+    return {
+        "stage": "trajectory",
+        "pair": m["worst_pair"],
+        "norm": norm if norm < 1.0 else None,
+        "gap_cm": None,
+        "overspeed": speed / limit if speed > limit else None,
+    }
+
+
+def categorical_screen(m: dict[str, Any]) -> str:
+    """Located-category feedback on a rejected candidate: who, and generic advice."""
+    f = _screen_facts(m)
+    i, j = f["pair"]
+    norm, over = f["norm"], f["overspeed"]
+    lines = [f"Your {f['stage']} was rejected before the safety filter ever saw it."]
+    if norm is not None:
+        lines.append(
+            f"Points {i} and {j} are too close together for two drones to occupy. Spread them "
+            "apart -- remember the forbidden zone is much deeper vertically than horizontally."
+        )
+    if over is not None:
+        lines.append("The swarm cannot reach this shape in the time it gets. Bring it closer in.")
+    return "\n".join(lines)
+
+
+def absolute_screen(m: dict[str, Any]) -> str:
+    """Certified-magnitude feedback on a rejected candidate, in centimetres and m/s."""
+    f = _screen_facts(m)
+    i, j = f["pair"]
+    norm, over, gap = f["norm"], f["overspeed"], f["gap_cm"]
+    lines = [f"Your {f['stage']} was rejected before the safety filter ever saw it."]
+    if norm is not None:
+        measured = f"{gap:.0f} cm apart, which is " if gap is not None else ""
+        lines.append(
+            f"Points {i} and {j} are {measured}{norm:.3f} of the separation two drones need "
+            f"there; 1.000 is exactly clear, so you are short by a factor of {1.0 / norm:.2f}."
+        )
+    if over is not None:
+        lines.append(
+            f"Reaching this shape demands {m['authored_max_speed_mps']:.2f} m/s against a "
+            f"{m['vel_max_mps']:.2f} m/s limit -- {over:.2f} times what a drone can fly."
+        )
+    return "\n".join(lines)
+
+
+def relative_screen(m: dict[str, Any]) -> str:
+    """Comparative feedback on a rejected candidate: ratios in words, no units anywhere."""
+    f = _screen_facts(m)
+    i, j = f["pair"]
+    norm, over = f["norm"], f["overspeed"]
+    lines = [f"Your {f['stage']} was rejected before the safety filter ever saw it."]
+    if norm is not None:
+        lines.append(
+            f"Points {i} and {j} sit {_ratio_words(norm)} the separation two drones need there."
+        )
+    if over is not None:
+        lines.append(
+            f"Reaching this shape in the time it gets would need {_ratio_words(over)} again the "
+            "speed a drone can fly."
+        )
+    return "\n".join(lines)
+
+
+def render_screen(arm: str, m: dict[str, Any]) -> str:
+    """Render a pre-filter rejection under the named feedback arm.
+
+    Raises:
+        ValueError: If ``arm`` is not one of `ARMS`.
+    """
+    if arm not in ARMS:
+        raise ValueError(f"Unknown feedback arm {arm!r}; expected one of {ARMS}")
+    renderer = {
+        "categorical": categorical_screen,
+        "absolute": absolute_screen,
+        "relative": relative_screen,
+    }[arm]
+    return (
+        f"{renderer(m)}\n\nNothing was flown, so there is nothing for the filter to repair. "
+        "Change the geometry and try again."
+    )
 
 
 def categorical(m: dict[str, Any]) -> str:

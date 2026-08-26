@@ -190,6 +190,12 @@ Two things matter more than the medians. Absolute's IQR is tight while the other
 magnitudes suppress the catastrophic runs rather than shifting the average. And categorical
 converged **zero** times: without numbers the model never reaches a state it will accept.
 
+> **Re-run this before citing it.** Every figure in this section was measured on the
+> trajectory-authoring loop that §5 replaced, in the degraded regime §4.3 describes.
+> `ablation_feedback.py` is rewritten and pre-registered for shape authoring -- new primary
+> outcome (iterations to the first gate-clearing candidate), buildable requests, screens speaking
+> through the arm -- and has not been run. The table above stands as the trajectory-era record.
+
 **`relative` is significantly worse than `absolute`.** Marcel's objection was that LLMs are bad
 with numbers; stripping the units and substituting "about half the separation they need" made it
 worse. That arm existed to test the objection and refuted it.
@@ -392,7 +398,7 @@ Each cost real time or API credit. Do not re-investigate.
 | `verifier.py` | `authored_trajectory`, `solve_only`, `measure`, `screen_authored`. |
 | `manifest.py` | The single declaration; `register()` writes all four places and records the manifest so `save_preset` can persist it. |
 | `sandbox.py` | AST whitelist and `compile_shape`. Nothing but numpy and safe builtins is reachable from authored code. |
-| `feedback.py` | The three ablation arms. |
+| `feedback.py` | The three ablation arms. `render` speaks for a candidate that reached the filter, `render_screen` for one rejected before it -- both go through the arm, or the manipulation would miss the majority of turns. |
 | `promote.py` | `gate()` (trust) vs `promote()` (trust + persist), `reset_synthesized()`, `load_promoted` for offline tools. |
 | `trigger.py` | The per-request gap classifier that decides whether a refine needs synthesis. |
 | `refine.py` | Orchestrates classify -> synthesize -> gate -> register for one browser refine. |

@@ -177,6 +177,7 @@ def screen_authored(
         "worst_time_s": float(time[step]),
         "authored_max_speed_mps": float(speed.max()) if speed.size else 0.0,
         "authored_max_accel_mps2": float(accel.max()) if accel.size else 0.0,
+        "vel_max_mps": float(axswarm["vel_max"]),
     }
 
     violations = []
