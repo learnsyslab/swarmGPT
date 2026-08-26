@@ -390,7 +390,7 @@ Each cost real time or API credit. Do not re-investigate.
 | `shape.py` | `as_primitive` (the `form_circle` wrapper), `targets`, and `screen_shape`. The heart of the current design. |
 | `loop.py` | The turn loop and the authoring prompt. `screen` defaults **off** so the ablation's measured code path is unchanged; `synth_to_library.py` and the refine path turn it on. |
 | `verifier.py` | `authored_trajectory`, `solve_only`, `measure`, `screen_authored`. |
-| `manifest.py` | The single declaration; `register()` writes all four places. |
+| `manifest.py` | The single declaration; `register()` writes all four places and records the manifest so `save_preset` can persist it. |
 | `sandbox.py` | AST whitelist and `compile_shape`. Nothing but numpy and safe builtins is reachable from authored code. |
 | `feedback.py` | The three ablation arms. |
 | `promote.py` | `gate()` (trust) vs `promote()` (trust + persist), `reset_synthesized()`, `load_promoted` for offline tools. |
@@ -427,7 +427,7 @@ a straight in-or-out flight with no crossing paths, which is the failure that co
 
 Tests: `tests/unit/test_synth_{shape,schema,verifier,sandbox,feedback,promote}.py`, plus the
 refine and model-list cases in `test_api.py` and `primitive_window_s` in `test_backend.py`.
-840 pass.
+842 pass.
 
 ## 10. People
 
@@ -462,6 +462,21 @@ Two reasons, and the second is the one that matters:
   use. Verified directly: heart → COVERED, butterfly → GAP.
 - Authoring the library is a deliberate act, not a side effect of someone refining a show. The CLI
   is where that happens.
+
+**With one carve-out: a saved preset carries its own primitives.** The lifetime rule is about not
+polluting the shared library, not about throwing work away. `save_preset` writes the manifest of
+every synthesized primitive registered at the time into `primitives.json` beside `history.json`,
+and `load_preset` registers them before anything resolves a call. Without it a preset saved after
+a refine is unloadable and unrenderable -- `history.json` names `form_heart(...)`, nothing defines
+it, and `initial_prompt` raises "Unknown motion primitive". Note that a preset is re-choreographed
+from its history on load; `waypoints.npy` is written but never read back, so there is no baked
+trajectory to fall back on. The copy in the preset is scoped to that preset, is not on any load
+path the classifier sees, and so does not burn the demo the way `results/synthesized/` would.
+
+**Presets saved before 2026-08-26 do not have this.** `Fearless2 | 10 | 20260825_170100_after`
+and `Fearless2 | 20 | 20260825_160000` both call `upright_heart_outline`, whose manifest is now in
+`results/synthesized/trajectory-era/` and no longer compiles. Those two are unrenderable until
+someone re-synthesizes the shape and writes a `primitives.json` for them by hand.
 
 So the split is: `gate()` decides whether a run may be trusted, `promote()` is `gate()` plus
 persistence. The browser calls `gate()`; only `experiments/synth_to_library.py` calls `promote()`.

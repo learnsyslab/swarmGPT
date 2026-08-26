@@ -21,7 +21,7 @@ import yaml
 
 from swarm_gpt.core.motion_primitives import clear_synthesized
 from swarm_gpt.core.structured_output_schema import clear_synthesized_actions
-from swarm_gpt.synth.manifest import PrimitiveManifest
+from swarm_gpt.synth.manifest import PrimitiveManifest, clear_registered_manifests
 from swarm_gpt.synth.sandbox import SynthError
 
 if TYPE_CHECKING:
@@ -145,6 +145,7 @@ def reset_synthesized() -> None:
     """Forget every runtime-authored primitive, in all four places a signature lives."""
     clear_synthesized()
     clear_synthesized_actions()
+    clear_registered_manifests()
 
 
 def register_entry(entry: dict[str, Any]) -> PrimitiveManifest:

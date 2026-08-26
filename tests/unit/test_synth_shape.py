@@ -1,10 +1,15 @@
+from pathlib import Path
+
 import numpy as np
 import pytest
 import yaml
 
+from swarm_gpt.core.backend import AppBackend
+from swarm_gpt.core.motion_primitives import primitive_by_name
 from swarm_gpt.synth import loop as loopmod
 from swarm_gpt.synth.loop import _RESPONSE_SCHEMA, SynthesisLoop
 from swarm_gpt.synth.manifest import ParamSpec, PrimitiveManifest
+from swarm_gpt.synth.promote import register_entry, reset_synthesized
 from swarm_gpt.synth.sandbox import SynthError
 from swarm_gpt.synth.shape import screen_shape, targets
 from swarm_gpt.synth.verifier import authored_trajectory, screen_authored
@@ -157,3 +162,30 @@ def test_the_schema_asks_for_a_shape_and_nothing_else():
     manifest = _RESPONSE_SCHEMA["properties"]["manifest"]
     assert sorted(manifest["required"]) == ["intent", "name", "params", "source"]
     assert "invariants" not in manifest["properties"]
+
+
+def test_a_preset_carries_the_primitive_it_was_choreographed_with(tmp_path: Path):
+    """Without this, reloading the preset raises "Unknown motion primitive"."""
+    payload = {
+        "name": "ring",
+        "intent": "a ring",
+        "source": RING,
+        "params": [{"name": "radius", "type": "float", "minimum": 50.0, "maximum": 180.0}],
+    }
+    register_entry({"manifest": payload})
+    AppBackend._save_preset_primitives(tmp_path)
+
+    reset_synthesized()  # what selecting a song, or restarting the app, does
+    with pytest.raises(KeyError, match="Unknown motion primitive"):
+        primitive_by_name("ring")
+
+    AppBackend._register_preset_primitives(tmp_path)
+    assert primitive_by_name("ring") is not None
+    reset_synthesized()
+
+
+def test_a_preset_without_a_synthesized_primitive_writes_nothing(tmp_path: Path):
+    reset_synthesized()
+    AppBackend._save_preset_primitives(tmp_path)
+    assert not (tmp_path / "primitives.json").exists()
+    AppBackend._register_preset_primitives(tmp_path)  # a preset predating this is not an error

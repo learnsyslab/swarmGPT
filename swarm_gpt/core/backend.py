@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import logging
 import shutil
@@ -18,6 +19,8 @@ from swarm_gpt.core import Choreographer
 from swarm_gpt.core.lighting import compile_cues, load_lighting_config
 from swarm_gpt.core.sim import replay_sim_states, simulate_axswarm
 from swarm_gpt.exception import LLMException
+from swarm_gpt.synth.manifest import registered_manifests
+from swarm_gpt.synth.promote import register_entry
 from swarm_gpt.utils import MusicManager
 from swarm_gpt.utils.music_analyzer import SongStructure
 
@@ -442,6 +445,7 @@ class AppBackend:
             raise ValueError(
                 f"Preset n_drones ({preset_n_drones}) do not match current swarm ({n_drones})"
             )
+        self._register_preset_primitives(preset_path)
         with open(preset_path / "history.json", "r") as f:
             history = json.load(f)
         with open(preset_path / "meta.json", "r") as f:
@@ -451,6 +455,30 @@ class AppBackend:
         assert history[-1]["role"] == "assistant", "Last message in history is not a response"
         self.choreographer.messages = history
         return history[-1]["content"]
+
+    @staticmethod
+    def _register_preset_primitives(preset_path: Path) -> None:
+        """Rebuild any primitive this preset was choreographed with, before its calls resolve.
+
+        A primitive authored during a refine is never written to the shared library, so without
+        the copy the preset carries, reloading it raises "Unknown motion primitive".
+        """
+        manifests = preset_path / "primitives.json"
+        if not manifests.is_file():
+            return
+        for payload in json.loads(manifests.read_text()):
+            register_entry({"manifest": payload})
+            logger.info("Registered %s from the preset that uses it", payload["name"])
+
+    @staticmethod
+    def _save_preset_primitives(path: Path) -> None:
+        """Write the declarations of any synthesized primitive, so the preset stands alone."""
+        manifests = registered_manifests()
+        if not manifests:
+            return
+        payload = [dataclasses.asdict(m) for m in manifests]
+        (path / "primitives.json").write_text(json.dumps(payload, indent=2) + "\n")
+        logger.info("Saved %d synthesized primitive(s) with the preset", len(payload))
 
     def save_preset(self) -> str:
         """Save the preset."""
@@ -481,6 +509,7 @@ class AppBackend:
         meta["use_motion_primitives"] = self.choreographer.use_motion_primitives
         with open(path / "meta.json", "w") as f:
             json.dump(meta, f)
+        self._save_preset_primitives(path)
         if self.waypoints is not None:
             np.save(path / "waypoints.npy", self.waypoints)
 

@@ -22,6 +22,21 @@ if TYPE_CHECKING:
 
 _PARAM_TYPES = frozenset({"int", "float"})
 
+# Every manifest registered in this process, by name. `register_synthesized` keeps the compiled
+# callable and `register_synthesized_action` the schema entry, but neither keeps the declaration
+# a preset needs in order to rebuild the primitive in a later session.
+_REGISTERED: dict[str, PrimitiveManifest] = {}
+
+
+def registered_manifests() -> list[PrimitiveManifest]:
+    """Every synthesized primitive currently registered, in the order it was registered."""
+    return list(_REGISTERED.values())
+
+
+def clear_registered_manifests() -> None:
+    """Forget every registered declaration; the other two registries are cleared beside this."""
+    _REGISTERED.clear()
+
 
 @dataclass(frozen=True)
 class ParamSpec:
@@ -141,8 +156,9 @@ class PrimitiveManifest:
         return as_primitive(shape_fn), shape_fn
 
     def register(self, fn: Callable[..., tuple]) -> None:
-        """Make the compiled primitive resolvable, emittable, and visible in the prompt."""
+        """Make the compiled primitive resolvable, emittable, visible, and saveable."""
         register_synthesized(self.name, fn, self.n_args)
         register_synthesized_action(
             self.name, self.intent, [(p.name, p.type, p.minimum, p.maximum) for p in self.params]
         )
+        _REGISTERED[self.name] = self
