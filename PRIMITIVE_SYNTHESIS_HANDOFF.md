@@ -5,7 +5,7 @@ whole thread; nothing else is required to pick it up.
 
 Written by **Yiyi Xu** (yiyi.xu@mail.utoronto.ca), LSY Lab TUM, 19 May – 27 August 2026.
 Supervisor: **Marcel**. Collaborators: **Martin**, **Alex**.
-Last updated **2026-08-25**. Tracked on this branch, so a clone carries it.
+Last updated **2026-08-26**. Tracked on this branch, so a clone carries it.
 
 ---
 
@@ -27,6 +27,14 @@ its first verified primitive.
 ---
 
 ## 2. Current state
+
+**It works from the browser.** A refinement that asks for a shape the library cannot express now
+authors the primitive, verifies it, registers it, and regenerates the choreography with it — §11
+is the whole path and the decisions behind it. The 2026-08-26 run promoted `heart_drop` in six
+attempts (authored separation 1.618, flown 1.599, 0 steps inside the envelope) from *"put a heart
+shape primitive at the beat drop"*. What has **not** been watched end to end on the current code
+is the part after promotion: whether the drones visibly make the shape in playback. That is step 2
+of §8 and it is one run.
 
 **The loop works, twice.** `results/synthesized/upright_heart_outline.json` is a heart the
 choreographer had no way to express before: 10 drones, tip on the centreline, flaring to a
@@ -82,8 +90,9 @@ Run logs stay local — `synth_runs/` is gitignored.
 
 **Branches.** `feat/primitive-synthesis` sits on the lighting line, not the spline one. It holds
 `swarm_gpt/synth/` and **all of `experiments/`** — the feedback ablation, three coverage probes,
-the vocabulary judge, and their tracked result data. It is the only copy of both. It is now pushed;
-it has never been PR'd.
+the vocabulary judge, and their tracked result data. It is the only copy of both, and it has never
+been PR'd. **As of 2026-08-26 it is four commits ahead of `origin` (`a7a965e`..`31e4a7e`), which is
+all of §11 — push before handing it on.**
 
 The sibling branches matter for merges: `feat/lighting-primitives` (PR #11 still open) has the
 current lighting; `feat/swarmgpt2-splines` caught the lighting work one commit before the PR #11
@@ -249,6 +258,9 @@ None of this is inferable from the repo; this file must stand alone.
 - JAX SIGBUS on the lab box: `OMP_NUM_THREADS=1 OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1`.
 
 ```bash
+# The browser demo end to end: pick a song, refine, watch it author a primitive
+source ./openai_api_key.sh && pixi run api      # http://127.0.0.1:8000
+
 # Tests (the --ignore is required, see above)
 pixi run -e tests pytest tests/unit -q --ignore=tests/unit/ros_ws
 
@@ -306,23 +318,38 @@ Each cost real time or API credit. Do not re-investigate.
 
 1. ~~**Wire synthesis into the frontend.**~~ **Done** — see §11. A refine can now author the
    primitive it needs, and the browser shows the loop failing and fixing itself while it happens.
-2. **Synthesize more primitives and re-run the coverage instrument.** This is what turns the
+2. **Verify the demo end to end with `gpt-5.6-terra` authoring.** Everything in §11 was measured on
+   `gpt-5.6-luna`, and the last full browser run promoted a primitive but was never watched all the
+   way through to playback with the current code. Pick Fearless2, refine with mode `force`, and
+   check three things: the panel streams attempts and lands on "flew clear", the choreographer
+   emits a call to the new primitive, and the drones visibly make the shape now that the window
+   matches. That last one is the open question — the window fix is verified by screening, not by
+   eye. **Start here; it is one run and it decides whether anything below matters.**
+3. **Close the two name-collision holes in §11** — an in-session clash silently replaces a live
+   primitive, and the CLI overwrites tracked evidence files without warning. Both are small, and
+   the second risks real result data.
+4. **Stop the choreographer crowding a synthesized primitive.** `primitive_window_s()` verifies
+   against the narrowest *required*-key gap, but the choreographer may also place actions on
+   optional accent beats — which is how a 4.4 s window arose and smeared the shape. The
+   announcement asks it to leave room; nothing enforces it. Needs a minimum-interval constraint in
+   the schema, or a screen over the composed show.
+5. **Synthesize more primitives and re-run the coverage instrument.** This is what turns the
    existence proof into the paper's headline: with the hand library 88% of blind intents fall
    short, so promote N primitives and re-measure the same 88 intents against the extended library.
    The instrument already exists (`experiments/judge_against_vocabulary.py`); the extended library
    is `results/synthesized/` plus the prompt/schema injection, which is already wired.
-3. **Write §4.3 into `results/README.md`** — the operating regime and the softened "repairs"
+6. **Write §4.3 into `results/README.md`** — the operating regime and the softened "repairs"
    claim — before the RAL draft is built on the current wording.
-4. **Decide what ships for a demo.** A hand-built double helix (radius 1.6 m, 10 levels, 0.75 turns,
+7. **Decide what ships for a demo.** A hand-built double helix (radius 1.6 m, 10 levels, 0.75 turns,
    both strands same handedness 180° apart) measures min separation 1.43 and is collision-safe. Shipping that as a *hand-written* primitive decouples "show a double helix on stage"
    from "the LLM authored one unaided" — different claims, very different timelines. **Synthesis is
    library authoring, not a request-time operation; do not run it live for an audience.** Even
    fully working it is minutes per primitive and can legitimately fail.
-5. **Rename or delete `results/synthesized/altitude_separated_double_helix.json`.** It is a valid,
+8. **Rename or delete `results/synthesized/altitude_separated_double_helix.json`.** It is a valid,
    collision-safe primitive that is **two flat counter-rotating rings**, not a double helix. It is
    kept because it is the evidence that the model certifies its own output (5/5 on its own checks),
    but the name will mislead anyone reading the directory.
-6. **Cheapest real win outside this loop:** exposing the 30 primitives already in `blocks.py` moves
+9. **Cheapest real win outside this loop:** exposing the 30 primitives already in `blocks.py` moves
    expressibility 10% → 19% (McNemar p = 0.023). Prompt and schema only, no new maths. The dominant
    residual after that is **colour palette**, not motion — the lighting family is where the next
    coverage gain is.
@@ -345,6 +372,9 @@ Each cost real time or API credit. Do not re-investigate.
 | `refine.py` | Orchestrates classify -> synthesize -> gate -> register for one browser refine. |
 | `run_log.py` | The JSONL capture both paths write to the gitignored `synth_runs/`. |
 
+The frontend touches `web/src/{App,api,types}.tsx|ts` and `styles.css`: the synthesis panel,
+the mode and authoring-model selects, and the `synthesis_*` / `refine_abandoned` events.
+
 `experiments/synth_to_library.py` is the single entry point (it replaced `synth_single_run.py`,
 which logged a run and threw the primitive away). `ablation_feedback.py` and the four coverage
 scripts are the experiments behind §4 — `experiments/README.md` indexes them.
@@ -360,7 +390,9 @@ back by adding them to `active` and re-running the ring layout. A ring makes eve
 which is the failure that cost five runs. Only `pos` was changed; `addr` and `channel` are as they
 were.
 
-Tests: `tests/unit/test_synth_{schema,verifier,sandbox,feedback,promote}.py`. 837 pass.
+Tests: `tests/unit/test_synth_{schema,verifier,sandbox,feedback,promote}.py`, plus the
+refine and model-list cases in `test_api.py` and `primitive_window_s` in `test_backend.py`.
+843 pass.
 
 Two artifacts are kept deliberately: `results/synthesis-rejected/double_helix-...selfcertified.json`
 is outside the load path because it is the *evidence* for the self-certification finding, and
@@ -439,12 +471,18 @@ and steps inside the envelope, and the browser renders one line per attempt — 
 flying: the drones reach 0.48 of the 1.00 spacing they need", then "flew clear". Watching it fail
 and fix itself is the interesting part for a viewer.
 
-**Failure is a path, not an exception.** Whatever happens — no gap, the model never accepts, a gate
-refuses what it kept, or synthesis raises — the refinement goes ahead against whatever library
-exists, and the UI says which. Nothing about a synthesis failure loses the user their choreography.
+**A failed synthesis abandons the refinement; it does not fall back.** This was tried the other way
+first and it is worse: asked for a heart with no heart primitive, the choreographer approximates the
+shape one drone at a time with `move`, which is hand-authoring the primitive badly and is exactly
+what the coverage work in §4.1 says not to count as expressing it. So when synthesis is attempted
+and fails — the model never accepts, a gate refuses what it kept, or it raises — the API emits
+`refine_abandoned`, leaves the choreography untouched, and the UI returns to ready with the refine
+box open. Nothing is lost: the previous choreography is still playable and deployable. A request
+the library genuinely covers (`NO_GAP`) is not a failure and proceeds normally.
 
-**Four bugs the browser path surfaced.** None are frontend bugs; the loop had simply only ever run
-on the main thread of a short-lived CLI process.
+**Five bugs the browser path surfaced.** None are frontend bugs; the loop had simply only ever run
+on the main thread of a short-lived CLI process, and only ever registered a primitive by reloading
+it from JSON.
 
 - **`signal.SIGALRM` cannot be installed off the main thread.** Refine jobs run in a worker, so the
   first browser run died with `ValueError: signal only works in main thread`. `call_guarded` now
@@ -460,6 +498,12 @@ on the main thread of a short-lived CLI process.
   call could hold a browser job for half an hour with nothing to show. Cut to one retry.
 - **A turn is minutes, and the panel looked frozen between them.** `run()` also takes an
   `on_authoring` callback, so the UI can say which attempt is currently with the model.
+- **A run that cleared both gates was thrown away at the last step.** `Iteration.manifest` is
+  `dataclasses.asdict(manifest)`, which keeps `params` a **tuple**, and `from_payload` required a
+  `list` — so registering straight off a loop record failed with "Manifest field 'params' must be a
+  non-empty array", which reads like the params were missing. The CLI never hit it because
+  `promote()` writes with `json.dumps` first, turning the tuple into an array; that is also why
+  everything already in `results/synthesized/` reloads fine. `from_payload` now takes either.
 
 **Open, and not to be trusted yet.** The classifier call carries a 90 s timeout so a slow API cannot
 hold a refine open. `APITimeoutError` fires correctly in isolation (verified at a 1 ms timeout), but
@@ -494,6 +538,31 @@ authored there carries the same mismatch unless the flag is set to the target so
 the choreographer can still crowd a synthesized primitive onto a tighter key; making that
 impossible means either a minimum-interval constraint in the schema or a screen over the composed
 show, neither of which exists.
+
+**The authoring model is chosen separately from the choreography model.** Writing a primitive is a
+harder job than picking calls out of a catalogue, and the working hypothesis is that a model good
+enough for one is not automatically good enough for the other. The refine box carries its own
+model select beside the synthesis mode; `/api/llm` serves `synthesisModels` alongside the
+choreography list, and the refine payload carries `synthesisModelId`. **`gpt-5.6-terra` is offered
+for authoring only and is deliberately absent from the choreography list**, and it is currently
+the authoring default — change the order of `DEFAULT_SYNTHESIS_MODEL_CHOICES` if that should be
+`luna`. Every run so far in §2 and §11 was `gpt-5.6-luna`, so terra is untested here.
+
+**Nothing stops the model reusing a name.** Both registration guards only check hand-written
+primitives — `hasattr(motion_primitives, name)` and `name in _PRIMITIVE_ARG_ORDER` — so neither
+consults `results/synthesized/`. Investigated, not fixed, in three parts:
+
+- Naming a primitive after an archived one is **harmless in-session**: the archive is not loaded,
+  so there is no clash, and the browser never writes.
+- A **second refine in the same job** naming its primitive after the first silently replaces it —
+  measured going from `n_args` 3 to 1. If the earlier choreography already calls the old one, that
+  call now resolves to a different function, raising `LLMFormatError: Wrong number of arguments`,
+  or worse, flying different geometry at the same arity.
+- **The CLI overwrites archived entries without warning.** `promote()` writes
+  `out_dir / f"{name}.json"` unconditionally; a run that picks the name `double_helix` destroys the
+  tracked file. §9 keeps `double_helix.json` and `altitude_separated_double_helix.json` as evidence
+  for the self-certification finding, so that is real result data. Suggested: refuse to overwrite
+  without `--force`, and make an in-session name clash an error the loop feeds back to the model.
 
 **Timing, measured, and worse than §6 implies.** The synthesis runs in §2 were roughly a minute an
 iteration. In the browser runs on 2026-08-25 the API was degraded and iterations took several
