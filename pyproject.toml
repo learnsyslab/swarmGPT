@@ -77,10 +77,7 @@ markers = ["unit", "integration"]
 
 [tool.pixi.workspace]
 channels = ["conda-forge"]
-platforms = ["linux-64", "osx-arm64"]
-
-[tool.pixi.system-requirements]
-cuda = "12"
+platforms = [{ name = "linux-64-cuda", platform = "linux-64", cuda = "12" }, "osx-arm64"]
 
 [tool.pixi.activation]
 scripts = ["openai_api_key.sh", "tools/frontend_install.sh"]
@@ -172,7 +169,7 @@ docs-build = { cmd = "mkdocs build", description = "Build docs" }
 
 [tool.pixi.feature.music]
 
-platforms = ["linux-64"]
+platforms = ["linux-64-cuda"]
 
 [tool.pixi.feature.music.dependencies]
 ffmpeg = "*"
