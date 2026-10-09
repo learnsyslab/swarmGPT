@@ -39,6 +39,14 @@ export type ChatMessage = {
   content: string;
 };
 
+// One drone-deck's compiled lighting cue list: step events under zero-order hold, baked at the
+// same col_freq the hardware drains at. `times` is ascending seconds and always opens at 0;
+// `rgb` is integer 0-255, one row per time.
+export type LightingCues = {
+  times: number[];
+  rgb: number[][];
+};
+
 export type Playback = {
   schemaVersion: number;
   audioUrl: string;
@@ -57,6 +65,9 @@ export type Playback = {
     min: [number, number, number];
     max: [number, number, number];
   };
-  colors: number[][];
+  lighting: {
+    top: LightingCues[];
+    bot: LightingCues[];
+  };
   sampleRate: number;
 };

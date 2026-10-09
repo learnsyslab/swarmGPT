@@ -1,4 +1,12 @@
 site_name: SwarmGPT - Learning Systems Lab
+
+# docs/ doubles as the mkdocs source and the home of local-only design docs
+# (docs/specs, docs/plans -- both gitignored). Exclude them so a local build or
+# `mkdocs gh-deploy` from a dirty checkout cannot publish them.
+exclude_docs: |
+  specs/
+  plans/
+
 nav:
   - Home: index.md
   - Getting Started and Installation: getting_started.md

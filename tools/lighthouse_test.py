@@ -54,10 +54,8 @@ def main():
     """
     cflib.crtp.init_drivers()
 
-    # Create the Crazyflie instance
     cf = Crazyflie(rw_cache="./cache")
 
-    # Register callbacks
     cf.connected.add_callback(connected)
     cf.disconnected.add_callback(disconnected)
     cf.connection_failed.add_callback(connection_failed)
@@ -66,7 +64,6 @@ def main():
         lambda msg: print(f"drone: {msg.strip().replace('\n', '').replace('\r', '')}")
     )
 
-    # Connect (non-blocking)
     cf.open_link(URI)
 
     apply_drone_settings(cf)

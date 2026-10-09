@@ -37,7 +37,7 @@ def generate_default_colors(
     """Generates a default color sequence for the given number of drones."""
     colors = []
     for i in range(num_drones):
-        hue = i / num_drones  # evenly spaced in [0,1)
+        hue = i / num_drones
         rgb = colorsys.hsv_to_rgb(hue, saturation, value)
         rgb /= np.sum(rgb)
         rgb *= limit

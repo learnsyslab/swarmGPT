@@ -47,13 +47,10 @@ if __name__ == "__main__":
     rclpy.init()
     ros_connector = ROSConnector(tf_names=[f"cf{int(URI[-2:], 16)}"], timeout=10.0)
 
-    # Initialize the low-level drivers
     cflib.crtp.init_drivers()
 
-    # Create the Crazyflie instance
     cf = Crazyflie(rw_cache="./cache")
 
-    # Register callbacks
     cf.connected.add_callback(connected)
     cf.disconnected.add_callback(disconnected)
     cf.connection_failed.add_callback(connection_failed)
@@ -62,7 +59,6 @@ if __name__ == "__main__":
         lambda msg: print(f"drone: {msg.strip().replace('\n', '').replace('\r', '')}")
     )
 
-    # Connect (non-blocking)
     cf.open_link(URI)
 
     # Wait until parameters are downloaded
@@ -107,5 +103,4 @@ if __name__ == "__main__":
         cf.param.set_value("ledpat.pattern", 0)
         time.sleep(0.1)  # make sure packages get sent out
 
-        # Close link
         cf.close_link()

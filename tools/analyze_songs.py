@@ -1,17 +1,7 @@
 """Batch-analyze every un-analyzed song in ``music/`` via all-in-one.
 
-Run with::
-
-    pixi run -e music analyze
-    pixi run -e music analyze --test
-
-Scans ``music/songs/*.mp3`` (skipping any ``[deploy]`` variants), and for each song that
-doesn't already have a JSON under ``music/analyzed/``, runs ``allin1.analyze``, caches the
-result, and writes a PNG visualization under ``music/viz/``. Existing JSONs are left
-untouched (their visualizations are not regenerated).
-
-With ``--test``, analyzes only the default ``On & On`` song as a smoke test: nothing is
-saved (no JSON cache, no PNG); the result is printed to the console.
+Run with ``pixi run -e music analyze``. Songs already holding a JSON under ``music/analyzed/`` are
+left untouched. ``--test`` smoke-tests one song, printing to the console and saving nothing.
 """
 
 from __future__ import annotations
@@ -38,13 +28,9 @@ TEST_SONG = "On & On"
 
 
 def _ensure_song_crop(song_stem: str) -> None:
-    """Add ``song_stem`` to ``song_crops`` in settings.yaml if it is not already present.
+    """Add an MP3 stem to ``song_crops`` in settings.yaml if it is not already present.
 
-    Uses a line-oriented insertion so comments and formatting are fully preserved.
-    The new entry is appended after the last existing line in the ``song_crops:`` block.
-
-    Args:
-        song_stem: MP3 filename without extension, used as the settings key.
+    Inserted line-wise after the block's last entry, so comments and formatting survive.
     """
     text = SETTINGS_PATH.read_text()
 
@@ -53,7 +39,6 @@ def _ensure_song_crop(song_stem: str) -> None:
     if song_stem in settings["song_crops"]:
         return
 
-    # Find the song_crops: block and locate its last indented line.
     lines = text.splitlines(keepends=True)
     in_block = False
     last_entry_idx = -1
@@ -83,14 +68,9 @@ def _ensure_song_crop(song_stem: str) -> None:
 
 
 def _run_test(device: str) -> None:
-    """Analyze the default song without persisting anything; print to console.
+    """Analyze :data:`TEST_SONG` without persisting anything; print a summary to the console.
 
-    Runs a fresh analysis of :data:`TEST_SONG` into a throwaway temp directory (so no JSON
-    cache and no PNG are written) and prints a summary. Used as a smoke test for the music
-    pixi env.
-
-    Args:
-        device: Torch device for analysis (``"cuda"`` or ``"cpu"``).
+    A smoke test for the music pixi env: the analysis runs into a throwaway temp directory.
     """
     song_path = SONGS_DIR / f"{TEST_SONG}.mp3"
     if not song_path.exists():

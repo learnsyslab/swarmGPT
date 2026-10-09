@@ -28,7 +28,7 @@ def main(
 ):
     """Launch the SwarmGPT browser app API."""
     logging.basicConfig(level=logging.WARNING)
-    logging.getLogger("httpx").setLevel(logging.WARNING)  # Suppress httpx info messages
+    logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("jax").setLevel(logging.WARNING)
     # logging.getLogger("swarm_gpt").setLevel(logging.DEBUG)
 

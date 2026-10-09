@@ -3,6 +3,18 @@ from pathlib import Path
 import numpy as np
 
 
+def with_ulp_noise(points: np.ndarray, col: int = 0) -> np.ndarray:
+    """Return ``points`` with its largest ``col`` coordinate nudged up two ULPs.
+
+    How much noise ``cos``/``sin`` leave in a ring is platform-dependent, so pin it and keep the
+    fixtures degenerate-but-not-exact. Nudging the largest row avoids a denormal at zero.
+    """
+    out = np.asarray(points, dtype=float).copy()
+    row = int(np.argmax(np.abs(out[:, col])))
+    out[row, col] = np.nextafter(np.nextafter(out[row, col], np.inf), np.inf)
+    return out
+
+
 def virtual_crazyswarm_config(n_drones: int) -> Path:
     """Create a virtual crazyswarm config file for testing."""
     n_cols = int(np.ceil(np.sqrt(n_drones)))
